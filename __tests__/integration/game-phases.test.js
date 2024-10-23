@@ -38,6 +38,9 @@ describe('Game Phase Integration', () => {
 
     afterEach(() => {
         jest.useRealTimers();
+        if (game) {
+            game.cleanup();
+        }
     });
 
     describe('Day Phase', () => {

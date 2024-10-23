@@ -12,18 +12,19 @@ module.exports = {
         .setDescription('Submit your night action. Use this command in DMs only.')
         .addStringOption(option =>
             option.setName('action')
-                .setDescription('Your night action (attack, investigate, protect, choose_lovers).')
+                .setDescription('Your night action')
                 .setRequired(true)
                 .addChoices(
-                    { name: 'Attack', value: 'attack' },
-                    { name: 'Investigate', value: 'investigate' },
-                    { name: 'Protect', value: 'protect' },
-                    { name: 'Choose Lovers', value: 'choose_lovers' }
+                    { name: 'Attack (Werewolf)', value: 'attack' },
+                    { name: 'Investigate (Seer)', value: 'investigate' },
+                    { name: 'Protect (Doctor)', value: 'protect' },
+                    { name: 'Choose Lovers (Cupid)', value: 'choose_lovers' }
                 ))
         .addStringOption(option =>
             option.setName('target')
-                .setDescription('The username of the target player (or two usernames separated by a comma for choosing lovers).')
-                .setRequired(true)),
+                .setDescription('Select your target')
+                .setRequired(true)
+                .setAutocomplete(true)),
 
     async execute(interaction, currentGame) {
         try {
@@ -58,5 +59,37 @@ module.exports = {
                 await handleCommandError(interaction, error);
             }
         }
+    },
+
+    async autocomplete(interaction, gameInstance) {
+        const focusedValue = interaction.options.getFocused();
+        const action = interaction.options.getString('action');
+        const player = gameInstance.players.get(interaction.user.id);
+
+        // Get valid targets based on the action and player role
+        let choices = [];
+        if (player && player.isAlive) {
+            let validTargets = Array.from(gameInstance.players.values())
+                .filter(p => p.isAlive);
+
+            // Filter based on action type
+            if (action === 'investigate') {
+                validTargets = validTargets.filter(p => p.id !== player.id);
+            } else if (action === 'protect' && player.role === ROLES.DOCTOR) {
+                validTargets = validTargets.filter(p => p.id !== gameInstance.lastProtectedPlayer);
+            }
+
+            choices = validTargets.map(p => ({
+                name: p.username,
+                value: p.id
+            }));
+        }
+
+        // Filter based on user input
+        const filtered = choices.filter(choice => 
+            choice.name.toLowerCase().includes(focusedValue.toLowerCase())
+        );
+
+        await interaction.respond(filtered);
     }
 };

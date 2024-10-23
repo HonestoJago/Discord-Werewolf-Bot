@@ -51,6 +51,9 @@ describe('Discord.js Integration', () => {
     afterEach(() => {
         // Clean up timers
         jest.useRealTimers();
+        if (game) {
+            game.cleanup();
+        }
     });
 
     describe('Day Phase GUI', () => {

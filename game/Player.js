@@ -48,13 +48,26 @@ class Player {
      */
     async sendDM(message) {
         try {
+            // Check if player is in game and alive
+            if (!this.isAlive) {
+                logger.warn(`Attempted to send DM to dead player: ${this.username}`);
+                return;
+            }
+
             if (!this.channel) {
                 const user = await this.client.users.fetch(this.id);
+                if (!user) {
+                    logger.error(`Could not fetch user for player: ${this.username}`);
+                    return;
+                }
                 this.channel = await user.createDM();
             }
+
             await this.channel.send(message);
+            logger.info(`DM sent to ${this.username}`);
         } catch (error) {
-            console.error(`Error sending DM to ${this.username}:`, error);
+            logger.error(`Error sending DM to ${this.username}:`, { error });
+            throw new GameError('DM Failed', 'Failed to send direct message to player.');
         }
     }
 

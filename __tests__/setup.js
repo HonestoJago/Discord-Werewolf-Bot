@@ -9,6 +9,7 @@ jest.mock('discord.js', () => ({
                     setName: jest.fn().mockReturnThis(),
                     setDescription: jest.fn().mockReturnThis(),
                     setRequired: jest.fn().mockReturnThis(),
+                    setAutocomplete: jest.fn().mockReturnThis(),
                     addChoices: jest.fn().mockReturnThis()
                 };
                 callback(mockOption);
