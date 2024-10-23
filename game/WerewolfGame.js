@@ -7,6 +7,7 @@ const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');
 const PHASES = require('../constants/phases');
 const { createDayPhaseEmbed, createVoteResultsEmbed } = require('../utils/embedCreator');
+const GamePhaseManager = require('./GamePhaseManager');
 
 class WerewolfGame {
     constructor(client, guildId, gameChannelId, gameCreatorId, authorizedIds = []) {
@@ -36,6 +37,7 @@ class WerewolfGame {
         this.votingOpen = false;
         this.nominationTimeout = null;
         this.NOMINATION_WAIT_TIME = 60000; // 1 minute
+        this.phaseManager = new GamePhaseManager(this);
     }
 
     /**
@@ -183,10 +185,12 @@ class WerewolfGame {
      */
     async nightZero() {
         try {
-            // Handle Seer's initial investigation
+            this.phase = PHASES.NIGHT_ZERO;
+            this.expectedNightActions = new Set();
+
+            // Handle Seer's automatic revelation first
             const seer = this.getPlayerByRole(ROLES.SEER);
             if (seer && seer.isAlive) {
-                // Get all players who are not werewolves and not the seer
                 const validTargets = Array.from(this.players.values()).filter(
                     p => p.role !== ROLES.WEREWOLF && 
                          p.id !== seer.id && 
@@ -194,46 +198,30 @@ class WerewolfGame {
                 );
                 
                 if (validTargets.length > 0) {
-                    // Select random non-werewolf player
                     const randomPlayer = validTargets[Math.floor(Math.random() * validTargets.length)];
                     await seer.sendDM(`You have been shown that **${randomPlayer.username}** is **Not a Werewolf**.`);
-                    logger.info('Seer given Night Zero information', { 
-                        seerId: seer.id, 
-                        targetId: randomPlayer.id 
-                    });
                 }
             }
 
-            // Cupid chooses lovers
+            // Setup Cupid's action if present
             const cupid = this.getPlayerByRole(ROLES.CUPID);
             if (cupid && cupid.isAlive) {
-                await cupid.sendDM('Please choose two players to be lovers by typing their usernames separated by a comma (e.g., Alice, Bob):');
-                const response = await cupid.promptDM(
-                    'Choose two players to be lovers by typing their usernames separated by a comma (e.g., Alice, Bob):',
-                    m => {
-                        const names = m.content.split(',').map(name => name.trim());
-                        if (names.length !== 2) return false;
-                        const p1 = this.getPlayerByUsername(names[0]);
-                        const p2 = this.getPlayerByUsername(names[1]);
-                        return p1 && p2 && p1.id !== p2.id && p1.isAlive && p2.isAlive;
-                    }
-                );
-
-                if (response) {
-                    const [lover1Username, lover2Username] = response.split(',').map(name => name.trim());
-                    const lover1 = this.getPlayerByUsername(lover1Username);
-                    const lover2 = this.getPlayerByUsername(lover2Username);
-                    this.setLovers(lover1.id, lover2.id);
-                    await cupid.sendDM(`You have chosen **${lover1.username}** and **${lover2.username}** as lovers.`);
-                    logger.info('Cupid chose lovers', { cupidId: cupid.id, lover1Id: lover1.id, lover2Id: lover2.id });
-                } else {
-                    await cupid.sendDM('Failed to choose lovers in time.');
-                    logger.warn('Cupid failed to choose lovers in time', { cupidId: cupid.id });
-                }
+                await cupid.sendDM('Use `/action choose_lovers` to select two players to be lovers. You have 10 minutes.');
+                this.expectedNightActions.add(cupid.id);
             }
 
-            // Proceed to first night
-            await this.advanceToNight();
+            // If no Cupid, advance immediately
+            if (this.expectedNightActions.size === 0) {
+                await this.advanceToDay();
+                return;
+            }
+
+            // Set backup timeout
+            this.nightActionTimeout = setTimeout(() => {
+                this.processNightActions();
+            }, 600000);
+
+            logger.info('Night Zero started');
         } catch (error) {
             logger.error('Error during Night Zero', { error });
             throw error;
@@ -250,13 +238,18 @@ class WerewolfGame {
             await this.broadcastMessage(`--- Night ${this.round} ---`);
 
             // Notify players with night actions
-            const notifications = {
-                [ROLES.WEREWOLF]: 'Use `/action attack` to choose your victim. You have 10 minutes.',
-                [ROLES.SEER]: 'Use `/action investigate` to learn if a player is a werewolf. You have 10 minutes.',
-                [ROLES.DOCTOR]: 'Use `/action protect` to save someone from the werewolves. You have 10 minutes.',
-                [ROLES.CUPID]: this.phase === PHASES.NIGHT_ZERO ? 
-                    'Use `/action choose_lovers` to select two players to be lovers. You have 10 minutes.' : null
-            };
+            const notifications = {};
+
+            // Only add notifications if it's not Night Zero (except for Cupid)
+            if (this.phase !== PHASES.NIGHT_ZERO) {
+                notifications[ROLES.WEREWOLF] = 'Use `/action attack` to choose your victim. You have 10 minutes.';
+                notifications[ROLES.SEER] = 'Use `/action investigate` to learn if a player is a werewolf. You have 10 minutes.';
+                notifications[ROLES.DOCTOR] = 'Use `/action protect` to save someone from the werewolves. You have 10 minutes.';
+            } else {
+                // Night Zero notifications
+                notifications[ROLES.CUPID] = 'Use `/action choose_lovers` to select two players to be lovers. You have 10 minutes.';
+                // Remove Doctor notification for Night Zero
+            }
 
             // Send DMs to players with night actions
             for (const [role, message] of Object.entries(notifications)) {
@@ -466,17 +459,19 @@ class WerewolfGame {
         // Reset advance check
         this.checkAdvanceNight = false;
 
-        // Process actions in correct order:
+        // Process actions in order:
         // 1. Information gathering (Seer)
         // 2. Protection (Doctor)
-        // 3. Attacks (Werewolves)
+        // 3. Attacks (Werewolves) - but not during Night Zero
         
         const investigations = Object.entries(this.nightActions)
             .filter(([_, action]) => action.action === 'investigate');
         const protections = Object.entries(this.nightActions)
             .filter(([_, action]) => action.action === 'protect');
-        const attacks = Object.entries(this.nightActions)
-            .filter(([_, action]) => action.action === 'attack');
+        const attacks = this.phase !== PHASES.NIGHT_ZERO ? 
+            Object.entries(this.nightActions)
+                .filter(([_, action]) => action.action === 'attack') :
+            [];
 
         // Process in order
         for (const [playerId, action] of investigations) {
@@ -548,9 +543,16 @@ class WerewolfGame {
                     lover.isAlive = false;
                     await this.broadcastMessage(`**${lover.username}**, who was in love with **${player.username}**, has died of heartbreak.`);
                     await this.moveToDeadChannel(lover);
-                    logger.info('Lover died of heartbreak', { loverId: lover.id });
+                    
+                    // Check win conditions after lover death
+                    await this.checkWinConditions();
+                    
+                    logger.info('Lover died of heartbreak', { 
+                        deadPlayerId: player.id,
+                        loverId: lover.id 
+                    });
                 }
-                // Remove lover relationship
+                // Clean up lover relationships
                 this.lovers.delete(player.id);
                 this.lovers.delete(loverId);
             }
@@ -767,6 +769,17 @@ class WerewolfGame {
 
         // Process different action types
         switch (action) {
+            case 'choose_lovers':
+                if (this.phase !== PHASES.NIGHT_ZERO) {
+                    throw new GameError(
+                        'Cupid can only choose lovers during Night Zero', 
+                        'Cupid can only choose lovers during Night Zero.'
+                    );
+                }
+                await this.processLoverSelection(playerId, target);
+                // Store the action after processing
+                this.nightActions[playerId] = { action, target };
+                break;
             case 'attack':
                 await this.processWerewolfAttack(playerId, target);
                 break;
@@ -841,12 +854,20 @@ class WerewolfGame {
                 throw new GameError('Invalid action', 'The Seer cannot investigate during Night Zero.');
             }
             if (action === 'attack' && player.role === ROLES.WEREWOLF) {
-                throw new GameError('Invalid action', 'Werewolves cannot attack during Night Zero.');
+                throw new GameError('Werewolves cannot attack during Night Zero', 
+                    'Werewolves cannot attack during Night Zero.');
+            }
+            if (action === 'protect' && player.role === ROLES.DOCTOR) {
+                throw new GameError('Invalid action', 
+                    'The Doctor cannot protect anyone during Night Zero.');
             }
         } else {
             // Non-Night Zero validations
             if (action === 'choose_lovers' && player.role === ROLES.CUPID) {
-                throw new GameError('Invalid action', 'Cupid can only choose lovers during Night Zero.');
+                throw new GameError(
+                    'Cupid can only choose lovers during Night Zero', 
+                    'Cupid can only choose lovers during Night Zero.'
+                );
             }
         }
 
@@ -1149,6 +1170,70 @@ class WerewolfGame {
             logger.error('Error advancing to Day phase', { error });
             throw error;
         }
+    }
+
+    checkWinConditions() {
+        // Get all living players
+        const alivePlayers = this.getAlivePlayers();
+        
+        // Count living werewolves
+        const livingWerewolves = alivePlayers.filter(p => p.role === ROLES.WEREWOLF).length;
+        
+        // Count living villager team (everyone who's not a werewolf)
+        const livingVillagerTeam = alivePlayers.filter(p => p.role !== ROLES.WEREWOLF).length;
+
+        // If all werewolves are dead, villagers win
+        if (livingWerewolves === 0) {
+            this.broadcastMessage('**Villagers win!** All werewolves have been eliminated.');
+            this.gameOver = true;
+            return true;
+        }
+
+        // If werewolves reach parity with or outnumber villager team, werewolves win
+        if (livingWerewolves >= livingVillagerTeam) {
+            this.broadcastMessage('**Werewolves win!** They have reached parity with the villagers.');
+            this.gameOver = true;
+            return true;
+        }
+
+        // No win condition met
+        return false;
+    }
+
+    // Add to the class
+
+    async processLoverSelection(cupidId, targetString) {
+        const [target1Id, target2Id] = targetString.split(',').map(id => id.trim());
+        
+        // Validate targets
+        const target1 = this.players.get(target1Id);
+        const target2 = this.players.get(target2Id);
+
+        if (!target1 || !target2) {
+            throw new GameError('Invalid targets', 'One or both selected players were not found.');
+        }
+
+        if (!target1.isAlive || !target2.isAlive) {
+            throw new GameError('Invalid targets', 'You can only choose living players as lovers.');
+        }
+
+        if (target1Id === target2Id) {
+            throw new GameError('Invalid targets', 'You must choose two different players.');
+        }
+
+        // Set up bidirectional lover relationship
+        this.lovers.set(target1Id, target2Id);
+        this.lovers.set(target2Id, target1Id);
+
+        // Notify the chosen lovers
+        await target1.sendDM(`You have fallen in love with **${target2.username}**. If one of you dies, the other will die of heartbreak.`);
+        await target2.sendDM(`You have fallen in love with **${target1.username}**. If one of you dies, the other will die of heartbreak.`);
+
+        logger.info('Lovers chosen by Cupid', {
+            cupidId,
+            lover1: target1Id,
+            lover2: target2Id
+        });
     }
 }
 

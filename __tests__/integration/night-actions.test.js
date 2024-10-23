@@ -44,16 +44,29 @@ describe('Night Actions Integration', () => {
     test('night zero workflow', async () => {
         // Setup players
         const cupid = new Player('cupid', 'CupidPlayer', mockClient);
+        const target1 = new Player('target1', 'Target1', mockClient);
+        const target2 = new Player('target2', 'Target2', mockClient);
+
         cupid.assignRole(ROLES.CUPID);
-        game.players.set(cupid.id, cupid);
+        target1.assignRole(ROLES.VILLAGER);
+        target2.assignRole(ROLES.VILLAGER);
+
+        [cupid, target1, target2].forEach(p => {
+            p.isAlive = true;
+            game.players.set(p.id, p);
+        });
 
         // Set night zero phase
         game.phase = PHASES.NIGHT_ZERO;
 
         // Cupid chooses lovers
-        await game.processNightAction(cupid.id, 'choose_lovers', 'lover1,lover2');
+        await game.processNightAction(cupid.id, 'choose_lovers', `${target1.id},${target2.id}`);
         expect(game.nightActions[cupid.id]).toBeDefined();
         expect(game.nightActions[cupid.id].action).toBe('choose_lovers');
+
+        // Verify lovers were set
+        expect(game.lovers.get(target1.id)).toBe(target2.id);
+        expect(game.lovers.get(target2.id)).toBe(target1.id);
 
         // Verify other roles can't act
         const seer = new Player('seer', 'SeerPlayer', mockClient);
@@ -516,3 +529,84 @@ describe('Night Action Validation', () => {
         expect(game.phase).toBe(PHASES.NIGHT);
     });
 });
+
+describe('Night Zero Restrictions', () => {
+    let game;
+    let mockClient;
+    let werewolf;
+    let victim;
+
+    beforeEach(() => {
+        mockClient = {
+            channels: { 
+                fetch: jest.fn().mockResolvedValue({
+                    send: jest.fn()
+                })
+            },
+            users: { 
+                fetch: jest.fn().mockResolvedValue({
+                    createDM: jest.fn().mockResolvedValue({
+                        send: jest.fn()
+                    })
+                })
+            }
+        };
+        
+        game = new WerewolfGame(mockClient, 'guild123', 'channel123', 'creator123');
+        
+        // Setup werewolf and potential victim
+        werewolf = new Player('wolf', 'WerewolfPlayer', mockClient);
+        victim = new Player('victim', 'VictimPlayer', mockClient);
+        
+        werewolf.assignRole(ROLES.WEREWOLF);
+        victim.assignRole(ROLES.VILLAGER);
+        
+        [werewolf, victim].forEach(p => {
+            p.isAlive = true;
+            game.players.set(p.id, p);
+        });
+
+        game.phase = PHASES.NIGHT_ZERO;
+    });
+
+    test('werewolves cannot attack during Night Zero phase', async () => {
+        // Direct attempt to attack
+        await expect(
+            game.processNightAction(werewolf.id, 'attack', victim.id)
+        ).rejects.toThrow('Werewolves cannot attack during Night Zero');
+    });
+
+    test('werewolves are not notified about attacks during Night Zero', async () => {
+        werewolf.sendDM = jest.fn();
+        const seer = new Player('seer', 'SeerPlayer', mockClient);
+        seer.assignRole(ROLES.SEER);
+        seer.isAlive = true;
+        seer.sendDM = jest.fn();
+        game.players.set(seer.id, seer);
+        
+        // Advance to Night Zero
+        await game.nightZero();
+        
+        // Verify no attack notification was sent to werewolf
+        expect(werewolf.sendDM).not.toHaveBeenCalledWith(
+            expect.stringMatching(/attack/)
+        );
+
+        // But Seer should still get their night zero revelation
+        expect(seer.sendDM).toHaveBeenCalledWith(
+            expect.stringMatching(/is \*\*Not a Werewolf\*\*/)
+        );
+    });
+
+    test('werewolf attack action is blocked even if validation is bypassed', async () => {
+        // Try to store attack action directly
+        game.nightActions[werewolf.id] = { action: 'attack', target: victim.id };
+        
+        // Process night actions
+        await game.processNightActions();
+        
+        // Verify victim is still alive
+        expect(victim.isAlive).toBe(true);
+    });
+});
+
