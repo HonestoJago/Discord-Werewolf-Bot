@@ -8,6 +8,7 @@ require('dotenv').config();
 const { handleCommandError } = require('./utils/error-handler');
 const logger = require('./utils/logger');
 const WerewolfGame = require('./game/WerewolfGame');
+const dayPhaseHandler = require('./handlers/dayPhaseHandler');
 
 // Create a new Discord client with necessary intents
 const client = new Client({ 
@@ -71,29 +72,78 @@ client.once('ready', () => {
 
 // Listen for interactions
 client.on('interactionCreate', async interaction => {
-    if (!interaction.isCommand()) return;
-
-    // Determine if the interaction is a DM
-    const isDM = !interaction.guild;
-
-    // Check if the interaction is from an allowed channel or is a DM
-    if (!isDM && !allowedChannelIds.includes(interaction.channelId)) {
-        await interaction.reply({ content: 'This command can only be used in specific channels or DMs.', ephemeral: true });
-        return;
-    }
-
-    const command = client.commands.get(interaction.commandName);
-
-    if (!command) {
-        logger.warn(`No command found for ${interaction.commandName}`, { timestamp: new Date().toISOString() });
-        return;
-    }
-
     try {
-        // Pass the currentGame to the command execution
-        await command.execute(interaction, currentGame);
+        if (interaction.isCommand()) {
+            // Determine if the interaction is a DM
+            const isDM = !interaction.guild;
+
+            // Check if the interaction is from an allowed channel or is a DM
+            if (!isDM && !allowedChannelIds.includes(interaction.channelId)) {
+                await interaction.reply({ content: 'This command can only be used in specific channels or DMs.', ephemeral: true });
+                return;
+            }
+
+            const command = client.commands.get(interaction.commandName);
+
+            if (!command) {
+                logger.warn(`No command found for ${interaction.commandName}`, { timestamp: new Date().toISOString() });
+                return;
+            }
+
+            // Pass the currentGame to the command execution
+            await command.execute(interaction, currentGame);
+        } 
+        else if (interaction.isButton()) {
+            const [handlerId] = interaction.customId.split('_');
+            
+            // Map handlers
+            const handlers = {
+                'day': dayPhaseHandler,
+                // Add other handlers here as needed
+            };
+
+            const handler = handlers[handlerId];
+            if (!handler?.handleButton) {
+                logger.warn('No button handler found', { handlerId });
+                return;
+            }
+
+            try {
+                await handler.handleButton(interaction, currentGame);
+            } catch (error) {
+                logger.error('Error handling button', { 
+                    error,
+                    buttonId: interaction.customId 
+                });
+                await handleCommandError(interaction, error);
+            }
+        }
+        else if (interaction.isStringSelectMenu()) {
+            const [handlerId] = interaction.customId.split('_');
+            
+            const handlers = {
+                'day': dayPhaseHandler,
+                // Add other handlers here as needed
+            };
+
+            const handler = handlers[handlerId];
+            if (!handler?.handleSelect) {
+                logger.warn('No select menu handler found', { handlerId });
+                return;
+            }
+
+            try {
+                await handler.handleSelect(interaction, currentGame);
+            } catch (error) {
+                logger.error('Error handling select menu', { 
+                    error,
+                    menuId: interaction.customId 
+                });
+                await handleCommandError(interaction, error);
+            }
+        }
     } catch (error) {
-        logger.error(`Error executing command: ${interaction.commandName}`, { error, timestamp: new Date().toISOString() });
+        logger.error('Error handling interaction', { error });
         await handleCommandError(interaction, error);
     }
 });
@@ -129,5 +179,3 @@ process.on('uncaughtException', (error) => {
     logger.fatal('Uncaught Exception thrown', { error, timestamp: new Date().toISOString() });
     process.exit(1);
 });
-
-

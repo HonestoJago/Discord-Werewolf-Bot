@@ -1,11 +1,12 @@
 // game/WerewolfGame.js
 
 const Player = require('./Player');
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');
 const PHASES = require('../constants/phases');
+const { createDayPhaseEmbed, createVoteResultsEmbed } = require('../utils/embedCreator');
 
 class WerewolfGame {
     constructor(client, guildId, gameChannelId, gameCreatorId, authorizedIds = []) {
@@ -26,6 +27,15 @@ class WerewolfGame {
         this.lastProtectedPlayer = null; // Track the last protected player
         this.lovers = new Map(); // Store lover pairs
         this.selectedRoles = new Map(); // Dynamic role selection
+
+        // Voting state
+        this.nominatedPlayer = null;
+        this.nominator = null;
+        this.seconder = null;
+        this.votes = new Map();  // voterId -> boolean (true = guilty)
+        this.votingOpen = false;
+        this.nominationTimeout = null;
+        this.NOMINATION_WAIT_TIME = 60000; // 1 minute
     }
 
     /**
@@ -787,15 +797,29 @@ class WerewolfGame {
      * Advances the game to the Day phase.
      */
     async advanceToDay() {
-        try {
-            this.phase = PHASES.DAY;
-            await this.broadcastMessage(`--- Day ${this.round} ---`);
-            logger.info(`Game advanced to Day ${this.round}`);
-            await this.handleDayVoting();
-        } catch (error) {
-            logger.error('Error advancing to Day phase', { error });
-            throw error;
-        }
+        this.phase = PHASES.DAY;
+        this.round += 1;
+
+        // Create and send day phase GUI
+        const channel = await this.client.channels.fetch(this.gameChannelId);
+        
+        const embed = createDayPhaseEmbed(this.players);
+        const nominateButton = new ButtonBuilder()
+            .setCustomId('day_nominate')
+            .setLabel('Nominate')
+            .setStyle(ButtonStyle.Primary);
+
+        const row = new ActionRowBuilder().addComponents(nominateButton);
+
+        const message = await channel.send({
+            embeds: [embed],
+            components: [row]
+        });
+
+        // Store message ID for future updates
+        this.dayPhaseMessageId = message.id;
+
+        logger.info(`Game advanced to Day ${this.round}`);
     }
 
     /**
@@ -1079,7 +1103,12 @@ class WerewolfGame {
         // Validate action based on phase and role
         this.validateNightAction(player, action, target);
 
-        // Store the action directly
+        // Set lastProtectedPlayer immediately when protection is processed
+        if (action === 'protect') {
+            this.lastProtectedPlayer = target;
+        }
+
+        // Store the action
         this.nightActions[playerId] = { action, target };
         logger.info('Night action collected', { playerId, action, target });
     }
@@ -1133,6 +1162,230 @@ class WerewolfGame {
         if (!target) {
             throw new GameError('Invalid target', 'You must specify a target for your action.');
         }
+    }
+
+    // Nomination methods
+    async nominate(nominatorId, targetId) {
+        if (this.phase !== PHASES.DAY) {
+            throw new GameError('Wrong phase', 'Nominations can only be made during the day.');
+        }
+
+        const nominator = this.players.get(nominatorId);
+        const target = this.players.get(targetId);
+
+        if (!nominator?.isAlive) {
+            throw new GameError('Invalid nominator', 'Dead players cannot make nominations.');
+        }
+        if (!target?.isAlive) {
+            throw new GameError('Invalid target', 'Dead players cannot be nominated.');
+        }
+        if (nominatorId === targetId) {
+            throw new GameError('Invalid target', 'You cannot nominate yourself.');
+        }
+
+        // Clear any existing nomination timeout
+        if (this.nominationTimeout) {
+            clearTimeout(this.nominationTimeout);
+        }
+
+        // Set nomination state
+        this.nominatedPlayer = targetId;
+        this.nominator = nominatorId;
+        this.phase = PHASES.NOMINATION;
+
+        // Start nomination timeout
+        this.nominationTimeout = setTimeout(async () => {
+            if (this.phase === PHASES.NOMINATION) {
+                await this.clearNomination('No second received within one minute. Nomination failed.');
+            }
+        }, this.NOMINATION_WAIT_TIME);
+
+        await this.broadcastMessage({
+            embeds: [{
+                title: 'Player Nominated',
+                description: `${nominator.username} has nominated ${target.username} for elimination.\n` +
+                           `A second is required within one minute to proceed to voting.`
+            }]
+        });
+
+        logger.info('Player nominated', { 
+            nominator: nominator.username, 
+            target: target.username 
+        });
+    }
+
+    async second(seconderId) {
+        if (this.phase !== PHASES.NOMINATION) {
+            throw new GameError('Wrong phase', 'No active nomination to second.');
+        }
+
+        const seconder = this.players.get(seconderId);
+        if (!seconder?.isAlive) {
+            throw new GameError('Invalid seconder', 'Dead players cannot second nominations.');
+        }
+        if (seconderId === this.nominator) {
+            throw new GameError('Invalid seconder', 'The nominator cannot second their own nomination.');
+        }
+
+        // Clear nomination timeout
+        if (this.nominationTimeout) {
+            clearTimeout(this.nominationTimeout);
+            this.nominationTimeout = null;
+        }
+
+        this.seconder = seconderId;
+        this.phase = PHASES.VOTING;
+        this.votingOpen = true;
+        this.votes.clear();
+
+        const target = this.players.get(this.nominatedPlayer);
+        await this.broadcastMessage({
+            embeds: [{
+                title: 'Voting Started',
+                description: `The nomination of ${target.username} has been seconded by ${seconder.username}.\n` +
+                           `Voting is now open. Use /vote guilty or /vote innocent in DMs to cast your vote.`
+            }]
+        });
+
+        logger.info('Nomination seconded', {
+            seconder: seconder.username,
+            target: target.username
+        });
+    }
+
+    async submitVote(voterId, guilty) {
+        if (this.phase !== PHASES.VOTING || !this.votingOpen) {
+            throw new GameError('Wrong phase', 'Voting is not currently open.');
+        }
+
+        const voter = this.players.get(voterId);
+        if (!voter?.isAlive) {
+            throw new GameError('Invalid voter', 'Dead players cannot vote.');
+        }
+
+        this.votes.set(voterId, guilty);
+        logger.info('Vote submitted', { 
+            voter: voter.username, 
+            guilty 
+        });
+    }
+
+    async advancePhase() {
+        console.log('Current phase:', this.phase);
+        switch(this.phase) {
+            case PHASES.NIGHT:
+                await this.processNightActions();
+                console.log('Win conditions check:', this.checkWinConditions());
+                if (!this.checkWinConditions()) {
+                    await this.advanceToDay();
+                }
+                console.log('New phase:', this.phase);
+                break;
+
+            case PHASES.NIGHT_ZERO:
+                await this.processNightZeroActions();
+                if (!this.checkWinConditions()) {
+                    await this.advanceToDay();
+                }
+                break;
+
+            case PHASES.DAY:
+            case PHASES.NOMINATION:
+            case PHASES.VOTING:
+                // Clean up any existing voting state
+                this.clearVotingState();
+                await this.advanceToNight();
+                break;
+
+            default:
+                throw new GameError('Invalid phase', 'Cannot advance from current game phase.');
+        }
+    }
+
+    clearVotingState() {
+        this.nominatedPlayer = null;
+        this.nominator = null;
+        this.seconder = null;
+        this.votes.clear();
+        this.votingOpen = false;
+        if (this.nominationTimeout) {
+            clearTimeout(this.nominationTimeout);
+            this.nominationTimeout = null;
+        }
+    }
+
+    // Add to WerewolfGame class
+
+    async processVotes() {
+        if (this.phase !== PHASES.VOTING) {
+            throw new GameError('Wrong phase', 'No votes to process.');
+        }
+
+        const voteCounts = {
+            guilty: 0,
+            innocent: 0
+        };
+
+        this.votes.forEach(vote => {
+            vote ? voteCounts.guilty++ : voteCounts.innocent++;
+        });
+
+        const target = this.players.get(this.nominatedPlayer);
+        const eliminated = voteCounts.guilty > voteCounts.innocent;
+
+        if (eliminated) {
+            target.isAlive = false;
+            await this.handleLoversDeath(target); // Handle lovers if target was in love
+            await this.checkWinConditions();      // Check if game is over
+        }
+
+        // Create results embed
+        const resultsEmbed = createVoteResultsEmbed(
+            target,
+            voteCounts,
+            eliminated
+        );
+
+        // Send results to channel
+        const channel = await this.client.channels.fetch(this.gameChannelId);
+        await channel.send({ embeds: [resultsEmbed] });
+
+        // Reset voting state
+        this.clearVotingState();
+
+        // If game isn't over, continue to night phase
+        if (!this.gameOver) {
+            await this.advanceToNight();
+        }
+
+        return {
+            eliminated: eliminated ? target.id : null,
+            votesFor: voteCounts.guilty,
+            votesAgainst: voteCounts.innocent
+        };
+    }
+
+    async clearNomination(reason) {
+        // Clear timeout if it exists
+        if (this.nominationTimeout) {
+            clearTimeout(this.nominationTimeout);
+            this.nominationTimeout = null;
+        }
+
+        // Reset nomination state
+        this.nominatedPlayer = null;
+        this.nominator = null;
+        this.phase = PHASES.DAY;
+
+        // Announce nomination clear
+        await this.broadcastMessage({
+            embeds: [{
+                title: 'Nomination Failed',
+                description: reason
+            }]
+        });
+
+        logger.info('Nomination cleared', { reason });
     }
 }
 
