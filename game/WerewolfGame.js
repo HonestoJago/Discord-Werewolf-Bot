@@ -1057,6 +1057,83 @@ class WerewolfGame {
         }
         logger.info('Role removed from configuration', { role, remainingCount: currentCount - 1 });
     }
+
+    // New method in WerewolfGame.js
+    async processNightAction(playerId, action, target) {
+        // Get and validate player using Map's get method directly
+        const player = this.players.get(playerId);
+        if (!player) {
+            throw new GameError('Not authorized', 'You are not authorized to perform this action.');
+        }
+
+        // Check player state
+        if (!player.isAlive) {
+            throw new GameError('Dead player', 'Dead players cannot perform actions.');
+        }
+
+        // Check game phase
+        if (this.phase === PHASES.DAY) {
+            throw new GameError('Wrong phase', 'Actions can only be performed during the night phase.');
+        }
+
+        // Validate action based on phase and role
+        this.validateNightAction(player, action, target);
+
+        // Store the action directly
+        this.nightActions[playerId] = { action, target };
+        logger.info('Night action collected', { playerId, action, target });
+    }
+
+    validateNightAction(player, action, target) {
+        // Night Zero validations
+        if (this.phase === PHASES.NIGHT_ZERO) {
+            if (action === 'investigate' && player.role === ROLES.SEER) {
+                throw new GameError('Invalid action', 'The Seer cannot investigate during Night Zero.');
+            }
+            if (action === 'attack' && player.role === ROLES.WEREWOLF) {
+                throw new GameError('Invalid action', 'Werewolves cannot attack during Night Zero.');
+            }
+        } else {
+            // Non-Night Zero validations
+            if (action === 'choose_lovers' && player.role === ROLES.CUPID) {
+                throw new GameError('Invalid action', 'Cupid can only choose lovers during Night Zero.');
+            }
+        }
+
+        // Role-specific validations
+        switch(action) {
+            case 'protect':
+                if (player.role !== ROLES.DOCTOR) {
+                    throw new GameError('Invalid role', 'Only the Doctor can protect players.');
+                }
+                if (target === this.lastProtectedPlayer) {
+                    throw new GameError('Invalid target', 'You cannot protect the same player two nights in a row.');
+                }
+                break;
+            case 'investigate':
+                if (player.role !== ROLES.SEER) {
+                    throw new GameError('Invalid role', 'Only the Seer can investigate players.');
+                }
+                break;
+            case 'attack':
+                if (player.role !== ROLES.WEREWOLF) {
+                    throw new GameError('Invalid role', 'Only Werewolves can attack players.');
+                }
+                break;
+            case 'choose_lovers':
+                if (player.role !== ROLES.CUPID) {
+                    throw new GameError('Invalid role', 'Only Cupid can choose lovers.');
+                }
+                break;
+            default:
+                throw new GameError('Invalid action', 'Unknown action type.');
+        }
+
+        // Target validation
+        if (!target) {
+            throw new GameError('Invalid target', 'You must specify a target for your action.');
+        }
+    }
 }
 
 module.exports = WerewolfGame;
