@@ -10,5 +10,9 @@ module.exports = {
         'utils/**/*.js'
     ],
     coverageDirectory: 'coverage',
-    verbose: true
+    verbose: true,
+    moduleDirectories: ['node_modules', '<rootDir>/__mocks__'],
+    moduleNameMapper: {
+        '^discord\\.js$': '<rootDir>/__mocks__/discord.js/index.js',
+    },
 };

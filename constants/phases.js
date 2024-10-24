@@ -1,6 +1,6 @@
 // constants/phases.js
 
-module.exports = Object.freeze({
+const PHASES = Object.freeze({
     LOBBY: 'LOBBY',
     ASSIGNING_ROLES: 'ASSIGNING_ROLES',
     NIGHT_ZERO: 'NIGHT_ZERO',
@@ -10,3 +10,5 @@ module.exports = Object.freeze({
     NIGHT: 'NIGHT',
     GAME_OVER: 'GAME_OVER',
 });
+
+module.exports = PHASES;

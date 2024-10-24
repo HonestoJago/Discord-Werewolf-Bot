@@ -4,10 +4,9 @@ const Player = require('./Player');
 const { EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
-const ROLES = require('../constants/roles');
-const PHASES = require('../constants/phases');
+const ROLES = require('../constants/roles');  // Direct import of frozen object
+const PHASES = require('../constants/phases'); // Direct import of frozen object
 const { createDayPhaseEmbed, createVoteResultsEmbed } = require('../utils/embedCreator');
-const GamePhaseManager = require('./GamePhaseManager');
 
 class WerewolfGame {
     constructor(client, guildId, gameChannelId, gameCreatorId, authorizedIds = []) {
@@ -37,8 +36,7 @@ class WerewolfGame {
         this.votingOpen = false;
         this.nominationTimeout = null;
         this.NOMINATION_WAIT_TIME = 60000; // 1 minute
-        this.phaseManager = new GamePhaseManager(this);
-    }
+     }
 
     /**
      * Adds a player to the game.
@@ -78,15 +76,21 @@ class WerewolfGame {
                 throw new GameError('Roles Not Configured', 'Please configure the game roles before starting.');
             }
 
+            // Set phase before other operations
             this.phase = PHASES.NIGHT_ZERO;
             this.round = 0;
+
             await this.assignRoles();
-            await this.broadcastMessage(`Game is starting with ${this.players.size} players, including ${this.getPlayersByRole(ROLES.WEREWOLF).length} werewolves.`);
             await this.createPrivateChannels();
+            await this.broadcastMessage(`Game is starting with ${this.players.size} players, including ${this.getPlayersByRole(ROLES.WEREWOLF).length} werewolves.`);
+            
+            // Initialize night zero
             await this.nightZero();
-            await this.broadcastMessage(`Night Zero has ended. Day 1 will begin soon.`);
+            
             logger.info('Game started successfully');
         } catch (error) {
+            // Reset phase if anything fails
+            this.phase = PHASES.LOBBY;
             logger.error('Error starting game', { error });
             throw error;
         }
@@ -122,7 +126,6 @@ class WerewolfGame {
             throw new GameError('Role Assignment Failed', 'An error occurred while assigning roles.');
         }
     }
-
     /**
      * Shuffles an array using the Fisher-Yates algorithm.
      * @param {Array} array - The array to shuffle.
@@ -185,7 +188,7 @@ class WerewolfGame {
      */
     async nightZero() {
         try {
-            this.phase = PHASES.NIGHT_ZERO;
+            // Don't change phase here since it's already set in startGame
             this.expectedNightActions = new Set();
 
             // Handle Seer's automatic revelation first
@@ -208,18 +211,15 @@ class WerewolfGame {
             if (cupid && cupid.isAlive) {
                 await cupid.sendDM('Use `/action choose_lovers` to select two players to be lovers. You have 10 minutes.');
                 this.expectedNightActions.add(cupid.id);
-            }
 
-            // If no Cupid, advance immediately
-            if (this.expectedNightActions.size === 0) {
-                await this.advanceToDay();
-                return;
+                // Set backup timeout only if we have a Cupid
+                this.nightActionTimeout = setTimeout(() => {
+                    this.processNightActions();
+                }, 600000);
+            } else {
+                // If no Cupid, advance to Day phase immediately
+                await this.advancePhase();
             }
-
-            // Set backup timeout
-            this.nightActionTimeout = setTimeout(() => {
-                this.processNightActions();
-            }, 600000);
 
             logger.info('Night Zero started');
         } catch (error) {
@@ -699,6 +699,11 @@ class WerewolfGame {
         if (!this.selectedRoles) {
             this.selectedRoles = new Map();
         }
+        // Missing phase check!
+        // Should have:
+        if (this.phase !== PHASES.LOBBY) {
+            throw new GameError('Cannot modify roles', 'Cannot modify roles after game has started');
+        }
         
         const currentCount = this.selectedRoles.get(role) || 0;
         
@@ -760,8 +765,14 @@ class WerewolfGame {
         }
 
         // Check game phase
-        if (!player) {
-            throw new GameError('You are not authorized to perform this action', 'You are not authorized to perform this action.');
+        if (this.phase !== PHASES.NIGHT && this.phase !== PHASES.NIGHT_ZERO) {
+            throw new GameError('Wrong phase', 'Night actions can only be performed during night phases');
+        }
+
+        // Validate target exists and is alive
+        const targetPlayer = this.players.get(target);
+        if (!targetPlayer || !targetPlayer.isAlive) {
+            throw new GameError('Invalid target', 'Target player not found or is dead');
         }
 
         // Validate action based on phase and role
@@ -796,7 +807,6 @@ class WerewolfGame {
 
         logger.info('Night action collected', { playerId, action, target });
     }
-
     async processWerewolfAttack(playerId, target) {
         const werewolves = Array.from(this.players.values())
             .filter(p => p.role === ROLES.WEREWOLF && p.isAlive);
@@ -1016,34 +1026,40 @@ class WerewolfGame {
     }
 
     async advancePhase() {
-        console.log('Current phase:', this.phase);
-        switch(this.phase) {
-            case PHASES.NIGHT:
-                await this.processNightActions();
-                console.log('Win conditions check:', this.checkWinConditions());
-                if (!this.checkWinConditions()) {
-                    await this.advanceToDay();
-                }
-                console.log('New phase:', this.phase);
-                break;
-
-            case PHASES.NIGHT_ZERO:
-                await this.processNightZeroActions();
-                if (!this.checkWinConditions()) {
-                    await this.advanceToDay();
-                }
-                break;
-
-            case PHASES.DAY:
-            case PHASES.NOMINATION:
-            case PHASES.VOTING:
-                // Clean up any existing voting state
-                this.clearVotingState();
-                await this.advanceToNight();
-                break;
-
-            default:
-                throw new GameError('Invalid phase', 'Cannot advance from current game phase.');
+        try {
+            console.log('Current phase:', this.phase);  // Debug log
+            
+            switch(this.phase) {
+                case PHASES.LOBBY:
+                    throw new GameError('Invalid phase', 'Cannot advance from lobby phase.');
+                    
+                case PHASES.NIGHT_ZERO:
+                    this.phase = PHASES.DAY;
+                    this.round = 1;
+                    await this.broadcastMessage(`--- Day ${this.round} ---`);
+                    break;
+                    
+                case PHASES.NIGHT:
+                    if (!this.checkWinConditions()) {
+                        this.phase = PHASES.DAY;
+                        this.round += 1;
+                        await this.broadcastMessage(`--- Day ${this.round} ---`);
+                    }
+                    break;
+                    
+                case PHASES.DAY:
+                    this.phase = PHASES.NIGHT;
+                    await this.broadcastMessage(`--- Night ${this.round} ---`);
+                    break;
+                    
+                default:
+                    throw new GameError('Invalid phase', 'Cannot advance from current game phase.');
+            }
+            
+            logger.info(`Phase advanced to ${this.phase}`, { round: this.round });
+        } catch (error) {
+            logger.error('Error advancing phase', { error });
+            throw error;
         }
     }
 
@@ -1235,6 +1251,16 @@ class WerewolfGame {
             lover2: target2Id
         });
     }
-}
+    // Start of Selection
+    }
+    module.exports = WerewolfGame;
 
-module.exports = WerewolfGame;
+
+
+
+
+
+
+
+
+

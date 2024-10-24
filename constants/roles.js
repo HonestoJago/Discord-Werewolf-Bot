@@ -1,10 +1,11 @@
 // constants/roles.js
 
-module.exports = Object.freeze({
+const ROLES = Object.freeze({
     WEREWOLF: 'werewolf',
     SEER: 'seer',
     DOCTOR: 'doctor',
     CUPID: 'cupid',
     VILLAGER: 'villager',
-    // Add additional roles as needed
 });
+
+module.exports = ROLES;
