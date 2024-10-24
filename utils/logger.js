@@ -11,8 +11,11 @@ if (!fs.existsSync(logDir)) {
     fs.mkdirSync(logDir);
 }
 
-// Define custom log formats
+// Add format checking
 const logFormat = format.printf(({ level, message, timestamp, stack, ...metadata }) => {
+    if (typeof message === 'object') {
+        message = JSON.stringify(message);
+    }
     let log = `${timestamp} [${level.toUpperCase()}]: ${message}`;
     if (Object.keys(metadata).length > 0) {
         log += ` ${JSON.stringify(metadata)}`;

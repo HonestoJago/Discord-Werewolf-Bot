@@ -4,10 +4,10 @@ const logger = require('./logger');
 
 // Custom Error class for game-related errors
 class GameError extends Error {
-    constructor(message, userMessage) {
+    constructor(message, userMessage = message) {
         super(message);
         this.name = 'GameError';
-        this.userMessage = userMessage;
+        this.userMessage = userMessage;  // Will use message if userMessage not provided
     }
 }
 
@@ -19,23 +19,27 @@ class GameError extends Error {
 async function handleCommandError(interaction, error) {
     const errorId = Date.now().toString(36) + Math.random().toString(36).substr(2);
 
+    // Safe property access
+    const userId = interaction.user?.id;
+    const guildId = interaction.guild?.id;
+    const commandName = interaction.commandName;
+
     if (error instanceof GameError) {
         logger.warn({
             errorId,
-            commandName: interaction.commandName,
-            userId: interaction.user.id,
-            guildId: interaction.guild?.id,
+            commandName,
+            userId,
+            guildId,
             error: error.message
         }, 'Game error in command execution');
 
-        const userMessage = error.userMessage || `An error occurred. Error ID: ${errorId}`;
-        await safeReply(interaction, userMessage);
+        await safeReply(interaction, error.userMessage);
     } else {
         logger.error({
             errorId,
-            commandName: interaction.commandName,
-            userId: interaction.user.id,
-            guildId: interaction.guild?.id,
+            commandName,
+            userId,
+            guildId,
             error: error.stack
         }, 'Unexpected error in command execution');
 
@@ -61,4 +65,3 @@ async function safeReply(interaction, content) {
 }
 
 module.exports = { handleCommandError, GameError };
-
