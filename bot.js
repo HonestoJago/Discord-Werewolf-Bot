@@ -21,11 +21,14 @@ const client = new Client({
     partials: ['CHANNEL'], // Needed to receive DMs
 });
 
+// Initialize collections
+client.commands = new Collection();
+client.games = new Map();  // Add this line to initialize games Map
+
 // Define the ID(s) of the allowed channel(s) from environment variables
 const allowedChannelIds = process.env.ALLOWED_CHANNEL_IDS ? process.env.ALLOWED_CHANNEL_IDS.split(',') : [];
 
-// Initialize the commands collection
-client.commands = new Collection();
+// Load command files
 const commandsPath = path.join(__dirname, 'commands');
 const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
 
@@ -99,17 +102,31 @@ client.on('interactionCreate', async interaction => {
             // Map handlers
             const handlers = {
                 'day': dayPhaseHandler,
-                // Add other handlers here as needed
+                'add': require('./handlers/buttonHandler').handleAddRole,
+                'remove': require('./handlers/buttonHandler').handleRemoveRole,
+                'view': require('./handlers/buttonHandler').handleViewRoles,
+                'start': require('./handlers/buttonHandler').handleStartGame,
+                'reset': require('./handlers/buttonHandler').handleResetRoles
             };
 
             const handler = handlers[handlerId];
-            if (!handler?.handleButton) {
+            if (!handler) {
                 logger.warn('No button handler found', { handlerId });
                 return;
             }
 
             try {
-                await handler.handleButton(interaction, currentGame);
+                // Get the game instance for this guild
+                const game = interaction.client.games.get(interaction.guildId);
+                if (!game) {
+                    await interaction.reply({ 
+                        content: 'No active game found.', 
+                        ephemeral: true 
+                    });
+                    return;
+                }
+
+                await handler(interaction, game);
             } catch (error) {
                 logger.error('Error handling button', { 
                     error,
@@ -159,9 +176,13 @@ client.createGame = (guildId, channelId, creatorId, testMode = false) => {
 };
 
 // Function to end the current game
-client.endGame = () => {
-    currentGame = null;
-    logger.info('Game instance has been reset.', { timestamp: new Date().toISOString() });
+client.endGame = (guildId) => {
+    const game = client.games.get(guildId);
+    if (game) {
+        game.shutdownGame();  // If you have cleanup logic
+        client.games.delete(guildId);
+        logger.info('Game instance has been reset.', { guildId });
+    }
 };
 
 // Function to get the current game
