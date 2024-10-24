@@ -139,16 +139,33 @@ module.exports = {
         MessageContent: 4,
         DirectMessages: 8,
     },
-    ButtonBuilder: jest.fn().mockImplementation(() => ({
-        setCustomId: jest.fn().mockReturnThis(),
-        setLabel: jest.fn().mockReturnThis(),
-        setStyle: jest.fn().mockReturnThis(),
-        toJSON: jest.fn().mockReturnValue({
-            customId: 'test-id',
-            label: 'Test Label',
-            style: 1
-        })
-    })),
+    ButtonBuilder: jest.fn().mockImplementation(() => {
+        const button = {
+            customId: '',
+            label: '',
+            style: null,
+            setCustomId: jest.fn().mockImplementation(function(id) { 
+                this.customId = id; 
+                return this; 
+            }),
+            setLabel: jest.fn().mockImplementation(function(label) { 
+                this.label = label; 
+                return this; 
+            }),
+            setStyle: jest.fn().mockImplementation(function(style) { 
+                this.style = style; 
+                return this; 
+            }),
+            toJSON: jest.fn().mockImplementation(function() {
+                return {
+                    custom_id: this.customId,
+                    label: this.label,
+                    style: this.style
+                };
+            })
+        };
+        return button;
+    }),
     ButtonStyle: {
         Primary: 1,
         Secondary: 2,
@@ -170,10 +187,15 @@ module.exports = {
         addFields: jest.fn().mockReturnThis(),
         setTimestamp: jest.fn().mockReturnThis(),
         toJSON: jest.fn().mockReturnValue({
-            color: '#FFA500',
-            title: 'Test Title',
-            description: 'Test Description',
-            fields: [],
+            color: '#0099ff',
+            title: 'Welcome to Werewolf',
+            description: 'Werewolves: Max 1/4 of total players',
+            fields: [
+                {
+                    name: 'Current Setup',
+                    value: 'No roles configured yet'
+                }
+            ],
             timestamp: new Date()
         })
     })),

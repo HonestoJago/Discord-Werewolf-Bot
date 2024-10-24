@@ -537,30 +537,43 @@ class WerewolfGame {
     async handleLoversDeath(player) {
         try {
             const loverId = this.lovers.get(player.id);
-            if (loverId) {
-                const lover = this.players.get(loverId);
-                if (lover && lover.isAlive) {
-                    lover.isAlive = false;
-                    await this.broadcastMessage(`**${lover.username}**, who was in love with **${player.username}**, has died of heartbreak.`);
-                    await this.moveToDeadChannel(lover);
-                    
-                    // Check win conditions after lover death
-                    await this.checkWinConditions();
-                    
-                    logger.info('Lover died of heartbreak', { 
-                        deadPlayerId: player.id,
-                        loverId: lover.id 
-                    });
-                }
-                // Clean up lover relationships
-                this.lovers.delete(player.id);
-                this.lovers.delete(loverId);
+            if (!loverId) return;
+    
+            const lover = this.players.get(loverId);
+            if (!lover) return;
+    
+            // Set both players to dead status atomically
+            const deaths = [];
+            if (lover.isAlive) {
+                lover.isAlive = false;
+                deaths.push({
+                    player: lover,
+                    message: `**${lover.username}**, who was in love with **${player.username}**, has died of heartbreak.`
+                });
+            }
+    
+            // Process all deaths
+            for (const death of deaths) {
+                await this.broadcastMessage(death.message);
+                await this.moveToDeadChannel(death.player);
+            }
+    
+            // Clean up relationships once
+            this.lovers.delete(player.id);
+            this.lovers.delete(loverId);
+    
+            // Check win conditions once after all deaths
+            if (deaths.length > 0) {
+                await this.checkWinConditions();
+                logger.info('Lovers died of heartbreak', { 
+                    deadPlayerId: player.id,
+                    loverId: lover.id 
+                });
             }
         } catch (error) {
             logger.error('Error handling lovers\' death', { error, playerId: player.id });
         }
     }
-
     /**
      * Broadcasts a message to the game channel.
      * @param {string|object} message - The message or embed to send.
@@ -1017,7 +1030,6 @@ class WerewolfGame {
         if (!voter?.isAlive) {
             throw new GameError('Invalid voter', 'Dead players cannot vote.');
         }
-
         this.votes.set(voterId, guilty);
         logger.info('Vote submitted', { 
             voter: voter.username, 
@@ -1027,8 +1039,13 @@ class WerewolfGame {
 
     async advancePhase() {
         try {
-            console.log('Current phase:', this.phase);  // Debug log
-            
+            console.log('Current phase:', this.phase);
+
+            // Check if game is over before any phase transition
+            if (this.phase === PHASES.GAME_OVER) {
+                throw new GameError('Cannot advance from current game phase', 'The game is over.');
+            }
+
             switch(this.phase) {
                 case PHASES.LOBBY:
                     throw new GameError('Invalid phase', 'Cannot advance from lobby phase.');
@@ -1200,19 +1217,20 @@ class WerewolfGame {
 
         // If all werewolves are dead, villagers win
         if (livingWerewolves === 0) {
-            this.broadcastMessage('**Villagers win!** All werewolves have been eliminated.');
+            this.phase = PHASES.GAME_OVER;  // Set phase first
             this.gameOver = true;
+            this.broadcastMessage('**Villagers win!** All werewolves have been eliminated.');
             return true;
         }
 
         // If werewolves reach parity with or outnumber villager team, werewolves win
         if (livingWerewolves >= livingVillagerTeam) {
-            this.broadcastMessage('**Werewolves win!** They have reached parity with the villagers.');
+            this.phase = PHASES.GAME_OVER;  // Set phase first
             this.gameOver = true;
+            this.broadcastMessage('**Werewolves win!** They have reached parity with the villagers.');
             return true;
         }
 
-        // No win condition met
         return false;
     }
 
@@ -1254,6 +1272,10 @@ class WerewolfGame {
     // Start of Selection
     }
     module.exports = WerewolfGame;
+
+
+
+
 
 
 

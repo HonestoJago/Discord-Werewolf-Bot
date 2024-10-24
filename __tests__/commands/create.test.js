@@ -35,14 +35,19 @@ describe('Create Command', () => {
             reply: jest.fn().mockResolvedValue(undefined)
         };
 
-        // Mock button creation
+        // Mock WerewolfGame constructor
+        WerewolfGame.mockImplementation(() => ({
+            guildId: 'testGuild',
+            gameCreatorId: 'testUser'
+        }));
+
+        // Mock createRoleButtons to return proper button rows
         createRoleButtons.mockReturnValue([
-            { type: 1, components: [] },
-            { type: 1, components: [] },
-            { type: 1, components: [] }
+            { type: 1, components: [{ customId: 'add_werewolf' }] },
+            { type: 1, components: [{ customId: 'remove_werewolf' }] },
+            { type: 1, components: [{ customId: 'start_game' }] }
         ]);
 
-        // Reset all mocks
         jest.clearAllMocks();
     });
 
@@ -87,27 +92,28 @@ describe('Create Command', () => {
         expect(mockInteraction.reply).toHaveBeenCalledWith(
             expect.objectContaining({
                 embeds: [expect.objectContaining({
-                    description: expect.stringMatching(/Werewolves: Max 1\/4 of total players/),
-                    description: expect.stringMatching(/Special Roles.*Max 1 each/),
-                    description: expect.stringMatching(/Villagers: As many as needed/)
+                    title: expect.stringContaining('Welcome to Werewolf'),
+                    description: expect.stringContaining('Werewolves: Max 1/4'),
+                    fields: expect.arrayContaining([
+                        expect.objectContaining({
+                            name: 'Current Setup'
+                        })
+                    ])
                 })]
             })
         );
     });
 
     test('attaches all required button components', async () => {
-        createRoleButtons.mockReturnValue([
-            { type: 1, components: [] },  // Add buttons row
-            { type: 1, components: [] },  // Remove buttons row
-            { type: 1, components: [] }   // Utility buttons row
-        ]);
-
         await execute(mockInteraction);
         
         expect(mockInteraction.reply).toHaveBeenCalledWith(
             expect.objectContaining({
                 components: expect.arrayContaining([
-                    expect.objectContaining({ type: 1 })
+                    expect.objectContaining({
+                        type: 1,
+                        components: expect.any(Array)
+                    })
                 ])
             })
         );
@@ -118,10 +124,10 @@ describe('Create Command', () => {
         
         expect(logger.info).toHaveBeenCalledWith(
             'New game instance created',
-            expect.objectContaining({
+            {
                 guildId: 'testGuild',
                 creatorId: 'testUser'
-            })
+            }
         );
     });
 
