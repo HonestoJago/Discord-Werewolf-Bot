@@ -5,6 +5,7 @@ const ROLES = Object.freeze({
     SEER: 'seer',
     DOCTOR: 'doctor',
     CUPID: 'cupid',
+    HUNTER: 'hunter',  // Add Hunter
     VILLAGER: 'villager',
 });
 

@@ -9,15 +9,17 @@ describe('Button Creator', () => {
 
         // Test add buttons
         expect(addButtons.components).toBeDefined();
-        expect(addButtons.components.length).toBe(2);
+        expect(addButtons.components.length).toBe(3);  // Updated for Hunter
         expect(addButtons.components[0].customId).toBe('add_doctor');
         expect(addButtons.components[1].customId).toBe('add_cupid');
+        expect(addButtons.components[2].customId).toBe('add_hunter');  // Add Hunter check
 
         // Test remove buttons
         expect(removeButtons.components).toBeDefined();
-        expect(removeButtons.components.length).toBe(2);
-        expect(removeButtons.components[0].customId).toBe('remove_doctor'); // Updated to match fixed ID
+        expect(removeButtons.components.length).toBe(3);  // Updated for Hunter
+        expect(removeButtons.components[0].customId).toBe('remove_doctor');
         expect(removeButtons.components[1].customId).toBe('remove_cupid');
+        expect(removeButtons.components[2].customId).toBe('remove_hunter');  // Add Hunter check
 
         // Test utility buttons
         expect(utilityButtons.components).toBeDefined();

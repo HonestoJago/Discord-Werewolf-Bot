@@ -95,7 +95,8 @@ async function handleViewRoles(interaction, game) {
         const werewolfCount = Math.floor(playerCount / 4);
         const villagerCount = Math.max(0, playerCount - werewolfCount - 1  // -1 for Seer
             - (game.selectedRoles.get(ROLES.DOCTOR) || 0)
-            - (game.selectedRoles.get(ROLES.CUPID) || 0));
+            - (game.selectedRoles.get(ROLES.CUPID) || 0)
+            - (game.selectedRoles.get(ROLES.HUNTER) || 0));  // Subtract Hunter from villager count
 
         roleBreakdown = `Seer: 1\nWerewolves: ${werewolfCount}\nVillagers: ${villagerCount}`;
     }

@@ -14,6 +14,7 @@ const ROLE_CONFIG = {
     [ROLES.SEER]: { maxCount: 1 },
     [ROLES.DOCTOR]: { maxCount: 1 },
     [ROLES.CUPID]: { maxCount: 1 },
+    [ROLES.HUNTER]: { maxCount: 1 },  // Add Hunter
     [ROLES.VILLAGER]: { maxCount: (playerCount) => playerCount }
 };
 
@@ -46,6 +47,7 @@ class WerewolfGame {
         this.lastProtectedPlayer = null; // Track the last protected player
         this.lovers = new Map(); // Store lover pairs
         this.selectedRoles = new Map(); // Dynamic role selection
+        this.pendingHunterRevenge = null;  // Track if Hunter needs to take revenge
 
         // Voting state
         this.nominatedPlayer = null;
@@ -557,6 +559,15 @@ class WerewolfGame {
             const target = this.players.get(action.target);
             if (target?.isAlive && !target.isProtected) {
                 target.isAlive = false;
+                
+                // Add Hunter check
+                if (target.role === ROLES.HUNTER) {
+                    await target.sendDM('You have been eliminated! Use `/action hunter_revenge` to choose someone to take with you.');
+                    this.pendingHunterRevenge = target.id;
+                    // Don't advance phase yet - wait for Hunter's action
+                    return;
+                }
+
                 await this.broadcastMessage(`**${target.username}** was killed during the night.`);
                 await this.moveToDeadChannel(target);
                 await this.handleLoversDeath(target);
@@ -796,6 +807,9 @@ class WerewolfGame {
         if (role === ROLES.WEREWOLF && currentCount >= Math.floor(this.players.size / 4)) {
             throw new GameError('Invalid Role Count', 'Too many Werewolves for current player count.');
         }
+        if (role === ROLES.HUNTER && currentCount >= 1) {
+            throw new GameError('Invalid Role Count', 'There can only be one Hunter.');
+        }
 
         this.selectedRoles.set(role, currentCount + 1);
         logger.info('Role added to configuration', { role, count: currentCount + 1 });
@@ -876,6 +890,21 @@ class WerewolfGame {
             case 'protect':
                 this.lastProtectedPlayer = target;
                 this.nightActions[playerId] = { action, target };
+                break;
+            case 'hunter_revenge':
+                if (playerId !== this.pendingHunterRevenge) {
+                    throw new GameError('Invalid action', 'You can only use this action when eliminated as the Hunter.');
+                }
+                
+                const targetPlayer = this.players.get(target);
+                if (!targetPlayer?.isAlive) {
+                    throw new GameError('Invalid target', 'You must choose a living player.');
+                }
+
+                targetPlayer.isAlive = false;
+                await this.moveToDeadChannel(targetPlayer);
+                await this.handleLoversDeath(targetPlayer);
+                this.pendingHunterRevenge = null;
                 break;
             default:
                 this.nightActions[playerId] = { action, target };
@@ -1166,6 +1195,15 @@ class WerewolfGame {
 
         if (eliminated) {
             target.isAlive = false;
+            
+            // Add Hunter check
+            if (target.role === ROLES.HUNTER) {
+                await target.sendDM('You have been eliminated! Use `/action hunter_revenge` to choose someone to take with you.');
+                this.pendingHunterRevenge = target.id;
+                // Don't advance phase yet - wait for Hunter's action
+                return;
+            }
+
             await this.handleLoversDeath(target); // Handle lovers if target was in love
             await this.checkWinConditions();      // Check if game is over
         }

@@ -18,7 +18,8 @@ module.exports = {
                     { name: 'Attack (Werewolf)', value: 'attack' },
                     { name: 'Investigate (Seer)', value: 'investigate' },
                     { name: 'Protect (Doctor)', value: 'protect' },
-                    { name: 'Choose Lovers (Cupid)', value: 'choose_lovers' }
+                    { name: 'Choose Lovers (Cupid)', value: 'choose_lovers' },
+                    { name: 'Choose Target (Hunter)', value: 'hunter_revenge' }
                 ))
         .addStringOption(option =>
             option.setName('target')

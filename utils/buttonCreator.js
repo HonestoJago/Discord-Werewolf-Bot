@@ -11,6 +11,10 @@ function createRoleButtons() {
             new ButtonBuilder()
                 .setCustomId('add_cupid')
                 .setLabel('➕ Cupid')
+                .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+                .setCustomId('add_hunter')
+                .setLabel('➕ Hunter')
                 .setStyle(ButtonStyle.Secondary)
         );
 
@@ -23,6 +27,10 @@ function createRoleButtons() {
             new ButtonBuilder()
                 .setCustomId('remove_cupid')
                 .setLabel('➖ Cupid')
+                .setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder()
+                .setCustomId('remove_hunter')
+                .setLabel('➖ Hunter')
                 .setStyle(ButtonStyle.Secondary)
         );
 

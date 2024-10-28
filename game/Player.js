@@ -34,6 +34,32 @@ class Player {
             throw new GameError('Invalid Role', `The role "${role}" is not a valid role.`);
         }
         this.role = role;
+
+        // Send role-specific DM
+        let message = `Your role is: **${role}**\n\n`;
+        switch (role) {
+            case ROLES.WEREWOLF:
+                message += 'You are a Werewolf! Each night, you and your fellow werewolves will choose a victim to eliminate.';
+                break;
+            case ROLES.SEER:
+                message += 'You are the Seer! Each night, you can investigate one player to learn if they are a Werewolf.';
+                break;
+            case ROLES.DOCTOR:
+                message += 'You are the Doctor! Each night, you can protect one player from being killed by the Werewolves.';
+                break;
+            case ROLES.CUPID:
+                message += 'You are Cupid! On the first night, you will choose two players to fall in love. If one dies, the other dies of heartbreak.';
+                break;
+            case ROLES.HUNTER:
+                message += 'You are the Hunter! You are on the village team. If you are eliminated (either by werewolves or by village vote), ' +
+                          'you can choose one player to take down with you. Use `/action hunter_revenge` when prompted after your death.';
+                break;
+            case ROLES.VILLAGER:
+                message += 'You are a Villager! Work with the village to identify and eliminate the Werewolves.';
+                break;
+        }
+
+        this.sendDM(message);
         logger.info({
             playerId: this.id,
             username: this.username,
