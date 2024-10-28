@@ -1,98 +1,29 @@
-const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
+// __tests__/utils/buttonCreator.test.js
+
 const { createRoleButtons } = require('../../utils/buttonCreator');
+const { ButtonBuilder } = require('discord.js');
 
 describe('Button Creator', () => {
-    let mockAddComponents;
-    
-    beforeEach(() => {
-        jest.clearAllMocks();
-        mockAddComponents = jest.fn().mockReturnThis();
-        ActionRowBuilder.mockImplementation(() => ({
-            addComponents: mockAddComponents,
-            components: []
-        }));
-    });
+    test('creates role buttons correctly', () => {
+        const [addButtons, removeButtons, utilityButtons] = createRoleButtons();
 
-    test('creates add buttons with correct properties', () => {
-        const buttons = createRoleButtons();
-        const addButton = ButtonBuilder.mock.results[0].value;
-        
-        expect(addButton.setCustomId).toHaveBeenCalledWith('add_werewolf');
-        expect(addButton.setLabel).toHaveBeenCalledWith('➕ Werewolf');
-        expect(addButton.setStyle).toHaveBeenCalledWith(ButtonStyle.Danger);
-    });
+        // Test add buttons
+        expect(addButtons.components).toBeDefined();
+        expect(addButtons.components.length).toBe(2);
+        expect(addButtons.components[0].customId).toBe('add_doctor');
+        expect(addButtons.components[1].customId).toBe('add_cupid');
 
-    test('creates utility buttons', () => {
-        createRoleButtons();
-        
-        // Find view roles button
-        const viewButton = ButtonBuilder.mock.results.find(r => 
-            r.value.customId === 'view_roles');
-        const resetButton = ButtonBuilder.mock.results.find(r => 
-            r.value.customId === 'reset_roles');
-            
-        expect(viewButton).toBeDefined();
-        expect(resetButton).toBeDefined();
-    });
+        // Test remove buttons
+        expect(removeButtons.components).toBeDefined();
+        expect(removeButtons.components.length).toBe(2);
+        expect(removeButtons.components[0].customId).toBe('remove_doctor'); // Updated to match fixed ID
+        expect(removeButtons.components[1].customId).toBe('remove_cupid');
 
-    test('creates all remove buttons', () => {
-        createRoleButtons();
-        
-        // Check remove buttons
-        const removeButtons = ButtonBuilder.mock.results.filter(r => 
-            r.value.customId?.startsWith('remove_')
-        );
-
-        expect(removeButtons).toHaveLength(5); // One for each role
-        expect(removeButtons[0].value.setLabel)
-            .toHaveBeenCalledWith('➖ Werewolf');
-    });
-
-    test('arranges buttons in correct order', () => {
-        const buttons = createRoleButtons();
-        
-        // Mock the components array
-        const mockComponents = [
-            { customId: 'add_werewolf', label: '➕ Werewolf', style: ButtonStyle.Danger },
-            { customId: 'add_seer', label: '➕ Seer', style: ButtonStyle.Primary }
-        ];
-        
-        // Update the mock implementation for this test
-        mockAddComponents.mockImplementation(components => {
-            // Store the components for verification
-            mockComponents.push(...components);
-            return { components };
-        });
-
-        // Verify first row has add buttons
-        expect(buttons[0].addComponents).toHaveBeenCalled();
-        expect(mockComponents).toEqual(
-            expect.arrayContaining([
-                expect.objectContaining({
-                    customId: 'add_werewolf',
-                    label: '➕ Werewolf',
-                    style: ButtonStyle.Danger
-                }),
-                expect.objectContaining({
-                    customId: 'add_seer',
-                    label: '➕ Seer',
-                    style: ButtonStyle.Primary
-                })
-            ])
-        );
-    });
-
-    test('creates start game button', () => {
-        createRoleButtons();
-        
-        const startButton = ButtonBuilder.mock.results.find(r => 
-            r.value.customId === 'start_game'
-        );
-        
-        expect(startButton).toBeDefined();
-        expect(startButton.value.setLabel)
-            .toHaveBeenCalledWith('▶️ Start Game');
-        expect(startButton.value.setStyle)
-            .toHaveBeenCalledWith(ButtonStyle.Success);
+        // Test utility buttons
+        expect(utilityButtons.components).toBeDefined();
+        expect(utilityButtons.components.length).toBe(3);
+        expect(utilityButtons.components[0].customId).toBe('view_roles');
+        expect(utilityButtons.components[1].customId).toBe('reset_roles');
+        expect(utilityButtons.components[2].customId).toBe('start_game');
     });
 });

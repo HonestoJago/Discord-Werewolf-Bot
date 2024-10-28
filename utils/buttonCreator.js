@@ -5,48 +5,24 @@ function createRoleButtons() {
     const addButtons = new ActionRowBuilder()
         .addComponents(
             new ButtonBuilder()
-                .setCustomId('add_werewolf')
-                .setLabel('➕ Werewolf')
-                .setStyle(ButtonStyle.Danger),
-            new ButtonBuilder()
-                .setCustomId('add_seer')
-                .setLabel('➕ Seer')
-                .setStyle(ButtonStyle.Primary),
-            new ButtonBuilder()
                 .setCustomId('add_doctor')
                 .setLabel('➕ Doctor')
-                .setStyle(ButtonStyle.Success),
+                .setStyle(ButtonStyle.Danger),
             new ButtonBuilder()
                 .setCustomId('add_cupid')
                 .setLabel('➕ Cupid')
-                .setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder()
-                .setCustomId('add_villager')
-                .setLabel('➕ Villager')
                 .setStyle(ButtonStyle.Secondary)
         );
 
     const removeButtons = new ActionRowBuilder()
         .addComponents(
             new ButtonBuilder()
-                .setCustomId('remove_werewolf')
-                .setLabel('➖ Werewolf')
-                .setStyle(ButtonStyle.Danger),
-            new ButtonBuilder()
-                .setCustomId('remove_seer')
-                .setLabel('➖ Seer')
-                .setStyle(ButtonStyle.Primary),
-            new ButtonBuilder()
                 .setCustomId('remove_doctor')
                 .setLabel('➖ Doctor')
-                .setStyle(ButtonStyle.Success),
+                .setStyle(ButtonStyle.Danger),
             new ButtonBuilder()
                 .setCustomId('remove_cupid')
                 .setLabel('➖ Cupid')
-                .setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder()
-                .setCustomId('remove_villager')
-                .setLabel('➖ Villager')
                 .setStyle(ButtonStyle.Secondary)
         );
 

@@ -8,6 +8,25 @@ const ROLES = require('../constants/roles');  // Direct import of frozen object
 const PHASES = require('../constants/phases'); // Direct import of frozen object
 const { createDayPhaseEmbed, createVoteResultsEmbed } = require('../utils/embedCreator');
 
+// Define roles and their properties in a configuration object
+const ROLE_CONFIG = {
+    [ROLES.WEREWOLF]: { maxCount: (playerCount) => Math.floor(playerCount / 4) },
+    [ROLES.SEER]: { maxCount: 1 },
+    [ROLES.DOCTOR]: { maxCount: 1 },
+    [ROLES.CUPID]: { maxCount: 1 },
+    [ROLES.VILLAGER]: { maxCount: (playerCount) => playerCount }
+};
+
+const PHASE_TRANSITIONS = {
+    [PHASES.LOBBY]: ['NIGHT_ZERO'],
+    [PHASES.NIGHT_ZERO]: ['DAY'],
+    [PHASES.DAY]: ['NIGHT', 'NOMINATION'],
+    [PHASES.NOMINATION]: ['VOTING'],
+    [PHASES.VOTING]: ['DAY', 'GAME_OVER'],
+    [PHASES.NIGHT]: ['DAY', 'GAME_OVER'],
+    [PHASES.GAME_OVER]: []
+};
+
 class WerewolfGame {
     constructor(client, guildId, gameChannelId, gameCreatorId, authorizedIds = []) {
         this.client = client;
@@ -101,25 +120,35 @@ class WerewolfGame {
      */
     async assignRoles() {
         try {
-            // Create a pool of roles based on selectedRoles
-            let rolePool = [];
-            for (let [role, count] of this.selectedRoles.entries()) {
-                for (let i = 0; i < count; i++) {
-                    rolePool.push(role);
-                }
+            const playerArray = Array.from(this.players.values());
+            const playerCount = playerArray.length;
+    
+            // Always include one Seer
+            let rolePool = [ROLES.SEER];
+    
+            // Calculate number of werewolves
+            const werewolfCount = Math.floor(playerCount / 4);
+            rolePool.push(...Array(werewolfCount).fill(ROLES.WEREWOLF));
+    
+            // Add selected special roles
+            for (const [role, count] of this.selectedRoles.entries()) {
+                rolePool.push(...Array(count).fill(role));
             }
-
+    
+            // Fill remaining slots with villagers
+            const remainingSlots = playerCount - rolePool.length;
+            rolePool.push(...Array(remainingSlots).fill(ROLES.VILLAGER));
+    
             // Shuffle the role pool
             rolePool = this.shuffleArray(rolePool);
-
+    
             // Assign roles to players
-            const playerArray = Array.from(this.players.values());
             for (let i = 0; i < playerArray.length; i++) {
                 const player = playerArray[i];
                 const role = rolePool[i];
                 player.assignRole(role);
             }
-
+    
             logger.info('Roles assigned to all players');
         } catch (error) {
             logger.error('Error assigning roles to players', { error });
@@ -1039,41 +1068,31 @@ class WerewolfGame {
 
     async advancePhase() {
         try {
-            console.log('Current phase:', this.phase);
-
-            // Check if game is over before any phase transition
-            if (this.phase === PHASES.GAME_OVER) {
-                throw new GameError('Cannot advance from current game phase', 'The game is over.');
+            const validTransitions = PHASE_TRANSITIONS[this.phase];
+            if (!validTransitions || validTransitions.length === 0) {
+                throw new GameError('Invalid phase', 'Cannot advance from current game phase.');
             }
 
-            switch(this.phase) {
-                case PHASES.LOBBY:
-                    throw new GameError('Invalid phase', 'Cannot advance from lobby phase.');
-                    
-                case PHASES.NIGHT_ZERO:
-                    this.phase = PHASES.DAY;
-                    this.round = 1;
-                    await this.broadcastMessage(`--- Day ${this.round} ---`);
-                    break;
-                    
-                case PHASES.NIGHT:
-                    if (!this.checkWinConditions()) {
-                        this.phase = PHASES.DAY;
-                        this.round += 1;
-                        await this.broadcastMessage(`--- Day ${this.round} ---`);
-                    }
-                    break;
-                    
-                case PHASES.DAY:
-                    this.phase = PHASES.NIGHT;
-                    await this.broadcastMessage(`--- Night ${this.round} ---`);
-                    break;
-                    
-                default:
-                    throw new GameError('Invalid phase', 'Cannot advance from current game phase.');
+            // Determine the next phase based on game logic
+            let nextPhase;
+            if (this.phase === PHASES.DAY && this.nominatedPlayer) {
+                nextPhase = PHASES.NOMINATION;
+            } else if (this.phase === PHASES.NOMINATION && this.seconder) {
+                nextPhase = PHASES.VOTING;
+            } else {
+                nextPhase = validTransitions[0]; // Default to the first valid transition
             }
-            
+
+            if (!validTransitions.includes(nextPhase)) {
+                throw new GameError('Invalid transition', 'Cannot transition to the next phase.');
+            }
+
+            this.phase = nextPhase;
             logger.info(`Phase advanced to ${this.phase}`, { round: this.round });
+
+            // Handle phase-specific logic here
+            // ...
+
         } catch (error) {
             logger.error('Error advancing phase', { error });
             throw error;
@@ -1272,6 +1291,10 @@ class WerewolfGame {
     // Start of Selection
     }
     module.exports = WerewolfGame;
+
+
+
+
 
 
 
