@@ -12,9 +12,8 @@ module.exports = {
 
     async execute(interaction) {
         try {
-            // Create new game instance
-            const game = new WerewolfGame(
-                interaction.client,
+            // Create new game instance using client's createGame method
+            const game = interaction.client.createGame(
                 interaction.guildId,
                 interaction.channelId,
                 interaction.user.id

@@ -36,7 +36,7 @@ class WerewolfGame {
         this.authorizedIds = authorizedIds; // Array of user IDs authorized to advance phases
 
         this.players = new Map(); // Map of playerId -> Player instance
-        this.phase = PHASES.LOBBY; // Initial phase
+        this.phase = PHASES.LOBBY;  // This should be set to LOBBY
         this.round = 0;
         this.votes = new Map(); // Map of playerId -> votedPlayerId
         this.nightActions = {}; // Store night actions like attacks, investigations, etc.
@@ -55,6 +55,12 @@ class WerewolfGame {
         this.votingOpen = false;
         this.nominationTimeout = null;
         this.NOMINATION_WAIT_TIME = 60000; // 1 minute
+        
+        logger.info('Game created with phase', { 
+            phase: this.phase,
+            isLobby: this.phase === PHASES.LOBBY,
+            phaseValue: PHASES.LOBBY  // Add this to verify PHASES.LOBBY value
+        });
      }
 
     /**
@@ -63,20 +69,48 @@ class WerewolfGame {
      * @returns {Player} - The added player.
      */
     addPlayer(user) {
+        logger.info('Adding player', { 
+            phase: this.phase,
+            isLobby: this.phase === PHASES.LOBBY 
+        });
+        
+        if (this.phase !== PHASES.LOBBY) {
+            throw new GameError('Cannot join', 'The game has already started. You cannot join at this time.');
+        }
+
         try {
+            // Add debug logging
+            logger.info('Attempting to add player', { 
+                userId: user.id, 
+                currentPhase: this.phase,
+                isLobby: this.phase === PHASES.LOBBY 
+            });
+
+            // Check phase first
             if (this.phase !== PHASES.LOBBY) {
-                throw new GameError('Cannot join a game in progress.', 'The game has already started. You cannot join at this time.');
+                throw new GameError('Cannot join', 'The game has already started. You cannot join at this time.');
             }
+
+            // Then check for duplicate players
             if (this.players.has(user.id)) {
-                throw new GameError('Player already in game.', 'You are already in the game.');
+                throw new GameError('Player already in game', 'You are already in the game.');
             }
+
             const player = new Player(user.id, user.username, this.client);
             this.players.set(user.id, player);
-            logger.info('Player added to the game', { playerId: user.id, username: user.username });
+            logger.info('Player added to the game', { 
+                playerId: user.id, 
+                username: user.username,
+                currentPhase: this.phase 
+            });
             return player;
         } catch (error) {
-            logger.error('Error adding player to game', { error, userId: user.id });
-            throw error; // Re-throw the error to be handled by the command handler
+            logger.error('Error adding player to game', { 
+                error, 
+                userId: user.id,
+                currentPhase: this.phase 
+            });
+            throw error;
         }
     }
 
@@ -759,7 +793,7 @@ class WerewolfGame {
         if (role === ROLES.CUPID && currentCount >= 1) {
             throw new GameError('Invalid Role Count', 'There can only be one Cupid.');
         }
-        if (role === ROLES.WEREWOLF && currentCount >= Math.floor(this.players.size / 3)) {
+        if (role === ROLES.WEREWOLF && currentCount >= Math.floor(this.players.size / 4)) {
             throw new GameError('Invalid Role Count', 'Too many Werewolves for current player count.');
         }
 
@@ -1289,23 +1323,13 @@ class WerewolfGame {
         });
     }
     // Start of Selection
+    getPhase() {
+        return this.phase;
     }
-    module.exports = WerewolfGame;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    isInLobby() {
+        return this.phase === PHASES.LOBBY;
+    }
+}
+module.exports = WerewolfGame;
 

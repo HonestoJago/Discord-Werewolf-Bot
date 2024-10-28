@@ -65,9 +65,6 @@ const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
     }
 })();
 
-// Store the game instance
-let currentGame = null;
-
 // When the client is ready, run this code once (only triggered once)
 client.once('ready', () => {
     logger.info(`Logged in as ${client.user.tag}! Bot is online and ready.`, { timestamp: new Date().toISOString() });
@@ -87,14 +84,20 @@ client.on('interactionCreate', async interaction => {
             }
 
             const command = client.commands.get(interaction.commandName);
+            if (!command) return;
 
-            if (!command) {
-                logger.warn(`No command found for ${interaction.commandName}`, { timestamp: new Date().toISOString() });
-                return;
-            }
+            // Get game from the Map using guildId
+            const game = interaction.guild ? client.games.get(interaction.guildId) : null;
+            
+            logger.info('Command execution', {
+                command: interaction.commandName,
+                guildId: interaction.guild?.id,
+                hasGame: !!game,
+                gamePhase: game?.phase,
+                isDM: isDM
+            });
 
-            // Pass the currentGame to the command execution
-            await command.execute(interaction, currentGame);
+            await command.execute(interaction, game);
         } 
         else if (interaction.isButton()) {
             const [handlerId] = interaction.customId.split('_');
@@ -150,7 +153,8 @@ client.on('interactionCreate', async interaction => {
             }
 
             try {
-                await handler.handleSelect(interaction, currentGame);
+                const game = interaction.guild ? client.games.get(interaction.guildId) : null;
+                await handler.handleSelect(interaction, game);
             } catch (error) {
                 logger.error('Error handling select menu', { 
                     error,
@@ -167,12 +171,14 @@ client.on('interactionCreate', async interaction => {
 
 // Function to create a new game
 client.createGame = (guildId, channelId, creatorId, testMode = false) => {
-    if (currentGame) {
-        throw new Error('A game is already in progress.');
+    // Check if game exists in the Map
+    if (client.games.has(guildId)) {
+        throw new Error('A game is already in progress in this server.');
     }
-    currentGame = new WerewolfGame(client, guildId, channelId, creatorId, testMode);
-    logger.info('New game instance created', { guildId, creatorId, timestamp: new Date().toISOString() });
-    return currentGame;
+    const game = new WerewolfGame(client, guildId, channelId, creatorId, testMode);
+    client.games.set(guildId, game);
+    logger.info('New game instance created', { guildId, creatorId });
+    return game;
 };
 
 // Function to end the current game
@@ -184,9 +190,6 @@ client.endGame = (guildId) => {
         logger.info('Game instance has been reset.', { guildId });
     }
 };
-
-// Function to get the current game
-client.getCurrentGame = () => currentGame;
 
 // Log in to Discord with your bot token
 client.login(process.env.BOT_TOKEN);
