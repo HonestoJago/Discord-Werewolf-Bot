@@ -62,35 +62,69 @@ module.exports = {
         }
     },
 
-    async autocomplete(interaction, gameInstance) {
-        const focusedValue = interaction.options.getFocused();
-        const action = interaction.options.getString('action');
-        const player = gameInstance.players.get(interaction.user.id);
-
-        // Get valid targets based on the action and player role
-        let choices = [];
-        if (player && player.isAlive) {
-            let validTargets = Array.from(gameInstance.players.values())
-                .filter(p => p.isAlive);
-
-            // Filter based on action type
-            if (action === 'investigate') {
-                validTargets = validTargets.filter(p => p.id !== player.id);
-            } else if (action === 'protect' && player.role === ROLES.DOCTOR) {
-                validTargets = validTargets.filter(p => p.id !== gameInstance.lastProtectedPlayer);
+    async autocomplete(interaction, currentGame) {
+        try {
+            // If no game found, search all games for this player
+            if (!currentGame) {
+                for (const [, gameInstance] of interaction.client.games) {
+                    if (gameInstance.players.has(interaction.user.id)) {
+                        currentGame = gameInstance;
+                        break;
+                    }
+                }
             }
 
-            choices = validTargets.map(p => ({
-                name: p.username,
-                value: p.id
-            }));
+            if (!currentGame) {
+                return await interaction.respond([]);
+            }
+
+            const focusedValue = interaction.options.getFocused();
+            const action = interaction.options.getString('action');
+            const player = currentGame.players.get(interaction.user.id);
+
+            if (!player || !player.isAlive) {
+                return await interaction.respond([]);
+            }
+
+            // Get valid targets based on the action and player role
+            let validTargets = Array.from(currentGame.players.values())
+                .filter(p => p.isAlive && p.id !== player.id);
+
+            // Action-specific filtering
+            switch (action) {
+                case 'investigate':
+                    if (player.role !== ROLES.SEER) return await interaction.respond([]);
+                    break;
+                case 'protect':
+                    if (player.role !== ROLES.DOCTOR) return await interaction.respond([]);
+                    validTargets = validTargets.filter(p => p.id !== currentGame.lastProtectedPlayer);
+                    break;
+                case 'attack':
+                    if (player.role !== ROLES.WEREWOLF) return await interaction.respond([]);
+                    validTargets = validTargets.filter(p => p.role !== ROLES.WEREWOLF);
+                    break;
+                case 'choose_lovers':
+                    if (player.role !== ROLES.CUPID) return await interaction.respond([]);
+                    break;
+                case 'hunter_revenge':
+                    if (player.role !== ROLES.HUNTER) return await interaction.respond([]);
+                    break;
+                default:
+                    return await interaction.respond([]);
+            }
+
+            // Filter based on user input and create choices
+            const choices = validTargets
+                .filter(p => p.username.toLowerCase().includes(focusedValue.toLowerCase()))
+                .map(p => ({
+                    name: p.username,
+                    value: p.id
+                }));
+
+            await interaction.respond(choices);
+        } catch (error) {
+            logger.error('Error in action autocomplete', { error });
+            await interaction.respond([]);
         }
-
-        // Filter based on user input
-        const filtered = choices.filter(choice => 
-            choice.name.toLowerCase().includes(focusedValue.toLowerCase())
-        );
-
-        await interaction.respond(filtered);
     }
 };

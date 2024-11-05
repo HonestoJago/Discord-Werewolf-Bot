@@ -10,11 +10,11 @@ const { createDayPhaseEmbed, createVoteResultsEmbed } = require('../utils/embedC
 
 // Define roles and their properties in a configuration object
 const ROLE_CONFIG = {
-    [ROLES.WEREWOLF]: { maxCount: (playerCount) => Math.floor(playerCount / 4) },
+    [ROLES.WEREWOLF]: { maxCount: (playerCount) => Math.max(1, Math.floor(playerCount / 4)) },
     [ROLES.SEER]: { maxCount: 1 },
     [ROLES.DOCTOR]: { maxCount: 1 },
     [ROLES.CUPID]: { maxCount: 1 },
-    [ROLES.HUNTER]: { maxCount: 1 },  // Add Hunter
+    [ROLES.HUNTER]: { maxCount: 1 },
     [ROLES.VILLAGER]: { maxCount: (playerCount) => playerCount }
 };
 
@@ -124,12 +124,22 @@ class WerewolfGame {
             if (this.phase !== PHASES.LOBBY) {
                 throw new GameError('Game already started', 'The game has already started.');
             }
-            if (this.players.size < 6) {
-                throw new GameError('Not enough players', 'Not enough players to start the game. Minimum 6 players required.');
+            if (this.players.size < 4) {
+                throw new GameError('Not enough players', 'Not enough players to start the game. Minimum 4 players required.');
             }
-            if (this.selectedRoles.size === 0) {
-                throw new GameError('Roles Not Configured', 'Please configure the game roles before starting.');
+
+            // Initialize selectedRoles if not exists
+            if (!this.selectedRoles) {
+                this.selectedRoles = new Map();
             }
+
+            // Automatically add basic roles (no need for manual configuration)
+            const playerCount = this.players.size;
+            const werewolfCount = Math.max(1, Math.floor(playerCount / 4));
+            
+            // Always include 1 Seer and calculated number of Werewolves
+            this.selectedRoles.set(ROLES.WEREWOLF, werewolfCount);
+            this.selectedRoles.set(ROLES.SEER, 1);
 
             // Set phase before other operations
             this.phase = PHASES.NIGHT_ZERO;
@@ -156,41 +166,68 @@ class WerewolfGame {
      */
     async assignRoles() {
         try {
-            const playerArray = Array.from(this.players.values());
-            const playerCount = playerArray.length;
-    
-            // Always include one Seer
-            let rolePool = [ROLES.SEER];
-    
-            // Calculate number of werewolves
-            const werewolfCount = Math.floor(playerCount / 4);
-            rolePool.push(...Array(werewolfCount).fill(ROLES.WEREWOLF));
-    
-            // Add selected special roles
-            for (const [role, count] of this.selectedRoles.entries()) {
-                rolePool.push(...Array(count).fill(role));
-            }
-    
+            // Get all players as an array
+            const players = Array.from(this.players.values());
+            const playerCount = players.length;
+            
+            // Create array of roles based on selectedRoles
+            let roles = [];
+            
+            // Add werewolves
+            const werewolfCount = Math.max(1, Math.floor(playerCount / 4));
+            roles.push(...Array(werewolfCount).fill(ROLES.WEREWOLF));
+            
+            // Add one seer
+            roles.push(ROLES.SEER);
+            
             // Fill remaining slots with villagers
-            const remainingSlots = playerCount - rolePool.length;
-            rolePool.push(...Array(remainingSlots).fill(ROLES.VILLAGER));
-    
-            // Shuffle the role pool
-            rolePool = this.shuffleArray(rolePool);
-    
-            // Assign roles to players
-            for (let i = 0; i < playerArray.length; i++) {
-                const player = playerArray[i];
-                const role = rolePool[i];
-                player.assignRole(role);
+            const villagerCount = playerCount - roles.length;
+            roles.push(...Array(villagerCount).fill(ROLES.VILLAGER));
+            
+            // Shuffle roles
+            for (let i = roles.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [roles[i], roles[j]] = [roles[j], roles[i]];
             }
-    
-            logger.info('Roles assigned to all players');
+            
+            // Assign roles to players
+            for (let i = 0; i < players.length; i++) {
+                const player = players[i];
+                const role = roles[i];
+                
+                // Log before assignment
+                logger.info('Assigning role', { 
+                    playerId: player.id, 
+                    playerName: player.username, 
+                    role: role 
+                });
+                
+                await player.assignRole(role);
+                
+                // If werewolf, add to werewolf channel
+                if (role === ROLES.WEREWOLF && this.werewolfChannel) {
+                    await this.werewolfChannel.permissionOverwrites.create(player.id, {
+                        ViewChannel: true,
+                        SendMessages: true
+                    });
+                }
+            }
+            
+            logger.info('Roles assigned successfully', {
+                playerCount,
+                werewolfCount,
+                roles: roles.reduce((acc, role) => {
+                    acc[role] = (acc[role] || 0) + 1;
+                    return acc;
+                }, {})
+            });
+            
         } catch (error) {
-            logger.error('Error assigning roles to players', { error });
-            throw new GameError('Role Assignment Failed', 'An error occurred while assigning roles.');
+            logger.error('Error in assignRoles', { error });
+            throw new GameError('Role Assignment Failed', 'Failed to assign roles to players. Please try again.');
         }
     }
+
     /**
      * Shuffles an array using the Fisher-Yates algorithm.
      * @param {Array} array - The array to shuffle.
@@ -211,40 +248,70 @@ class WerewolfGame {
         try {
             const guild = await this.client.guilds.fetch(this.guildId);
             const gameChannel = await guild.channels.fetch(this.gameChannelId);
+            
+            // Get category ID from environment variables
+            const categoryId = process.env.WEREWOLF_CATEGORY_ID;
+            if (!categoryId) {
+                throw new GameError('Config Error', 'WEREWOLF_CATEGORY_ID not set in environment variables');
+            }
+
+            // Fetch the category
+            const category = await guild.channels.fetch(categoryId);
+            if (!category) {
+                throw new GameError('Config Error', 'Could not find the specified category');
+            }
+
+            // Create Dead channel with default permissions denying view access
+            this.deadChannel = await guild.channels.create({
+                name: 'dead-players',
+                type: 0,  // 0 is text channel
+                parent: categoryId,
+                permissionOverwrites: [
+                    {
+                        id: guild.id,
+                        deny: ['ViewChannel', 'SendMessages']  // Everyone can't see or send by default
+                    },
+                    {
+                        id: this.client.user.id,
+                        allow: ['ViewChannel', 'SendMessages', 'ManageChannels']
+                    }
+                ]
+            });
 
             // Create Werewolf channel
             this.werewolfChannel = await guild.channels.create({
                 name: 'werewolf-channel',
-                type: 0, // GUILD_TEXT
+                type: 0,  // 0 is text channel
+                parent: categoryId,
                 permissionOverwrites: [
                     {
-                        id: guild.roles.everyone.id,
-                        deny: ['VIEW_CHANNEL'],
+                        id: guild.id,
+                        deny: ['ViewChannel']
                     },
-                    ...Array.from(this.getPlayersByRole(ROLES.WEREWOLF)).map(player => ({
-                        id: player.id,
-                        allow: ['VIEW_CHANNEL', 'SEND_MESSAGES', 'READ_MESSAGE_HISTORY'],
-                    })),
-                ],
+                    {
+                        id: this.client.user.id,
+                        allow: ['ViewChannel', 'SendMessages', 'ManageChannels']
+                    }
+                ]
             });
-            logger.info('Werewolf channel created');
 
-            // Create Dead channel
-            this.deadChannel = await guild.channels.create({
-                name: 'dead-players',
-                type: 0, // GUILD_TEXT
-                permissionOverwrites: [
-                    {
-                        id: guild.roles.everyone.id,
-                        deny: ['SEND_MESSAGES'],
-                        allow: ['VIEW_CHANNEL', 'READ_MESSAGE_HISTORY'],
-                    },
-                ],
+            // Add werewolves to the channel after creation
+            const werewolves = this.getPlayersByRole(ROLES.WEREWOLF);
+            for (const werewolf of werewolves) {
+                await this.werewolfChannel.permissionOverwrites.create(werewolf.id, {
+                    ViewChannel: true,
+                    SendMessages: true
+                });
+            }
+
+            logger.info('Private channels created successfully', {
+                categoryId,
+                werewolfChannelId: this.werewolfChannel.id,
+                deadChannelId: this.deadChannel.id
             });
-            logger.info('Dead players channel created');
         } catch (error) {
             logger.error('Error creating private channels', { error });
-            throw new GameError('Channel Creation Failed', 'Failed to create necessary channels.');
+            throw new GameError('Channel Creation Failed', 'Failed to create necessary channels. Make sure the bot has proper permissions and the category ID is correct.');
         }
     }
 
@@ -253,10 +320,14 @@ class WerewolfGame {
      */
     async nightZero() {
         try {
-            // Don't change phase here since it's already set in startGame
-            this.expectedNightActions = new Set();
+            // Get werewolves and send them their team info
+            const werewolves = this.getPlayersByRole(ROLES.WEREWOLF);
+            const werewolfNames = werewolves.map(w => w.username).join(', ');
+            for (const werewolf of werewolves) {
+                await werewolf.sendDM(`Your fellow werewolves are: ${werewolfNames}`);
+            }
 
-            // Handle Seer's automatic revelation first
+            // Handle Seer's initial revelation
             const seer = this.getPlayerByRole(ROLES.SEER);
             if (seer && seer.isAlive) {
                 const validTargets = Array.from(this.players.values()).filter(
@@ -271,19 +342,36 @@ class WerewolfGame {
                 }
             }
 
-            // Setup Cupid's action if present
+            // If no Cupid, advance to Day phase immediately
             const cupid = this.getPlayerByRole(ROLES.CUPID);
-            if (cupid && cupid.isAlive) {
+            if (!cupid || !cupid.isAlive) {
+                // Set a short timeout to ensure all messages are sent before advancing
+                setTimeout(async () => {
+                    try {
+                        this.phase = PHASES.DAY;
+                        this.round = 1; // Start first day
+                        await this.advanceToDay();
+                        await this.broadcastMessage('The sun rises on the first day. Discuss and find the werewolves!');
+                    } catch (error) {
+                        logger.error('Error advancing to day after Night Zero', { error });
+                    }
+                }, 2000);
+            } else {
+                // Handle Cupid's action
                 await cupid.sendDM('Use `/action choose_lovers` to select two players to be lovers. You have 10 minutes.');
                 this.expectedNightActions.add(cupid.id);
-
-                // Set backup timeout only if we have a Cupid
-                this.nightActionTimeout = setTimeout(() => {
-                    this.processNightActions();
-                }, 600000);
-            } else {
-                // If no Cupid, advance to Day phase immediately
-                await this.advancePhase();
+                
+                // Set timeout for Cupid's action
+                this.nightActionTimeout = setTimeout(async () => {
+                    try {
+                        this.phase = PHASES.DAY;
+                        this.round = 1;
+                        await this.advanceToDay();
+                        await this.broadcastMessage('The sun rises on the first day. Discuss and find the werewolves!');
+                    } catch (error) {
+                        logger.error('Error advancing after Cupid timeout', { error });
+                    }
+                }, 600000); // 10 minutes
             }
 
             logger.info('Night Zero started');
@@ -597,7 +685,17 @@ class WerewolfGame {
                 logger.warn('Dead channel is not set');
                 return;
             }
-            await this.deadChannel.send(`**${player.username}** has died.`);
+
+            // Update dead channel permissions for the dead player
+            await this.deadChannel.permissionOverwrites.create(player.id, {
+                ViewChannel: true,
+                SendMessages: true,
+                ReadMessageHistory: true
+            });
+
+            await this.deadChannel.send(`**${player.username}** has joined the dead chat.`);
+            await player.sendDM('You have died! You can now speak with other dead players in the #dead-players channel.');
+            
             logger.info('Player moved to Dead channel', { playerId: player.id });
         } catch (error) {
             logger.error('Error moving player to Dead channel', { error, playerId: player.id });
@@ -749,29 +847,22 @@ class WerewolfGame {
             }
 
             try {
-                // Check permissions
-                const permissions = channel.permissionsFor(this.client.user);
-                if (!permissions || !permissions.has('MANAGE_CHANNELS')) {
-                    logger.warn(`Bot lacks permission to delete ${channelName} channel`);
-                    return;
-                }
-
                 await channel.delete();
                 logger.info(`${channelName} channel deleted successfully`);
             } catch (error) {
                 if (error.code === 10003) { // Unknown Channel error
                     logger.info(`${channelName} channel no longer exists`);
+                } else if (error.code === 'BitFieldInvalid') {
+                    logger.warn(`BitField error while deleting ${channelName} channel - ignoring`);
                 } else {
                     logger.error(`Error deleting ${channelName} channel`, { error });
                 }
             }
         };
 
-        // Execute channel deletions concurrently
-        await Promise.all([
-            cleanupChannel(this.werewolfChannel, 'Werewolf'),
-            cleanupChannel(this.deadChannel, 'Dead')
-        ]);
+        // Execute channel deletions
+        await cleanupChannel(this.werewolfChannel, 'Werewolf');
+        await cleanupChannel(this.deadChannel, 'Dead');
 
         // Reset channel properties
         this.werewolfChannel = null;
@@ -1095,26 +1186,16 @@ class WerewolfGame {
 
         this.seconder = seconderId;
         this.phase = PHASES.VOTING;
-        this.votingOpen = true;
         this.votes.clear();
-
-        const target = this.players.get(this.nominatedPlayer);
-        await this.broadcastMessage({
-            embeds: [{
-                title: 'Voting Started',
-                description: `The nomination of ${target.username} has been seconded by ${seconder.username}.\n` +
-                           `Voting is now open. Use /vote guilty or /vote innocent in DMs to cast your vote.`
-            }]
-        });
 
         logger.info('Nomination seconded', {
             seconder: seconder.username,
-            target: target.username
+            target: this.players.get(this.nominatedPlayer).username
         });
     }
 
-    async submitVote(voterId, guilty) {
-        if (this.phase !== PHASES.VOTING || !this.votingOpen) {
+    async submitVote(voterId, isGuilty) {
+        if (this.phase !== PHASES.VOTING) {
             throw new GameError('Wrong phase', 'Voting is not currently open.');
         }
 
@@ -1122,11 +1203,25 @@ class WerewolfGame {
         if (!voter?.isAlive) {
             throw new GameError('Invalid voter', 'Dead players cannot vote.');
         }
-        this.votes.set(voterId, guilty);
-        logger.info('Vote submitted', { 
-            voter: voter.username, 
-            guilty 
-        });
+
+        // Record the vote
+        this.votes.set(voterId, isGuilty);
+
+        // Check if all votes are in
+        const aliveCount = Array.from(this.players.values()).filter(p => p.isAlive).length;
+        if (this.votes.size >= aliveCount) {
+            // Process voting results
+            const results = await this.processVotes();
+            
+            // Reset voting state
+            this.votes = new Map();
+            this.nominatedPlayer = null;
+            this.phase = PHASES.DAY;
+
+            return results;
+        }
+
+        return null;  // Return null if voting is still ongoing
     }
 
     async advancePhase() {
@@ -1268,27 +1363,12 @@ class WerewolfGame {
     async advanceToDay() {
         try {
             this.phase = PHASES.DAY;
-            this.round += 1;
-
-            // Create and send day phase GUI
             const channel = await this.client.channels.fetch(this.gameChannelId);
             
-            const embed = createDayPhaseEmbed(this.players);
-            const nominateButton = new ButtonBuilder()
-                .setCustomId('day_nominate')
-                .setLabel('Nominate')
-                .setStyle(ButtonStyle.Primary);
-
-            const row = new ActionRowBuilder().addComponents(nominateButton);
-
-            const message = await channel.send({
-                embeds: [embed],
-                components: [row]
-            });
-
-            // Store message ID for future updates
-            this.dayPhaseMessageId = message.id;
-
+            // Use the day phase handler to create UI
+            const dayPhaseHandler = require('../handlers/dayPhaseHandler');
+            await dayPhaseHandler.createDayPhaseUI(channel, this.players);
+    
             logger.info(`Game advanced to Day ${this.round}`);
         } catch (error) {
             logger.error('Error advancing to Day phase', { error });
@@ -1367,6 +1447,11 @@ class WerewolfGame {
 
     isInLobby() {
         return this.phase === PHASES.LOBBY;
+    }
+
+    // Add this method to the WerewolfGame class
+    isGameCreatorOrAuthorized(userId) {
+        return userId === this.gameCreatorId || this.authorizedIds.includes(userId);
     }
 }
 module.exports = WerewolfGame;

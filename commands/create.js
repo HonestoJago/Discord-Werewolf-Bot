@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const WerewolfGame = require('../game/WerewolfGame');
 const { createRoleConfigEmbed } = require('../utils/embedCreator');
 const { createRoleButtons } = require('../utils/buttonCreator');
@@ -42,7 +42,7 @@ module.exports = {
                     },
                     {
                         name: 'Next Steps',
-                        value: '1. Configure roles using buttons below\n2. Players join with `/join`\n3. Start the game with `/start`',
+                        value: '1. Click Join button or use `/join` to join\n2. Configure roles using buttons below\n3. Start the game when ready',
                         inline: false
                     }
                 ],
@@ -51,16 +51,27 @@ module.exports = {
                 }
             };
 
+            // Create join button
+            const joinButton = new ButtonBuilder()
+                .setCustomId('join_game')
+                .setLabel('🎮 Join Game')
+                .setStyle(ButtonStyle.Success);
+
             // Create role configuration buttons
-            const buttons = createRoleButtons();
+            const roleButtons = createRoleButtons();
+
+            // Add join button to first row
+            const allButtons = [
+                { type: 1, components: [joinButton] },  // New row with join button
+                ...roleButtons  // Existing role buttons
+            ];
 
             await interaction.reply({
                 embeds: [welcomeEmbed],
-                components: buttons,
+                components: allButtons,
                 ephemeral: false
             });
 
-            // Log successful game creation
             logger.info('New game instance created', {
                 guildId: interaction.guildId,
                 creatorId: interaction.user.id

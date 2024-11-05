@@ -86,8 +86,19 @@ client.on('interactionCreate', async interaction => {
             const command = client.commands.get(interaction.commandName);
             if (!command) return;
 
-            // Get game from the Map using guildId
-            const game = interaction.guild ? client.games.get(interaction.guildId) : null;
+            // Get game instance - for DMs, find the game the player is in
+            let game = null;
+            if (isDM) {
+                // Search all games for this player
+                for (const [, gameInstance] of client.games) {
+                    if (gameInstance.players.has(interaction.user.id)) {
+                        game = gameInstance;
+                        break;
+                    }
+                }
+            } else {
+                game = client.games.get(interaction.guildId);
+            }
             
             logger.info('Command execution', {
                 command: interaction.commandName,
@@ -104,12 +115,46 @@ client.on('interactionCreate', async interaction => {
             
             // Map handlers
             const handlers = {
-                'day': dayPhaseHandler,
+                'day': dayPhaseHandler.handleButton,
+                'second': dayPhaseHandler.handleButton,  // Map to same handler as it's handled inside
+                'vote': dayPhaseHandler.handleButton,    // Map to same handler as it's handled inside
                 'add': require('./handlers/buttonHandler').handleAddRole,
                 'remove': require('./handlers/buttonHandler').handleRemoveRole,
                 'view': require('./handlers/buttonHandler').handleViewRoles,
                 'start': require('./handlers/buttonHandler').handleStartGame,
-                'reset': require('./handlers/buttonHandler').handleResetRoles
+                'reset': require('./handlers/buttonHandler').handleResetRoles,
+                'join': async (interaction, game) => {
+                    try {
+                        if (!game) {
+                            throw new GameError('No game', 'There is no active game to join.');
+                        }
+                        
+                        // Add the player to the game
+                        game.addPlayer(interaction.user);
+                        
+                        await interaction.reply({ 
+                            content: 'You have successfully joined the Werewolf game!', 
+                            ephemeral: true 
+                        });
+                        
+                        await game.broadcastMessage(`**${interaction.user.username}** has joined the game.`);
+                        
+                        logger.info('Player joined via button', { 
+                            userId: interaction.user.id, 
+                            username: interaction.user.username,
+                            phase: game.phase 
+                        });
+                    } catch (error) {
+                        if (error instanceof GameError) {
+                            await interaction.reply({ 
+                                content: error.userMessage, 
+                                ephemeral: true 
+                            });
+                        } else {
+                            await handleCommandError(interaction, error);
+                        }
+                    }
+                }
             };
 
             const handler = handlers[handlerId];

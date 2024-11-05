@@ -3,14 +3,15 @@
 const { PermissionsBitField } = require('discord.js');
 const logger = require('../utils/logger'); // Importing logger
 const { GameError } = require('../utils/error-handler'); // Importing GameError
+const ROLES = require('../constants/roles');  // Add this import
 
 const validRoles = [
-    'werewolf',
-    'seer',
-    'doctor',
-    'cupid',
-    'villager',
-    // Add other valid roles as needed
+    ROLES.WEREWOLF,
+    ROLES.SEER,
+    ROLES.DOCTOR,
+    ROLES.CUPID,
+    ROLES.HUNTER,
+    ROLES.VILLAGER
 ];
 
 class Player {
@@ -29,7 +30,7 @@ class Player {
      * @param {string} role - The role to assign.
      * @throws {GameError} Throws an error if the role is invalid.
      */
-    assignRole(role) {
+    async assignRole(role) {
         if (!validRoles.includes(role)) {
             throw new GameError('Invalid Role', `The role "${role}" is not a valid role.`);
         }
@@ -59,13 +60,17 @@ class Player {
                 break;
         }
 
-        this.sendDM(message);
-        logger.info({
-            playerId: this.id,
-            username: this.username,
-            assignedRole: role,
-            timestamp: new Date().toISOString()
-        }, `Role "${role}" assigned to player ${this.username} (ID: ${this.id}).`);
+        try {
+            await this.sendDM(message);
+            logger.info('Role assigned and DM sent', {
+                playerId: this.id,
+                username: this.username,
+                role: role
+            });
+        } catch (error) {
+            logger.error('Error sending role DM', { error });
+            throw new GameError('DM Failed', 'Failed to send role information. Please make sure you can receive DMs from the bot.');
+        }
     }
 
     /**

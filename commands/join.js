@@ -10,7 +10,12 @@ module.exports = {
         .setName('join')
         .setDescription('Join the Werewolf game.'),
     async execute(interaction, gameInstance) {
-        // First check if game exists
+        // First check if command is used in DM
+        if (!interaction.guild) {
+            throw new GameError('Invalid channel', 'The join command can only be used in the server, not in DMs.');
+        }
+
+        // Then check if game exists
         if (!gameInstance) {
             throw new GameError('No game', 'There is no active game to join.');
         }

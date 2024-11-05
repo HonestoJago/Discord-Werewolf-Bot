@@ -14,24 +14,24 @@ function createPlayerListEmbed(players, phase) {
     return embed;
 }
 
-function createNominationEmbed(nominator, target) {
-    return new EmbedBuilder()
-        .setColor('#FF0000')
-        .setTitle('Player Nominated')
-        .setDescription(`${nominator.username} has nominated ${target.username} for elimination.`)
-        .addFields(
-            { name: 'Status', value: 'Waiting for a second...' }
-        )
-        .setTimestamp();
+function createNominationEmbed(nominatorName, targetName) {
+    return {
+        color: 0xff0000,
+        title: '⚖️ Player Nominated',
+        description: `**${nominatorName}** has nominated **${targetName}** for elimination.\n\nThis nomination needs a second within 60 seconds to proceed to voting.`,
+        footer: {
+            text: 'Click the button below to second this nomination'
+        }
+    };
 }
 
 function createVotingEmbed(target, seconder) {
     return new EmbedBuilder()
         .setColor('#FF0000')
-        .setTitle('Voting Started')
-        .setDescription(`${target.username} has been nominated for elimination.\nNomination seconded by ${seconder.username}.`)
+        .setTitle('⚖️ Time to Vote!')
+        .setDescription(`${target.username} has been nominated and seconded by ${seconder.username}.\n\nUse the buttons below to cast your vote.`)
         .addFields(
-            { name: 'Instructions', value: 'Click the buttons below to vote.' }
+            { name: 'Instructions', value: 'Click Lynch to eliminate the player, or Let Live to spare them.' }
         )
         .setTimestamp();
 }
