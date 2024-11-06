@@ -73,6 +73,31 @@ client.once('ready', () => {
 // Listen for interactions
 client.on('interactionCreate', async interaction => {
     try {
+        if (interaction.isAutocomplete()) {
+            const command = client.commands.get(interaction.commandName);
+            if (!command || !command.autocomplete) return;
+
+            // For DMs, search all games for this player
+            let game = null;
+            if (!interaction.guild) {
+                for (const [, gameInstance] of client.games) {
+                    if (gameInstance.players.has(interaction.user.id)) {
+                        game = gameInstance;
+                        break;
+                    }
+                }
+            } else {
+                game = client.games.get(interaction.guildId);
+            }
+
+            try {
+                await command.autocomplete(interaction, game);
+            } catch (error) {
+                logger.error('Error in autocomplete', { error });
+            }
+            return;
+        }
+
         if (interaction.isCommand()) {
             // Determine if the interaction is a DM
             const isDM = !interaction.guild;

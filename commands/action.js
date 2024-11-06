@@ -29,29 +29,56 @@ module.exports = {
 
     async execute(interaction, currentGame) {
         try {
-            // Only Discord-specific validation
+            // Verify we're in DMs
             if (interaction.guild) {
                 throw new GameError('Not in DM', 'This command can only be used in direct messages with the bot.');
             }
 
-            // Basic game existence check
+            // Find the game if not provided (since we're in DMs)
+            if (!currentGame) {
+                for (const [, gameInstance] of interaction.client.games) {
+                    if (gameInstance.players.has(interaction.user.id)) {
+                        currentGame = gameInstance;
+                        break;
+                    }
+                }
+            }
+
             if (!currentGame) {
                 throw new GameError('No game', 'You are not part of any ongoing game.');
             }
 
-            const { user, options } = interaction;
-            const action = options.getString('action');
-            const target = options.getString('target');
+            // Verify it's night phase
+            if (currentGame.phase !== 'NIGHT' && currentGame.phase !== 'NIGHT_ZERO') {
+                throw new GameError('Wrong phase', 'Actions can only be submitted during the night phase.');
+            }
+
+            const player = currentGame.players.get(interaction.user.id);
+            if (!player || !player.isAlive) {
+                throw new GameError('Invalid player', 'You cannot perform actions at this time.');
+            }
+
+            const action = interaction.options.getString('action');
+            const targetId = interaction.options.getString('target');
+            const target = currentGame.players.get(targetId);
+
+            if (!target) {
+                throw new GameError('Invalid target', 'The selected target is not valid.');
+            }
 
             // Let the game handle all game-specific validations
-            await currentGame.processNightAction(user.id, action, target);
+            await currentGame.processNightAction(interaction.user.id, action, targetId);
             
             await interaction.reply({ 
                 content: 'Your action has been recorded. Wait for the night phase to end to see the results.',
                 ephemeral: true 
             });
             
-            logger.info({ userId: user.id, action, target }, 'Night action submitted');
+            logger.info('Night action submitted', { 
+                userId: interaction.user.id, 
+                action, 
+                targetId 
+            });
 
         } catch (error) {
             if (error instanceof GameError) {
@@ -64,7 +91,7 @@ module.exports = {
 
     async autocomplete(interaction, currentGame) {
         try {
-            // If no game found, search all games for this player
+            // For DMs, we need to search all games since currentGame might be null
             if (!currentGame) {
                 for (const [, gameInstance] of interaction.client.games) {
                     if (gameInstance.players.has(interaction.user.id)) {
@@ -82,46 +109,63 @@ module.exports = {
             const action = interaction.options.getString('action');
             const player = currentGame.players.get(interaction.user.id);
 
-            if (!player || !player.isAlive) {
+            if (!player || !player.isAlive || currentGame.phase !== 'NIGHT') {
                 return await interaction.respond([]);
             }
 
             // Get valid targets based on the action and player role
             let validTargets = Array.from(currentGame.players.values())
-                .filter(p => p.isAlive && p.id !== player.id);
-
-            // Action-specific filtering
-            switch (action) {
-                case 'investigate':
-                    if (player.role !== ROLES.SEER) return await interaction.respond([]);
-                    break;
-                case 'protect':
-                    if (player.role !== ROLES.DOCTOR) return await interaction.respond([]);
-                    validTargets = validTargets.filter(p => p.id !== currentGame.lastProtectedPlayer);
-                    break;
-                case 'attack':
-                    if (player.role !== ROLES.WEREWOLF) return await interaction.respond([]);
-                    validTargets = validTargets.filter(p => p.role !== ROLES.WEREWOLF);
-                    break;
-                case 'choose_lovers':
-                    if (player.role !== ROLES.CUPID) return await interaction.respond([]);
-                    break;
-                case 'hunter_revenge':
-                    if (player.role !== ROLES.HUNTER) return await interaction.respond([]);
-                    break;
-                default:
-                    return await interaction.respond([]);
-            }
-
-            // Filter based on user input and create choices
-            const choices = validTargets
-                .filter(p => p.username.toLowerCase().includes(focusedValue.toLowerCase()))
+                .filter(p => p.isAlive && p.id !== player.id)
                 .map(p => ({
                     name: p.username,
                     value: p.id
                 }));
 
-            await interaction.respond(choices);
+            // Action-specific filtering
+            switch (action) {
+                case 'investigate':
+                    if (player.role !== ROLES.SEER) {
+                        return await interaction.respond([]);
+                    }
+                    break;
+                case 'protect':
+                    if (player.role !== ROLES.DOCTOR) {
+                        return await interaction.respond([]);
+                    }
+                    validTargets = validTargets.filter(p => 
+                        p.value !== currentGame.lastProtectedPlayer
+                    );
+                    break;
+                case 'attack':
+                    if (player.role !== ROLES.WEREWOLF) {
+                        return await interaction.respond([]);
+                    }
+                    validTargets = validTargets.filter(p => 
+                        currentGame.players.get(p.value).role !== ROLES.WEREWOLF
+                    );
+                    break;
+                case 'choose_lovers':
+                    if (player.role !== ROLES.CUPID) {
+                        return await interaction.respond([]);
+                    }
+                    break;
+                case 'hunter_revenge':
+                    if (player.role !== ROLES.HUNTER || player.isAlive) {
+                        return await interaction.respond([]);
+                    }
+                    break;
+                default:
+                    return await interaction.respond([]);
+            }
+
+            // Filter based on user input
+            const filtered = validTargets
+                .filter(choice => 
+                    choice.name.toLowerCase().includes(focusedValue.toLowerCase())
+                )
+                .slice(0, 25);
+
+            await interaction.respond(filtered);
         } catch (error) {
             logger.error('Error in action autocomplete', { error });
             await interaction.respond([]);
