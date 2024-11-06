@@ -21,9 +21,7 @@ const ROLE_CONFIG = {
 const PHASE_TRANSITIONS = {
     [PHASES.LOBBY]: ['NIGHT_ZERO'],
     [PHASES.NIGHT_ZERO]: ['DAY'],
-    [PHASES.DAY]: ['NIGHT', 'NOMINATION'],
-    [PHASES.NOMINATION]: ['VOTING'],
-    [PHASES.VOTING]: ['DAY', 'GAME_OVER'],
+    [PHASES.DAY]: ['NIGHT', 'GAME_OVER'],
     [PHASES.NIGHT]: ['DAY', 'GAME_OVER'],
     [PHASES.GAME_OVER]: []
 };
@@ -1134,19 +1132,14 @@ class WerewolfGame {
             throw new GameError('Invalid target', 'You cannot nominate yourself.');
         }
 
-        // Clear any existing nomination timeout
-        if (this.nominationTimeout) {
-            clearTimeout(this.nominationTimeout);
-        }
-
-        // Set nomination state
+        // Don't change phase, just set nomination state
         this.nominatedPlayer = targetId;
         this.nominator = nominatorId;
-        this.phase = PHASES.NOMINATION;
+        this.votingOpen = false;
 
         // Start nomination timeout
         this.nominationTimeout = setTimeout(async () => {
-            if (this.phase === PHASES.NOMINATION) {
+            if (this.nominatedPlayer && !this.votingOpen) {
                 await this.clearNomination('No second received within one minute. Nomination failed.');
             }
         }, this.NOMINATION_WAIT_TIME);
@@ -1166,8 +1159,8 @@ class WerewolfGame {
     }
 
     async second(seconderId) {
-        if (this.phase !== PHASES.NOMINATION) {
-            throw new GameError('Wrong phase', 'No active nomination to second.');
+        if (!this.nominatedPlayer || this.votingOpen) {
+            throw new GameError('Invalid state', 'No active nomination to second.');
         }
 
         const seconder = this.players.get(seconderId);
@@ -1178,14 +1171,8 @@ class WerewolfGame {
             throw new GameError('Invalid seconder', 'The nominator cannot second their own nomination.');
         }
 
-        // Clear nomination timeout
-        if (this.nominationTimeout) {
-            clearTimeout(this.nominationTimeout);
-            this.nominationTimeout = null;
-        }
-
         this.seconder = seconderId;
-        this.phase = PHASES.VOTING;
+        this.votingOpen = true;
         this.votes.clear();
 
         logger.info('Nomination seconded', {
@@ -1195,8 +1182,8 @@ class WerewolfGame {
     }
 
     async submitVote(voterId, isGuilty) {
-        if (this.phase !== PHASES.VOTING) {
-            throw new GameError('Wrong phase', 'Voting is not currently open.');
+        if (!this.votingOpen) {
+            throw new GameError('Invalid state', 'Voting is not currently open.');
         }
 
         const voter = this.players.get(voterId);
@@ -1212,16 +1199,10 @@ class WerewolfGame {
         if (this.votes.size >= aliveCount) {
             // Process voting results
             const results = await this.processVotes();
-            
-            // Reset voting state
-            this.votes = new Map();
-            this.nominatedPlayer = null;
-            this.phase = PHASES.DAY;
-
             return results;
         }
 
-        return null;  // Return null if voting is still ongoing
+        return null;
     }
 
     async advancePhase() {
@@ -1231,15 +1212,8 @@ class WerewolfGame {
                 throw new GameError('Invalid phase', 'Cannot advance from current game phase.');
             }
 
-            // Determine the next phase based on game logic
-            let nextPhase;
-            if (this.phase === PHASES.DAY && this.nominatedPlayer) {
-                nextPhase = PHASES.NOMINATION;
-            } else if (this.phase === PHASES.NOMINATION && this.seconder) {
-                nextPhase = PHASES.VOTING;
-            } else {
-                nextPhase = validTransitions[0]; // Default to the first valid transition
-            }
+            // Simply advance to the next valid phase
+            const nextPhase = validTransitions[0];
 
             if (!validTransitions.includes(nextPhase)) {
                 throw new GameError('Invalid transition', 'Cannot transition to the next phase.');
@@ -1247,9 +1221,6 @@ class WerewolfGame {
 
             this.phase = nextPhase;
             logger.info(`Phase advanced to ${this.phase}`, { round: this.round });
-
-            // Handle phase-specific logic here
-            // ...
 
         } catch (error) {
             logger.error('Error advancing phase', { error });
@@ -1272,8 +1243,8 @@ class WerewolfGame {
     // Add to WerewolfGame class
 
     async processVotes() {
-        if (this.phase !== PHASES.VOTING) {
-            throw new GameError('Wrong phase', 'No votes to process.');
+        if (!this.votingOpen) {
+            throw new GameError('Invalid state', 'No votes to process.');
         }
 
         const voteCounts = {
@@ -1314,10 +1285,10 @@ class WerewolfGame {
         const channel = await this.client.channels.fetch(this.gameChannelId);
         await channel.send({ embeds: [resultsEmbed] });
 
-        // Reset voting state
+        // Reset voting state but stay in DAY phase
         this.clearVotingState();
 
-        // If game isn't over, continue to night phase
+        // If game isn't over and it's time for night, advance to night
         if (!this.gameOver) {
             await this.advanceToNight();
         }
@@ -1330,18 +1301,18 @@ class WerewolfGame {
     }
 
     async clearNomination(reason) {
-        // Clear timeout if it exists
         if (this.nominationTimeout) {
             clearTimeout(this.nominationTimeout);
             this.nominationTimeout = null;
         }
 
-        // Reset nomination state
+        // Reset nomination state but stay in DAY phase
         this.nominatedPlayer = null;
         this.nominator = null;
-        this.phase = PHASES.DAY;
+        this.seconder = null;
+        this.votingOpen = false;
+        this.votes.clear();
 
-        // Announce nomination clear
         await this.broadcastMessage({
             embeds: [{
                 title: 'Nomination Failed',
@@ -1456,3 +1427,4 @@ class WerewolfGame {
 }
 module.exports = WerewolfGame;
 
+ 
