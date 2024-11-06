@@ -1069,20 +1069,17 @@ class WerewolfGame {
         if (!targetPlayer) {
             throw new GameError('Invalid target', 'Target player not found.');
         }
-
-        const isWerewolf = targetPlayer.role === ROLES.WEREWOLF;
-        const resultMessage = `Your investigation reveals that **${targetPlayer.username}** is **${isWerewolf ? 'a Werewolf' : 'Not a Werewolf'}**.`;
+    
+        // Store the action and result for later processing
+        this.nightActions[playerId] = { 
+            action: 'investigate', 
+            target,
+            result: targetPlayer.role === ROLES.WEREWOLF 
+        };
         
-        const seer = this.players.get(playerId);
-        await seer.sendDM(resultMessage);
-        
-        // Store the action
-        this.nightActions[playerId] = { action: 'investigate', target };
-        
-        logger.info('Seer investigation completed', { 
+        logger.info('Seer investigation recorded', { 
             seerId: playerId, 
-            targetId: target,
-            isWerewolf 
+            targetId: target
         });
     }
 
