@@ -56,6 +56,10 @@ class WerewolfGame {
         this.nominationTimeout = null;
         this.NOMINATION_WAIT_TIME = 60000; // 1 minute
         
+        // Add tracking for completed night actions
+        this.completedNightActions = new Set(); // Track which players have completed their actions
+        this.expectedNightActions = new Set(); // Track which players are expected to act
+        
         logger.info('Game created with phase', { 
             phase: this.phase,
             isLobby: this.phase === PHASES.LOBBY,
@@ -387,6 +391,26 @@ class WerewolfGame {
             this.phase = PHASES.NIGHT;
             this.round += 1;
             await this.broadcastMessage(`--- Night ${this.round} ---`);
+
+            // Reset night action tracking
+            this.completedNightActions.clear();
+            this.expectedNightActions.clear();
+
+            // Only add notifications if it's not Night Zero (except for Cupid)
+            if (this.phase !== PHASES.NIGHT_ZERO) {
+                // Add players who should act to expectedNightActions
+                const werewolves = this.getPlayersByRole(ROLES.WEREWOLF);
+                const seer = this.getPlayerByRole(ROLES.SEER);
+                const doctor = this.getPlayerByRole(ROLES.DOCTOR);
+
+                werewolves.forEach(w => this.expectedNightActions.add(w.id));
+                if (seer?.isAlive) this.expectedNightActions.add(seer.id);
+                if (doctor?.isAlive) this.expectedNightActions.add(doctor.id);
+            } else {
+                // Night Zero - only expect Cupid
+                const cupid = this.getPlayerByRole(ROLES.CUPID);
+                if (cupid?.isAlive) this.expectedNightActions.add(cupid.id);
+            }
 
             // Notify players with night actions
             const notifications = {};
@@ -972,13 +996,16 @@ class WerewolfGame {
                 break;
             case 'attack':
                 await this.processWerewolfAttack(playerId, target);
+                this.expectedNightActions.delete(playerId);
                 break;
             case 'investigate':
                 await this.processSeerInvestigation(playerId, target);
+                this.expectedNightActions.delete(playerId);
                 break;
             case 'protect':
                 this.lastProtectedPlayer = target;
                 this.nightActions[playerId] = { action, target };
+                this.expectedNightActions.delete(playerId);
                 break;
             case 'hunter_revenge':
                 if (playerId !== this.pendingHunterRevenge) {
@@ -997,6 +1024,14 @@ class WerewolfGame {
                 break;
             default:
                 this.nightActions[playerId] = { action, target };
+        }
+
+        // Mark action as completed
+        this.completedNightActions.add(playerId);
+        
+        // Check if all expected actions are completed
+        if (this.areAllNightActionsComplete()) {
+            await this.processNightActions();
         }
 
         logger.info('Night action collected', { playerId, action, target });
@@ -1052,6 +1087,22 @@ class WerewolfGame {
     }
 
     validateNightAction(player, action, target) {
+        // Check if player has already acted
+        if (this.completedNightActions.has(player.id)) {
+            throw new GameError(
+                'Action already performed',
+                'You have already performed your night action.'
+            );
+        }
+
+        // Check if player is expected to act
+        if (!this.expectedNightActions.has(player.id)) {
+            throw new GameError(
+                'Unexpected action',
+                'You are not expected to perform any action at this time.'
+            );
+        }
+
         // Night Zero validations
         if (this.phase === PHASES.NIGHT_ZERO) {
             if (action === 'investigate' && player.role === ROLES.SEER) {
@@ -1423,6 +1474,16 @@ class WerewolfGame {
     // Add this method to the WerewolfGame class
     isGameCreatorOrAuthorized(userId) {
         return userId === this.gameCreatorId || this.authorizedIds.includes(userId);
+    }
+
+    areAllNightActionsComplete() {
+        // Check if all expected players have acted
+        for (const expectedId of this.expectedNightActions) {
+            if (!this.completedNightActions.has(expectedId)) {
+                return false;
+            }
+        }
+        return true;
     }
 }
 module.exports = WerewolfGame;
