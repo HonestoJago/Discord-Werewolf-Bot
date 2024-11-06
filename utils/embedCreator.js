@@ -36,8 +36,8 @@ function createVotingEmbed(target, seconder) {
         .setTimestamp();
 }
 
-function createVoteResultsEmbed(target, voteCounts, eliminated) {
-    return new EmbedBuilder()
+function createVoteResultsEmbed(target, voteCounts, eliminated, playerVotes) {
+    const embed = new EmbedBuilder()
         .setColor(eliminated ? '#FF0000' : '#00FF00')
         .setTitle('Vote Results')
         .setDescription(eliminated ? 
@@ -46,9 +46,17 @@ function createVoteResultsEmbed(target, voteCounts, eliminated) {
         )
         .addFields(
             { name: 'Votes to Lynch', value: voteCounts.guilty.toString(), inline: true },
-            { name: 'Votes to Spare', value: voteCounts.innocent.toString(), inline: true }
+            { name: 'Votes to Spare', value: voteCounts.innocent.toString(), inline: true },
+            { 
+                name: 'Individual Votes', 
+                value: Object.entries(playerVotes)
+                    .map(([username, vote]) => `${username}: ${vote ? 'Lynch' : 'Spare'}`)
+                    .join('\n') || 'No votes cast'
+            }
         )
         .setTimestamp();
+
+    return embed;
 }
 
 function createDayPhaseEmbed(players, nominationActive = false) {

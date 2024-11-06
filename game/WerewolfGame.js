@@ -1294,53 +1294,59 @@ class WerewolfGame {
         if (!this.votingOpen) {
             throw new GameError('Invalid state', 'No votes to process.');
         }
-
+    
         const voteCounts = {
             guilty: 0,
             innocent: 0
         };
-
-        this.votes.forEach(vote => {
-            vote ? voteCounts.guilty++ : voteCounts.innocent++;
+    
+        // Create object to store player votes with usernames
+        const playerVotes = {};
+    
+        this.votes.forEach((vote, voterId) => {
+            const player = this.players.get(voterId);
+            if (player) {
+                voteCounts[vote ? 'guilty' : 'innocent']++;
+                playerVotes[player.username] = vote;
+            }
         });
-
+    
         const target = this.players.get(this.nominatedPlayer);
         const eliminated = voteCounts.guilty > voteCounts.innocent;
-
+    
         if (eliminated) {
             target.isAlive = false;
             
-            // Add Hunter check
             if (target.role === ROLES.HUNTER) {
                 await target.sendDM('You have been eliminated! Use `/action hunter_revenge` to choose someone to take with you.');
                 this.pendingHunterRevenge = target.id;
-                // Don't advance phase yet - wait for Hunter's action
                 return;
             }
-
-            await this.handleLoversDeath(target); // Handle lovers if target was in love
-            await this.checkWinConditions();      // Check if game is over
+    
+            await this.handleLoversDeath(target);
+            await this.checkWinConditions();
         }
-
-        // Create results embed
+    
+        // Create results embed with player votes
         const resultsEmbed = createVoteResultsEmbed(
             target,
             voteCounts,
-            eliminated
+            eliminated,
+            playerVotes
         );
-
+    
         // Send results to channel
         const channel = await this.client.channels.fetch(this.gameChannelId);
         await channel.send({ embeds: [resultsEmbed] });
-
+    
         // Reset voting state but stay in DAY phase
         this.clearVotingState();
-
+    
         // If game isn't over and it's time for night, advance to night
         if (!this.gameOver) {
             await this.advanceToNight();
         }
-
+    
         return {
             eliminated: eliminated ? target.id : null,
             votesFor: voteCounts.guilty,
