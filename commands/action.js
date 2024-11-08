@@ -48,25 +48,42 @@ module.exports = {
                 throw new GameError('No game', 'You are not part of any ongoing game.');
             }
 
-            // Verify it's night phase
-            if (currentGame.phase !== 'NIGHT' && currentGame.phase !== 'NIGHT_ZERO') {
+            const action = interaction.options.getString('action');
+            const targetId = interaction.options.getString('target');
+            const player = currentGame.players.get(interaction.user.id);
+
+            if (!player) {
+                throw new GameError('Invalid player', 'You are not part of this game.');
+            }
+
+            // Check if this is a Hunter's revenge action
+            const isHunterRevenge = action === 'choose_target' && 
+                player.role === ROLES.HUNTER && 
+                currentGame.pendingHunterRevenge === player.id;
+
+            // Validate phase - allow Hunter's revenge during any phase
+            if (!isHunterRevenge && 
+                currentGame.phase !== PHASES.NIGHT && 
+                currentGame.phase !== PHASES.NIGHT_ZERO) {
                 throw new GameError('Wrong phase', 'Actions can only be submitted during the night phase.');
             }
 
-            const player = currentGame.players.get(interaction.user.id);
-            if (!player || !player.isAlive) {
-                throw new GameError('Invalid player', 'You cannot perform actions at this time.');
-            }
-
-            const action = interaction.options.getString('action');
-            const targetId = interaction.options.getString('target');
             const target = currentGame.players.get(targetId);
-
             if (!target) {
                 throw new GameError('Invalid target', 'The selected target is not valid.');
             }
 
-            // Let the game handle all game-specific validations
+            // Process the action
+            if (isHunterRevenge) {
+                await currentGame.voteProcessor.processHunterRevenge(player.id, targetId);
+                await interaction.reply({ 
+                    content: 'Your revenge has been executed.',
+                    ephemeral: true 
+                });
+                return;
+            }
+
+            // Handle regular night action
             await currentGame.processNightAction(interaction.user.id, action, targetId);
             
             await interaction.reply({ 
@@ -91,7 +108,7 @@ module.exports = {
 
     async autocomplete(interaction, currentGame) {
         try {
-            // For DMs, we need to search all games since currentGame might be null
+            // For DMs, search all games for this player
             if (!currentGame) {
                 for (const [, gameInstance] of interaction.client.games) {
                     if (gameInstance.players.has(interaction.user.id)) {
@@ -109,8 +126,7 @@ module.exports = {
             const action = interaction.options.getString('action');
             const player = currentGame.players.get(interaction.user.id);
 
-            if (!player || !player.isAlive || 
-                (currentGame.phase !== PHASES.NIGHT && currentGame.phase !== PHASES.NIGHT_ZERO)) {
+            if (!player) {
                 return await interaction.respond([]);
             }
 
@@ -125,12 +141,16 @@ module.exports = {
             // Action-specific filtering
             switch (action) {
                 case 'investigate':
-                    if (player.role !== ROLES.SEER) {
+                    if (player.role !== ROLES.SEER || 
+                        (currentGame.phase !== PHASES.NIGHT && 
+                         currentGame.phase !== PHASES.NIGHT_ZERO)) {
                         return await interaction.respond([]);
                     }
                     break;
                 case 'protect':
-                    if (player.role !== ROLES.DOCTOR) {
+                    if (player.role !== ROLES.DOCTOR || 
+                        (currentGame.phase !== PHASES.NIGHT && 
+                         currentGame.phase !== PHASES.NIGHT_ZERO)) {
                         return await interaction.respond([]);
                     }
                     validTargets = validTargets.filter(p => 
@@ -138,7 +158,9 @@ module.exports = {
                     );
                     break;
                 case 'attack':
-                    if (player.role !== ROLES.WEREWOLF) {
+                    if (player.role !== ROLES.WEREWOLF || 
+                        (currentGame.phase !== PHASES.NIGHT && 
+                         currentGame.phase !== PHASES.NIGHT_ZERO)) {
                         return await interaction.respond([]);
                     }
                     validTargets = validTargets.filter(p => 
@@ -150,10 +172,10 @@ module.exports = {
                         currentGame.phase !== PHASES.NIGHT_ZERO) {
                         return await interaction.respond([]);
                     }
-                    // Remove Cupid from valid targets
                     validTargets = validTargets.filter(p => p.value !== player.id);
                     break;
                 case 'choose_target':
+                    // Allow Hunter's revenge during any phase if pending
                     if (player.role !== ROLES.HUNTER || 
                         player.id !== currentGame.pendingHunterRevenge) {
                         return await interaction.respond([]);

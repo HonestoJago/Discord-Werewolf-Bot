@@ -43,17 +43,45 @@ class VoteProcessor {
         await channel.send({ embeds: [resultsEmbed] });
     
         if (eliminated) {
+            // Only handle Hunter's revenge if Hunter role is in the game
+            const hunterExists = Array.from(this.game.players.values())
+                .some(p => p.role === ROLES.HUNTER);
+
             // Handle Hunter's revenge BEFORE marking as dead
-            if (target.role === ROLES.HUNTER) {
-                this.game.expectedNightActions.add(target.id);
+            if (hunterExists && target.role === ROLES.HUNTER) {
+                logger.info('Hunter was voted out', {
+                    hunterId: target.id,
+                    hunterName: target.username
+                });
+
+                // Set up Hunter's revenge state
                 this.game.pendingHunterRevenge = target.id;
-                await target.sendDM('You have been eliminated! Use `/action hunter_revenge` to choose someone to take with you.');
-                target.isAlive = false;
+                
+                // Send DM to Hunter
+                await target.sendDM('You have been eliminated! Use `/action choose_target` to choose someone to take with you.');
+                
+                // Set timeout for Hunter's revenge
+                const hunterTimeout = setTimeout(async () => {
+                    if (this.game.pendingHunterRevenge) {
+                        // If Hunter didn't act, just process their death
+                        target.isAlive = false;
+                        await this.game.moveToDeadChannel(target);
+                        await this.game.handleLoversDeath(target);
+                        this.game.pendingHunterRevenge = null;
+                        
+                        // Check win conditions before advancing to night
+                        if (!this.game.checkWinConditions()) {
+                            await this.game.advanceToNight();
+                        }
+                    }
+                }, 300000); // 5 minutes
+
+                // Clear voting state but stay in day phase
                 this.game.clearVotingState();
                 return;
             }
     
-            // For non-Hunter players, proceed normally
+            // For non-Hunter players or if Hunter isn't in game, proceed normally
             target.isAlive = false;
             await this.game.moveToDeadChannel(target);
             await this.game.handleLoversDeath(target);
@@ -63,7 +91,6 @@ class VoteProcessor {
         this.game.clearVotingState();
     
         // If no win condition met, advance to night phase
-        // This happens whether someone was eliminated or not (including ties)
         if (!this.game.checkWinConditions()) {
             await this.game.advanceToNight();
         }
@@ -73,6 +100,42 @@ class VoteProcessor {
             votesFor: voteCounts.guilty,
             votesAgainst: voteCounts.innocent
         };
+    }
+
+    // Add method to handle Hunter's revenge during day
+    async processHunterRevenge(hunterId, targetId) {
+        const hunter = this.game.players.get(hunterId);
+        const target = this.game.players.get(targetId);
+
+        if (!this.game.pendingHunterRevenge || hunterId !== this.game.pendingHunterRevenge) {
+            throw new GameError('Invalid action', 'You can only use this action when prompted after being eliminated as the Hunter.');
+        }
+
+        if (!target?.isAlive) {
+            throw new GameError('Invalid target', 'You must choose a living player.');
+        }
+
+        // Mark both players as dead
+        hunter.isAlive = false;
+        target.isAlive = false;
+
+        // Broadcast the revenge
+        await this.game.broadcastMessage(`**${hunter.username}** uses their dying action to take **${target.username}** with them!`);
+        
+        // Move both to dead channel
+        await this.game.moveToDeadChannel(hunter);
+        await this.game.moveToDeadChannel(target);
+        
+        // Handle any lover deaths
+        await this.game.handleLoversDeath(target);
+        
+        // Clear the pending state
+        this.game.pendingHunterRevenge = null;
+
+        // Check win conditions before advancing to night
+        if (!this.game.checkWinConditions()) {
+            await this.game.advanceToNight();
+        }
     }
 }
 
