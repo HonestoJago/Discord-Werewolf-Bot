@@ -761,8 +761,8 @@ class WerewolfGame {
             this.lovers.delete(player.id);
             this.lovers.delete(loverId);
     
-            // Check win conditions once after all deaths
-            if (deaths.length > 0) {
+            // Only check win conditions if we haven't already determined a winner
+            if (deaths.length > 0 && !this.gameOver) {
                 await this.checkWinConditions();
                 logger.info('Lovers died of heartbreak', { 
                     deadPlayerId: player.id,
@@ -1397,6 +1397,11 @@ class WerewolfGame {
     }
 
     checkWinConditions() {
+        // If game is already over, don't check again
+        if (this.gameOver) {
+            return true;
+        }
+
         // Get all living players
         const alivePlayers = this.getAlivePlayers();
         
