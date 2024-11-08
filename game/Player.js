@@ -78,18 +78,29 @@ class Player {
      * @param {string} message - The message to send.
      */
     async sendDM(message) {
-        try {
-            // Check if player is in game and alive
-            if (!this.isAlive) {
-                logger.warn(`Attempted to send DM to dead player: ${this.username}`);
-                return;
-            }
+        if (!this.isAlive) {
+            logger.warn(`Attempted to send DM to dead player: ${this.username}`);
+            throw new GameError(
+                'Player is dead',
+                'Cannot send messages to dead players.'
+            );
+        }
 
+        if (message === null || message === undefined) {
+            throw new GameError(
+                'Invalid message',
+                'Cannot send null or undefined message.'
+            );
+        }
+
+        try {
             if (!this.channel) {
                 const user = await this.client.users.fetch(this.id);
                 if (!user) {
-                    logger.error(`Could not fetch user for player: ${this.username}`);
-                    return;
+                    throw new GameError(
+                        'User not found',
+                        'Could not find Discord user.'
+                    );
                 }
                 this.channel = await user.createDM();
             }
@@ -98,6 +109,9 @@ class Player {
             logger.info(`DM sent to ${this.username}`);
         } catch (error) {
             logger.error(`Error sending DM to ${this.username}:`, { error });
+            if (error instanceof GameError) {
+                throw error;
+            }
             throw new GameError('DM Failed', 'Failed to send direct message to player.');
         }
     }
@@ -109,19 +123,29 @@ class Player {
      * @param {number} time - Time in milliseconds to wait for a response.
      * @returns {string|null} - The content of the collected message or null if timed out.
      */
-    async promptDM(message, filter, time = 600000) { // 10 minutes default
+    async promptDM(message, filter, time = 600000) {
         try {
             await this.sendDM(message);
+            
             const collected = await this.channel.awaitMessages({
-                filter,
+                filter: filter || (() => true),
                 max: 1,
                 time,
-                errors: ['time'],
+                errors: ['time']
             });
-            return collected.first().content;
+
+            const firstMessage = collected.first();
+            if (!firstMessage) {
+                throw new GameError('No response', 'No response received.');
+            }
+
+            return firstMessage.content;
         } catch (error) {
-            console.error(`Error collecting DM from ${this.username}:`, error);
-            return null;
+            logger.error(`Error collecting DM from ${this.username}:`, error);
+            if (error.message === 'time') {
+                return null;  // Expected timeout
+            }
+            throw error;  // Propagate unexpected errors
         }
     }
 
