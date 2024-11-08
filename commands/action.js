@@ -109,7 +109,8 @@ module.exports = {
             const action = interaction.options.getString('action');
             const player = currentGame.players.get(interaction.user.id);
 
-            if (!player || !player.isAlive || currentGame.phase !== 'NIGHT') {
+            if (!player || !player.isAlive || 
+                (currentGame.phase !== PHASES.NIGHT && currentGame.phase !== PHASES.NIGHT_ZERO)) {
                 return await interaction.respond([]);
             }
 
@@ -145,9 +146,12 @@ module.exports = {
                     );
                     break;
                 case 'choose_lovers':
-                    if (player.role !== ROLES.CUPID) {
+                    if (player.role !== ROLES.CUPID || 
+                        currentGame.phase !== PHASES.NIGHT_ZERO) {
                         return await interaction.respond([]);
                     }
+                    // Remove Cupid from valid targets
+                    validTargets = validTargets.filter(p => p.value !== player.id);
                     break;
                 case 'hunter_revenge':
                     if (player.role !== ROLES.HUNTER || player.isAlive) {

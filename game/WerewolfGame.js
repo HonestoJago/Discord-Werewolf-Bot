@@ -181,6 +181,11 @@ class WerewolfGame {
             
             // Add one seer
             roles.push(ROLES.SEER);
+
+             // Add Cupid if it was selected during setup
+            if (this.selectedRoles.has(ROLES.CUPID)) {
+            roles.push(ROLES.CUPID);
+            }
             
             // Fill remaining slots with villagers
             const villagerCount = playerCount - roles.length;
@@ -360,7 +365,7 @@ class WerewolfGame {
                 }, 2000);
             } else {
                 // Handle Cupid's action
-                await cupid.sendDM('Use `/action choose_lovers` to select two players to be lovers. You have 10 minutes.');
+                await cupid.sendDM('Use `/action choose_lovers` to select your lover. You have 10 minutes.');
                 this.expectedNightActions.add(cupid.id);
                 
                 // Set timeout for Cupid's action
@@ -422,7 +427,7 @@ class WerewolfGame {
                 notifications[ROLES.DOCTOR] = 'Use `/action protect` to save someone from the werewolves. You have 10 minutes.';
             } else {
                 // Night Zero notifications
-                notifications[ROLES.CUPID] = 'Use `/action choose_lovers` to select two players to be lovers. You have 10 minutes.';
+                notifications[ROLES.CUPID] = 'Use `/action choose_lovers` to select your lover. You have 10 minutes.';
                 // Remove Doctor notification for Night Zero
             }
 
@@ -986,12 +991,11 @@ class WerewolfGame {
             case 'choose_lovers':
                 if (this.phase !== PHASES.NIGHT_ZERO) {
                     throw new GameError(
-                        'Cupid can only choose lovers during Night Zero', 
-                        'Cupid can only choose lovers during Night Zero.'
+                        'Cupid can only choose a lover during Night Zero', 
+                        'Cupid can only choose a lover during Night Zero.'
                     );
                 }
                 await this.processLoverSelection(playerId, target);
-                // Store the action after processing
                 this.nightActions[playerId] = { action, target };
                 break;
             case 'attack':
@@ -1100,30 +1104,26 @@ class WerewolfGame {
             );
         }
 
-        // Night Zero validations
-        if (this.phase === PHASES.NIGHT_ZERO) {
-            if (action === 'investigate' && player.role === ROLES.SEER) {
-                throw new GameError('Invalid action', 'The Seer cannot investigate during Night Zero.');
+        // Handle Cupid's action first - it's only valid during Night Zero
+        if (action === 'choose_lovers') {
+            if (player.role !== ROLES.CUPID) {
+                throw new GameError('Invalid role', 'Only Cupid can choose a lover.');
             }
-            if (action === 'attack' && player.role === ROLES.WEREWOLF) {
-                throw new GameError('Werewolves cannot attack during Night Zero', 
-                    'Werewolves cannot attack during Night Zero.');
+            if (this.phase !== PHASES.NIGHT_ZERO) {
+                throw new GameError('Invalid phase', 'Cupid can only choose a lover during Night Zero.');
             }
-            if (action === 'protect' && player.role === ROLES.DOCTOR) {
-                throw new GameError('Invalid action', 
-                    'The Doctor cannot protect anyone during Night Zero.');
+            if (target === player.id) {
+                throw new GameError('Invalid target', 'You cannot choose yourself as your lover.');
             }
-        } else {
-            // Non-Night Zero validations
-            if (action === 'choose_lovers' && player.role === ROLES.CUPID) {
-                throw new GameError(
-                    'Cupid can only choose lovers during Night Zero', 
-                    'Cupid can only choose lovers during Night Zero.'
-                );
-            }
+            return; // Exit early for Cupid's action
         }
 
-        // Role-specific validations
+        // Night Zero restrictions for other roles
+        if (this.phase === PHASES.NIGHT_ZERO) {
+            throw new GameError('Invalid phase', 'Only Cupid can act during Night Zero.');
+        }
+
+        // Role-specific validations for regular night actions
         switch(action) {
             case 'protect':
                 if (player.role !== ROLES.DOCTOR) {
@@ -1144,11 +1144,6 @@ class WerewolfGame {
             case 'attack':
                 if (player.role !== ROLES.WEREWOLF) {
                     throw new GameError('Invalid role', 'Only Werewolves can attack players.');
-                }
-                break;
-            case 'choose_lovers':
-                if (player.role !== ROLES.CUPID) {
-                    throw new GameError('Invalid role', 'Only Cupid can choose lovers.');
                 }
                 break;
             default:
@@ -1432,37 +1427,33 @@ class WerewolfGame {
 
     // Add to the class
 
-    async processLoverSelection(cupidId, targetString) {
-        const [target1Id, target2Id] = targetString.split(',').map(id => id.trim());
-        
-        // Validate targets
-        const target1 = this.players.get(target1Id);
-        const target2 = this.players.get(target2Id);
+    async processLoverSelection(cupidId, targetId) {
+        const cupid = this.players.get(cupidId);
+        const target = this.players.get(targetId);
 
-        if (!target1 || !target2) {
-            throw new GameError('Invalid targets', 'One or both selected players were not found.');
+        if (!target) {
+            throw new GameError('Invalid target', 'Selected player was not found.');
         }
 
-        if (!target1.isAlive || !target2.isAlive) {
-            throw new GameError('Invalid targets', 'You can only choose living players as lovers.');
+        if (!target.isAlive) {
+            throw new GameError('Invalid target', 'You can only choose a living player as your lover.');
         }
 
-        if (target1Id === target2Id) {
-            throw new GameError('Invalid targets', 'You must choose two different players.');
+        if (targetId === cupidId) {
+            throw new GameError('Invalid target', 'You cannot choose yourself as your lover.');
         }
 
-        // Set up bidirectional lover relationship
-        this.lovers.set(target1Id, target2Id);
-        this.lovers.set(target2Id, target1Id);
+        // Set up bidirectional lover relationship between Cupid and target
+        this.lovers.set(cupidId, targetId);
+        this.lovers.set(targetId, cupidId);
 
-        // Notify the chosen lovers
-        await target1.sendDM(`You have fallen in love with **${target2.username}**. If one of you dies, the other will die of heartbreak.`);
-        await target2.sendDM(`You have fallen in love with **${target1.username}**. If one of you dies, the other will die of heartbreak.`);
+        // Notify the chosen lover
+        await target.sendDM(`You have fallen in love with **${cupid.username}** (Cupid). If one of you dies, the other will die of heartbreak.`);
+        await cupid.sendDM(`You have chosen **${target.username}** as your lover. If one of you dies, the other will die of heartbreak.`);
 
-        logger.info('Lovers chosen by Cupid', {
+        logger.info('Cupid chose lover', {
             cupidId,
-            lover1: target1Id,
-            lover2: target2Id
+            loverId: targetId
         });
     }
     // Start of Selection

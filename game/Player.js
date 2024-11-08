@@ -49,7 +49,7 @@ class Player {
                 message += 'You are the Doctor! Each night, you can protect one player from being killed by the Werewolves.';
                 break;
             case ROLES.CUPID:
-                message += 'You are Cupid! On the first night, you will choose two players to fall in love. If one dies, the other dies of heartbreak.';
+                message += 'You are Cupid! You are on the village team. During Night Zero, you will choose one player to be your lover - choose wisely, as if either of you dies, the other will die of heartbreak.';
                 break;
             case ROLES.HUNTER:
                 message += 'You are the Hunter! You are on the village team. If you are eliminated (either by werewolves or by village vote), ' +
