@@ -19,7 +19,7 @@ module.exports = {
                     { name: 'Investigate (Seer)', value: 'investigate' },
                     { name: 'Protect (Doctor)', value: 'protect' },
                     { name: 'Choose Lovers (Cupid)', value: 'choose_lovers' },
-                    { name: 'Choose Target (Hunter)', value: 'hunter_revenge' }
+                    { name: 'Choose Target (Hunter)', value: 'choose_target' }
                 ))
         .addStringOption(option =>
             option.setName('target')
@@ -153,10 +153,15 @@ module.exports = {
                     // Remove Cupid from valid targets
                     validTargets = validTargets.filter(p => p.value !== player.id);
                     break;
-                case 'hunter_revenge':
-                    if (player.role !== ROLES.HUNTER || player.isAlive) {
+                case 'choose_target':
+                    if (player.role !== ROLES.HUNTER || 
+                        player.id !== currentGame.pendingHunterRevenge) {
                         return await interaction.respond([]);
                     }
+                    // Only show living players as valid targets
+                    validTargets = validTargets.filter(p => 
+                        currentGame.players.get(p.value).isAlive
+                    );
                     break;
                 default:
                     return await interaction.respond([]);

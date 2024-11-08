@@ -7,6 +7,8 @@ const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');  // Direct import of frozen object
 const PHASES = require('../constants/phases'); // Direct import of frozen object
 const { createDayPhaseEmbed, createVoteResultsEmbed } = require('../utils/embedCreator');
+const NightActionProcessor = require('./NightActionProcessor');
+const VoteProcessor = require('./VoteProcessor');
 
 // Define roles and their properties in a configuration object
 const ROLE_CONFIG = {
@@ -65,6 +67,10 @@ class WerewolfGame {
             isLobby: this.phase === PHASES.LOBBY,
             phaseValue: PHASES.LOBBY  // Add this to verify PHASES.LOBBY value
         });
+
+        // Add the processors
+        this.nightActionProcessor = new NightActionProcessor(this);
+        this.voteProcessor = new VoteProcessor(this);
      }
 
     /**
@@ -415,7 +421,11 @@ class WerewolfGame {
                 const seer = this.getPlayerByRole(ROLES.SEER);
                 const doctor = this.getPlayerByRole(ROLES.DOCTOR);
 
-                werewolves.forEach(w => this.expectedNightActions.add(w.id));
+                werewolves.forEach(w => {
+                    if (w.isAlive) {
+                        this.expectedNightActions.add(w.id);
+                    }
+                });
                 if (seer?.isAlive) this.expectedNightActions.add(seer.id);
                 if (doctor?.isAlive) this.expectedNightActions.add(doctor.id);
 
@@ -439,21 +449,16 @@ class WerewolfGame {
                         }
                     }
                 }
-            } else {
-                // Night Zero notifications
-                const cupid = this.getPlayerByRole(ROLES.CUPID);
-                if (cupid?.isAlive) {
-                    this.expectedNightActions.add(cupid.id);
-                    await cupid.sendDM('Use `/action choose_lovers` to select your lover. You have 10 minutes.');
-                }
+
+                // Set timeout for night phase
+                this.nightActionTimeout = setTimeout(async () => {
+                    await this.nightActionProcessor.processNightActions();
+                }, 600000); // 10 minutes
             }
 
-            // Set timeout for night phase
-            this.nightActionTimeout = setTimeout(() => {
-                this.processNightActions();
-            }, 600000); // 10 minutes
-
-            logger.info(`Game advanced to Night ${this.round}`);
+            logger.info(`Game advanced to Night ${this.round}`, {
+                expectedActions: Array.from(this.expectedNightActions)
+            });
         } catch (error) {
             logger.error('Error advancing to Night phase', { error });
             throw error;
@@ -637,76 +642,7 @@ class WerewolfGame {
      * Processes all collected night actions.
      */
     async processNightActions() {
-        try {
-            // Clear any remaining timeout
-            if (this.nightActionTimeout) {
-                clearTimeout(this.nightActionTimeout);
-                this.nightActionTimeout = null;
-            }
-
-            // Process actions in order: Doctor -> Werewolves -> Seer
-            // This ensures protection happens before attacks
-
-            // 1. Process Doctor's protection
-            for (const [playerId, action] of Object.entries(this.nightActions)) {
-                if (action.action === 'protect') {
-                    const target = this.players.get(action.target);
-                    if (target) {
-                        target.isProtected = true;
-                        logger.info('Doctor protected player', { targetId: target.id });
-                    }
-                }
-            }
-
-            // 2. Process Werewolf attacks
-            for (const [playerId, action] of Object.entries(this.nightActions)) {
-                if (action.action === 'attack') {
-                    const target = this.players.get(action.target);
-                    if (target?.isAlive && !target.isProtected) {
-                        target.isAlive = false;
-                        
-                        // Add Hunter check
-                        if (target.role === ROLES.HUNTER) {
-                            await target.sendDM('You have been eliminated! Use `/action hunter_revenge` to choose someone to take with you.');
-                            this.pendingHunterRevenge = target.id;
-                            // Don't advance phase yet - wait for Hunter's action
-                            return;
-                        }
-
-                        await this.broadcastMessage(`**${target.username}** was killed during the night.`);
-                        await this.moveToDeadChannel(target);
-                        await this.handleLoversDeath(target);
-                    } else if (target?.isProtected) {
-                        await this.broadcastMessage(`Someone was attacked by the Werewolves, but was protected by the Doctor!`);
-                    }
-                }
-            }
-
-            // 3. Process Seer investigations
-            for (const [playerId, action] of Object.entries(this.nightActions)) {
-                if (action.action === 'investigate') {
-                    const seer = this.players.get(playerId);
-                    const target = this.players.get(action.target);
-                    if (seer?.isAlive && target) {
-                        const isWerewolf = target.role === ROLES.WEREWOLF;
-                        await seer.sendDM(`Your investigation reveals that **${target.username}** is **${isWerewolf ? 'a Werewolf' : 'Not a Werewolf'}**.`);
-                    }
-                }
-            }
-
-            // Reset protections
-            for (const player of this.players.values()) {
-                player.isProtected = false;
-            }
-
-            // Check win conditions before advancing
-            if (!this.checkWinConditions()) {
-                await this.advanceToDay();
-            }
-        } catch (error) {
-            logger.error('Error processing night actions', { error });
-            throw error;
-        }
+        return await this.nightActionProcessor.processNightActions();
     }
 
     /**
@@ -944,202 +880,10 @@ class WerewolfGame {
 
     // New method in WerewolfGame.js
     async processNightAction(playerId, action, target) {
-        // Get and validate player using Map's get method directly
-        const player = this.players.get(playerId);
-        if (!player) {
-            throw new GameError(
-                'You are not authorized to perform this action', 
-                'You are not authorized to perform this action.'
-            );
-        }
-
-        // Check player state
-        if (!player.isAlive) {
-            throw new GameError('Dead players cannot perform actions', 'Dead players cannot perform actions.');
-        }
-
-        // Check game phase
-        if (this.phase !== PHASES.NIGHT && this.phase !== PHASES.NIGHT_ZERO) {
-            throw new GameError('Wrong phase', 'Night actions can only be performed during night phases');
-        }
-
-        // Validate target exists and is alive
-        const targetPlayer = this.players.get(target);
-        if (!targetPlayer || !targetPlayer.isAlive) {
-            throw new GameError('Invalid target', 'Target player not found or is dead');
-        }
-
-        // Validate action based on phase and role
-        this.validateNightAction(player, action, target);
-
-        // Process different action types
-        switch (action) {
-            case 'choose_lovers':
-                if (this.phase !== PHASES.NIGHT_ZERO) {
-                    throw new GameError(
-                        'Cupid can only choose a lover during Night Zero', 
-                        'Cupid can only choose a lover during Night Zero.'
-                    );
-                }
-                await this.processLoverSelection(playerId, target);
-                this.nightActions[playerId] = { action, target };
-                break;
-            case 'attack':
-                await this.processWerewolfAttack(playerId, target);
-                this.expectedNightActions.delete(playerId);
-                break;
-            case 'investigate':
-                await this.processSeerInvestigation(playerId, target);
-                this.expectedNightActions.delete(playerId);
-                break;
-            case 'protect':
-                this.lastProtectedPlayer = target;
-                this.nightActions[playerId] = { action, target };
-                this.expectedNightActions.delete(playerId);
-                break;
-            case 'hunter_revenge':
-                if (playerId !== this.pendingHunterRevenge) {
-                    throw new GameError('Invalid action', 'You can only use this action when eliminated as the Hunter.');
-                }
-                
-                const targetPlayer = this.players.get(target);
-                if (!targetPlayer?.isAlive) {
-                    throw new GameError('Invalid target', 'You must choose a living player.');
-                }
-
-                targetPlayer.isAlive = false;
-                await this.moveToDeadChannel(targetPlayer);
-                await this.handleLoversDeath(targetPlayer);
-                this.pendingHunterRevenge = null;
-                break;
-            default:
-                this.nightActions[playerId] = { action, target };
-        }
-
-        // Mark action as completed
-        this.completedNightActions.add(playerId);
+        await this.nightActionProcessor.processNightAction(playerId, action, target);
         
-        // Check if all expected actions are completed
-        if (this.areAllNightActionsComplete()) {
-            await this.processNightActions();
-        }
-
-        logger.info('Night action collected', { playerId, action, target });
-    }
-    async processWerewolfAttack(playerId, target) {
-        const werewolves = Array.from(this.players.values())
-            .filter(p => p.role === ROLES.WEREWOLF && p.isAlive);
-        
-        // Check for existing werewolf attacks
-        const existingAttacks = Object.entries(this.nightActions)
-            .filter(([pid, action]) => 
-                action.action === 'attack' && pid !== playerId
-            );
-
-        if (existingAttacks.length > 0) {
-            const existingTarget = existingAttacks[0][1].target;
-            if (existingTarget !== target) {
-                // Notify all werewolves of the conflict
-                for (const wolf of werewolves) {
-                    await wolf.sendDM('Werewolves must agree on a single target. Please coordinate in the werewolf channel.');
-                }
-                throw new GameError('Conflicting Attack', 
-                    'Werewolves must agree on a single target. Please coordinate in the werewolf channel.');
-            }
-            // Don't store duplicate attack if target matches
-            return;
-        }
-
-        // Store the attack only if no existing attack
-        this.nightActions[playerId] = { action: 'attack', target };
-    }
-
-    async processSeerInvestigation(playerId, target) {
-        const targetPlayer = this.players.get(target);
-        if (!targetPlayer) {
-            throw new GameError('Invalid target', 'Target player not found.');
-        }
-    
-        // Store the action and result for later processing
-        this.nightActions[playerId] = { 
-            action: 'investigate', 
-            target,
-            result: targetPlayer.role === ROLES.WEREWOLF 
-        };
-        
-        logger.info('Seer investigation recorded', { 
-            seerId: playerId, 
-            targetId: target
-        });
-    }
-
-    validateNightAction(player, action, target) {
-        // Check if player has already acted
-        if (this.completedNightActions.has(player.id)) {
-            throw new GameError(
-                'Action already performed',
-                'You have already performed your night action.'
-            );
-        }
-
-        // Check if player is expected to act
-        if (!this.expectedNightActions.has(player.id)) {
-            throw new GameError(
-                'Unexpected action',
-                'You are not expected to perform any action at this time.'
-            );
-        }
-
-        // Handle Cupid's action first - it's only valid during Night Zero
-        if (action === 'choose_lovers') {
-            if (player.role !== ROLES.CUPID) {
-                throw new GameError('Invalid role', 'Only Cupid can choose a lover.');
-            }
-            if (this.phase !== PHASES.NIGHT_ZERO) {
-                throw new GameError('Invalid phase', 'Cupid can only choose a lover during Night Zero.');
-            }
-            if (target === player.id) {
-                throw new GameError('Invalid target', 'You cannot choose yourself as your lover.');
-            }
-            return; // Exit early for Cupid's action
-        }
-
-        // Night Zero restrictions for other roles
-        if (this.phase === PHASES.NIGHT_ZERO) {
-            throw new GameError('Invalid phase', 'Only Cupid can act during Night Zero.');
-        }
-
-        // Role-specific validations for regular night actions
-        switch(action) {
-            case 'protect':
-                if (player.role !== ROLES.DOCTOR) {
-                    throw new GameError('Invalid role', 'Only the Doctor can protect players.');
-                }
-                if (target === this.lastProtectedPlayer) {
-                    throw new GameError('Invalid target', 'You cannot protect the same player two nights in a row.');
-                }
-                break;
-            case 'investigate':
-                if (player.role !== ROLES.SEER) {
-                    throw new GameError('Invalid role', 'Only the Seer can investigate players.');
-                }
-                if (target === player.id) {
-                    throw new GameError('Invalid target', 'You cannot investigate yourself.');
-                }
-                break;
-            case 'attack':
-                if (player.role !== ROLES.WEREWOLF) {
-                    throw new GameError('Invalid role', 'Only Werewolves can attack players.');
-                }
-                break;
-            default:
-                throw new GameError('Invalid action', 'Unknown action type.');
-        }
-
-        // Target validation
-        if (!target) {
-            throw new GameError('Invalid target', 'You must specify a target for your action.');
-        }
+        // After processing the action, check if all actions are complete
+        await this.checkAndProcessNightActions();
     }
 
     // Nomination methods
@@ -1272,67 +1016,7 @@ class WerewolfGame {
     // Add to WerewolfGame class
 
     async processVotes() {
-        if (!this.votingOpen) {
-            throw new GameError('Invalid state', 'No votes to process.');
-        }
-    
-        const voteCounts = {
-            guilty: 0,
-            innocent: 0
-        };
-    
-        // Create object to store player votes with usernames
-        const playerVotes = {};
-    
-        this.votes.forEach((vote, voterId) => {
-            const player = this.players.get(voterId);
-            if (player) {
-                voteCounts[vote ? 'guilty' : 'innocent']++;
-                playerVotes[player.username] = vote;
-            }
-        });
-    
-        const target = this.players.get(this.nominatedPlayer);
-        const eliminated = voteCounts.guilty > voteCounts.innocent;
-    
-        if (eliminated) {
-            target.isAlive = false;
-            
-            if (target.role === ROLES.HUNTER) {
-                await target.sendDM('You have been eliminated! Use `/action hunter_revenge` to choose someone to take with you.');
-                this.pendingHunterRevenge = target.id;
-                return;
-            }
-    
-            await this.handleLoversDeath(target);
-            await this.checkWinConditions();
-        }
-    
-        // Create results embed with player votes
-        const resultsEmbed = createVoteResultsEmbed(
-            target,
-            voteCounts,
-            eliminated,
-            playerVotes
-        );
-    
-        // Send results to channel
-        const channel = await this.client.channels.fetch(this.gameChannelId);
-        await channel.send({ embeds: [resultsEmbed] });
-    
-        // Reset voting state but stay in DAY phase
-        this.clearVotingState();
-    
-        // If game isn't over and it's time for night, advance to night
-        if (!this.gameOver) {
-            await this.advanceToNight();
-        }
-    
-        return {
-            eliminated: eliminated ? target.id : null,
-            votesFor: voteCounts.guilty,
-            votesAgainst: voteCounts.innocent
-        };
+        return await this.voteProcessor.processVotes();
     }
 
     async clearNomination(reason) {
@@ -1381,7 +1065,6 @@ class WerewolfGame {
             throw error;
         }
     }
-
     checkWinConditions() {
         // If game is already over, don't check again
         if (this.gameOver) {
@@ -1470,7 +1153,22 @@ class WerewolfGame {
         }
         return true;
     }
+
+    // Add this method to WerewolfGame class
+    async checkAndProcessNightActions() {
+        // Check if all expected actions are completed
+        const allActionsComplete = Array.from(this.expectedNightActions).every(
+            playerId => this.completedNightActions.has(playerId)
+        );
+
+        if (allActionsComplete) {
+            logger.info('All night actions completed, processing actions', {
+                expectedActions: Array.from(this.expectedNightActions),
+                completedActions: Array.from(this.completedNightActions)
+            });
+            await this.nightActionProcessor.processNightActions();
+        }
+    }
 }
 module.exports = WerewolfGame;
 
- 
