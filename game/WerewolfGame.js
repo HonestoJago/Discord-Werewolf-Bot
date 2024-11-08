@@ -673,49 +673,64 @@ class WerewolfGame {
     }
 
     /**
-     * Handles the death of lovers when one dies.
-     * @param {Player} player - The player who died.
-     */
-    async handleLoversDeath(player) {
-        try {
-            const loverId = this.lovers.get(player.id);
-            if (!loverId) return;
-    
-            const lover = this.players.get(loverId);
-            if (!lover) return;
-    
-            // Set both players to dead status atomically
-            const deaths = [];
-            if (lover.isAlive) {
-                lover.isAlive = false;
-                deaths.push({
-                    player: lover,
-                    message: `**${lover.username}**, who was in love with **${player.username}**, has died of heartbreak.`
-                });
-            }
-    
-            // Process all deaths
-            for (const death of deaths) {
-                await this.broadcastMessage(death.message);
-                await this.moveToDeadChannel(death.player);
-            }
-    
-            // Clean up relationships once
-            this.lovers.delete(player.id);
-            this.lovers.delete(loverId);
-    
-            // Only check win conditions if we haven't already determined a winner
-            if (deaths.length > 0 && !this.gameOver) {
-                await this.checkWinConditions();
-                logger.info('Lovers died of heartbreak', { 
-                    deadPlayerId: player.id,
-                    loverId: lover.id 
-                });
-            }
-        } catch (error) {
-            logger.error('Error handling lovers\' death', { error, playerId: player.id });
+ * Handles the death of lovers when one dies.
+ * @param {Player} player - The player who died.
+ */
+async handleLoversDeath(player) {
+    try {
+        // Log initial state
+        logger.info('Handling lover death', {
+            deadPlayerId: player.id,
+            deadPlayerName: player.username,
+            loversMap: Array.from(this.lovers.entries())
+        });
+
+        const loverId = this.lovers.get(player.id);
+        if (!loverId) {
+            logger.info('No lover found for dead player', { 
+                playerId: player.id,
+                playerName: player.username
+            });
+            return;
         }
+
+        const lover = this.players.get(loverId);
+        if (!lover || !lover.isAlive) {
+            logger.info('Lover already dead or not found', {
+                loverId,
+                loverAlive: lover?.isAlive
+            });
+            return;
+        }
+
+        // Set lover to dead
+        lover.isAlive = false;
+
+        // Broadcast death message
+        await this.broadcastMessage(`**${lover.username}**, who was in love with **${player.username}**, has died of heartbreak.`);
+        await this.moveToDeadChannel(lover);
+
+        // Clean up relationships
+        this.lovers.delete(player.id);
+        this.lovers.delete(loverId);
+
+        // Check win conditions after lover death
+        await this.checkWinConditions();
+
+        logger.info('Lover died of heartbreak', { 
+            deadPlayerId: player.id,
+            deadPlayerName: player.username,
+            loverId: lover.id,
+            loverName: lover.username
+        });
+    } catch (error) {
+        logger.error('Error handling lovers\' death', { 
+            error, 
+            playerId: player.id,
+            loversMap: Array.from(this.lovers.entries())
+        });
     }
+}
     /**
      * Broadcasts a message to the game channel.
      * @param {string|object} message - The message or embed to send.
@@ -1104,31 +1119,38 @@ class WerewolfGame {
     async processLoverSelection(cupidId, targetId) {
         const cupid = this.players.get(cupidId);
         const target = this.players.get(targetId);
-
+    
         if (!target) {
             throw new GameError('Invalid target', 'Selected player was not found.');
         }
-
+    
         if (!target.isAlive) {
             throw new GameError('Invalid target', 'You can only choose a living player as your lover.');
         }
-
+    
         if (targetId === cupidId) {
             throw new GameError('Invalid target', 'You cannot choose yourself as your lover.');
         }
-
-        // Set up bidirectional lover relationship between Cupid and target
+    
+        // Set up bidirectional lover relationship
+        this.lovers = new Map();  // Reset lovers map to ensure clean state
         this.lovers.set(cupidId, targetId);
         this.lovers.set(targetId, cupidId);
-
-        // Notify the chosen lover
-        await target.sendDM(`You have fallen in love with **${cupid.username}** (Cupid). If one of you dies, the other will die of heartbreak.`);
-        await cupid.sendDM(`You have chosen **${target.username}** as your lover. If one of you dies, the other will die of heartbreak.`);
-
+    
+        // Log the lover relationship
         logger.info('Cupid chose lover', {
             cupidId,
-            loverId: targetId
+            cupidName: cupid.username,
+            loverId: targetId,
+            loverName: target.username,
+            loversMap: Array.from(this.lovers.entries())
         });
+    
+        // Notify both players
+        await target.sendDM(`You have fallen in love with **${cupid.username}** (Cupid). If one of you dies, the other will die of heartbreak.`);
+        await cupid.sendDM(`You have chosen **${target.username}** as your lover. If one of you dies, the other will die of heartbreak.`);
+    
+        return true;
     }
     // Start of Selection
     getPhase() {

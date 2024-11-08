@@ -52,7 +52,6 @@ class NightActionProcessor {
 
     async processNightActions() {
         try {
-            // Add initial logging
             logger.info('Starting to process night actions', {
                 nightActions: this.game.nightActions,
                 expectedNightActions: Array.from(this.game.expectedNightActions)
@@ -61,6 +60,27 @@ class NightActionProcessor {
             if (this.game.nightActionTimeout) {
                 clearTimeout(this.game.nightActionTimeout);
                 this.game.nightActionTimeout = null;
+            }
+
+            // Process Cupid's action first during Night Zero
+            if (this.game.phase === PHASES.NIGHT_ZERO) {
+                for (const [playerId, action] of Object.entries(this.game.nightActions)) {
+                    if (action.action === 'choose_lovers') {
+                        const cupid = this.game.players.get(playerId);
+                        const target = this.game.players.get(action.target);
+                        
+                        // Set up bidirectional lover relationship
+                        await this.game.processLoverSelection(playerId, action.target);
+                        
+                        logger.info('Cupid chose lover', {
+                            cupidId: playerId,
+                            cupidName: cupid.username,
+                            loverId: action.target,
+                            loverName: target.username,
+                            loversMap: Array.from(this.game.lovers.entries())
+                        });
+                    }
+                }
             }
 
             await this.processDoctorProtection();
