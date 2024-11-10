@@ -43,12 +43,8 @@ class VoteProcessor {
         await channel.send({ embeds: [resultsEmbed] });
     
         if (eliminated) {
-            // Only handle Hunter's revenge if Hunter role is in the game
-            const hunterExists = Array.from(this.game.players.values())
-                .some(p => p.role === ROLES.HUNTER);
-
             // Handle Hunter's revenge BEFORE marking as dead
-            if (hunterExists && target.role === ROLES.HUNTER) {
+            if (target.role === ROLES.HUNTER) {
                 logger.info('Hunter was voted out', {
                     hunterId: target.id,
                     hunterName: target.username
@@ -57,19 +53,18 @@ class VoteProcessor {
                 // Set up Hunter's revenge state
                 this.game.pendingHunterRevenge = target.id;
                 
-                // Send DM to Hunter
+                // Send DM to Hunter before marking as dead
                 await target.sendDM('You have been eliminated! Use `/action choose_target` to choose someone to take with you.');
                 
                 // Set timeout for Hunter's revenge
                 const hunterTimeout = setTimeout(async () => {
                     if (this.game.pendingHunterRevenge) {
-                        // If Hunter didn't act, just process their death
                         target.isAlive = false;
+                        await this.game.broadcastMessage(`**${target.username}** has been eliminated!`);
                         await this.game.moveToDeadChannel(target);
                         await this.game.handleLoversDeath(target);
                         this.game.pendingHunterRevenge = null;
                         
-                        // Check win conditions before advancing to night
                         if (!this.game.checkWinConditions()) {
                             await this.game.advanceToNight();
                         }
@@ -80,17 +75,22 @@ class VoteProcessor {
                 this.game.clearVotingState();
                 return;
             }
-    
-            // For non-Hunter players or if Hunter isn't in game, proceed normally
+
+            // For non-Hunter players, mark as dead first, then handle effects
             target.isAlive = false;
+            await this.game.broadcastMessage(`**${target.username}** has been eliminated!`);
+            
+            // Move to dead channel first
             await this.game.moveToDeadChannel(target);
+            
+            // Then handle lover deaths after the elimination message
             await this.game.handleLoversDeath(target);
         }
     
         // Reset voting state
         this.game.clearVotingState();
     
-        // If no win condition met, advance to night phase
+        // Check win conditions before advancing
         if (!this.game.checkWinConditions()) {
             await this.game.advanceToNight();
         }

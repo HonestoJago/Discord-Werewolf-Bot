@@ -83,14 +83,15 @@ module.exports = {
                 return;
             }
 
-            // Handle regular night action
+            // Process regular night action
             await currentGame.processNightAction(interaction.user.id, action, targetId);
-            
+
+            // Only send the ephemeral reply, let NightActionProcessor handle the DM
             await interaction.reply({ 
-                content: 'Your action has been recorded. Wait for the night phase to end to see the results.',
+                content: 'Action submitted.',
                 ephemeral: true 
             });
-            
+
             logger.info('Night action submitted', { 
                 userId: interaction.user.id, 
                 action, 

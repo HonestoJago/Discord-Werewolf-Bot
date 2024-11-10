@@ -482,21 +482,25 @@ class WerewolfGame {
                 return;
             }
 
-            // Remove relationships before processing death
-            this.lovers.delete(deadPlayer.id);
-            this.lovers.delete(loverId);
-
             const lover = this.players.get(loverId);
             if (!lover || !lover.isAlive) {
                 return;
             }
 
-            // Process lover death
+            // Remove relationships before processing death
+            this.lovers.delete(deadPlayer.id);
+            this.lovers.delete(loverId);
+
+            // Mark as dead before sending messages
             lover.isAlive = false;
+
+            // Send heartbreak message
             await this.broadcastMessage(`**${lover.username}** has died of heartbreak!`);
+            
+            // Move to dead channel after death message
             await this.moveToDeadChannel(lover);
 
-            // Check win conditions after all deaths
+            // Check win conditions after all deaths are processed
             this.checkWinConditions();
         } catch (error) {
             logger.error('Error handling lover death', { error });

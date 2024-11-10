@@ -6,6 +6,7 @@ const PHASES = require('../constants/phases');
 class NightActionProcessor {
     constructor(game) {
         this.game = game;
+        this.investigationProcessed = false;
     }
 
     async processNightAction(playerId, action, targetId) {
@@ -54,9 +55,21 @@ class NightActionProcessor {
             // Validate action based on phase and role
             this.validateNightAction(player, action, targetId);
 
+            // Check if action was already submitted
+            if (this.game.completedNightActions.has(playerId)) {
+                throw new GameError('Action already submitted', 'You have already submitted your action for this night.');
+            }
+
             // Store the action
             this.game.nightActions[playerId] = { action, target: targetId };
             this.game.completedNightActions.add(playerId);
+
+            // Send appropriate confirmation message only once
+            const confirmationMessage = action === 'investigate' 
+                ? 'Your investigation will be completed after all night actions are processed.'
+                : 'Your action has been recorded. Wait for the night phase to end to see the results.';
+                
+            await player.sendDM(confirmationMessage);
 
             logger.info('Night action collected', { playerId, action, targetId });
         } catch (error) {
@@ -153,6 +166,10 @@ class NightActionProcessor {
     }
 
     async processSeerInvestigation() {
+        if (this.investigationProcessed) {
+            return;
+        }
+
         for (const [playerId, action] of Object.entries(this.game.nightActions)) {
             if (action.action === 'investigate') {
                 const seer = this.game.players.get(playerId);
@@ -167,17 +184,24 @@ class NightActionProcessor {
                         continue;
                     }
 
-                    const isWerewolf = target.role === ROLES.WEREWOLF;
-                    await seer.sendDM(
-                        `Your investigation reveals that **${target.username}** is ` +
-                        `**${isWerewolf ? 'a Werewolf' : 'Not a Werewolf'}**.`
-                    );
-                    
-                    // Track execution order for timing test
-                    if (this.executionOrder) {
-                        this.executionOrder.push('investigation_result');
+                    // Only send the result once and mark as processed
+                    if (!this.investigationProcessed) {
+                        const isWerewolf = target.role === ROLES.WEREWOLF;
+                        await seer.sendDM(
+                            `Your investigation reveals that **${target.username}** is ` +
+                            `**${isWerewolf ? 'a Werewolf' : 'Not a Werewolf'}**.`
+                        );
+                        
+                        this.investigationProcessed = true;
+                        
+                        logger.info('Seer investigation processed', {
+                            seerId: seer.id,
+                            targetId: target.id,
+                            result: isWerewolf ? 'werewolf' : 'not werewolf'
+                        });
                     }
                 } catch (error) {
+                    logger.error('Error processing Seer investigation', { error });
                     throw new GameError('Investigation failed', 'Failed to complete the investigation.');
                 }
             }
@@ -336,6 +360,7 @@ class NightActionProcessor {
      */
     async handleNightActions() {
         try {
+            this.investigationProcessed = false;
             // Clear previous actions first
             this.game.expectedNightActions.clear();
             this.game.nightActions = {};
