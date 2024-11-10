@@ -135,22 +135,22 @@ async function handleViewRoles(interaction, game) {
 }
 
 async function handleStartGame(interaction, game) {
-    if (interaction.user.id !== game.gameCreatorId) {
-        await interaction.reply({
-            content: 'Only the game creator can start the game.',
-            ephemeral: true
-        });
-        return;
-    }
-
     try {
+        // Defer the reply immediately to prevent timeout
+        await interaction.deferReply({ ephemeral: true });
+        
+        // Start the game
         await game.startGame();
-        await interaction.reply('Game has started! Check your DMs for your role information.');
+        
+        // Edit the deferred reply
+        await interaction.editReply('Game started successfully!');
     } catch (error) {
-        await interaction.reply({
-            content: error instanceof GameError ? error.userMessage : 'Failed to start game.',
-            ephemeral: true
-        });
+        logger.error('Error starting game', { error });
+        if (interaction.deferred) {
+            await interaction.editReply('Failed to start game.');
+        } else {
+            await interaction.reply({ content: 'Failed to start game.', ephemeral: true });
+        }
     }
 }
 

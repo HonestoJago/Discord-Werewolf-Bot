@@ -50,10 +50,15 @@ describe('Player', () => {
         });
 
         test('handles empty message', async () => {
-            await player.sendDM('');
-            const mockUser = await mockClient.users.fetch();
-            const mockDM = await mockUser.createDM();
-            expect(mockDM.send).toHaveBeenCalledWith('');
+            await expect(player.sendDM('')).rejects.toThrow(GameError);
+            await expect(player.sendDM(null)).rejects.toThrow(GameError);
+            await expect(player.sendDM(undefined)).rejects.toThrow(GameError);
+            await expect(player.sendDM('   ')).rejects.toThrow(GameError);
+        });
+
+        test('throws correct error message for empty message', async () => {
+            const error = await player.sendDM('').catch(e => e);
+            expect(error.userMessage).toBe('Cannot send empty message.');
         });
 
         test('reuses existing DM channel', async () => {
@@ -72,7 +77,7 @@ describe('Player', () => {
         test.each([
             [ROLES.WEREWOLF, 'You are a Werewolf!'],
             [ROLES.SEER, 'You are the Seer!'],
-            [ROLES.DOCTOR, 'You are the Doctor!'],
+            [ROLES.BODYGUARD, 'You are the Bodyguard!'],
             [ROLES.CUPID, 'You are Cupid!'],
             [ROLES.HUNTER, 'You are the Hunter!'],
             [ROLES.VILLAGER, 'You are a Villager!']

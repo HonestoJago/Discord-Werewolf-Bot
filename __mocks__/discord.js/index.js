@@ -185,5 +185,12 @@ module.exports = {
         setRequired: jest.fn().mockReturnThis(),
         setAutocomplete: jest.fn().mockReturnThis(),
         addChoices: jest.fn().mockReturnThis()
+    })),
+
+    // Add StringSelectMenuBuilder mock
+    StringSelectMenuBuilder: jest.fn().mockImplementation(() => ({
+        setCustomId: jest.fn().mockReturnThis(),
+        setPlaceholder: jest.fn().mockReturnThis(),
+        addOptions: jest.fn().mockReturnThis()
     }))
 };

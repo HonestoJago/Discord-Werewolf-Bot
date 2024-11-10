@@ -412,228 +412,16 @@ class WerewolfGame {
             // Reset night action tracking
             this.completedNightActions.clear();
             this.expectedNightActions.clear();
-            this.nightActions = {};  // Reset night actions
+            this.nightActions = {};
 
-            // Only add notifications if it's not Night Zero (except for Cupid)
-            if (this.phase !== PHASES.NIGHT_ZERO) {
-                // Add players who should act to expectedNightActions
-                const werewolves = this.getPlayersByRole(ROLES.WEREWOLF);
-                const seer = this.getPlayerByRole(ROLES.SEER);
-                const bodyguard = this.getPlayerByRole(ROLES.BODYGUARD);
-
-                werewolves.forEach(w => {
-                    if (w.isAlive) {
-                        this.expectedNightActions.add(w.id);
-                    }
-                });
-                if (seer?.isAlive) this.expectedNightActions.add(seer.id);
-                if (bodyguard?.isAlive) this.expectedNightActions.add(bodyguard.id);
-
-                // Send DM prompts to all night action roles
-                const notifications = {
-                    [ROLES.WEREWOLF]: 'Use `/action attack` to choose your victim. You have 10 minutes.',
-                    [ROLES.SEER]: 'Use `/action investigate` to learn if a player is a werewolf. You have 10 minutes.',
-                    [ROLES.BODYGUARD]: 'Use `/action protect` to save someone from the werewolves. You have 10 minutes.'
-                };
-
-                // Send DMs to players with night actions
-                for (const [role, message] of Object.entries(notifications)) {
-                    if (role === ROLES.WEREWOLF) {
-                        werewolves.forEach(async wolf => {
-                            if (wolf.isAlive) await wolf.sendDM(message);
-                        });
-                    } else {
-                        const player = this.getPlayerByRole(role);
-                        if (player?.isAlive) {
-                            await player.sendDM(message);
-                        }
-                    }
-                }
-
-                // Set timeout for night phase
-                this.nightActionTimeout = setTimeout(async () => {
-                    await this.nightActionProcessor.processNightActions();
-                }, 600000); // 10 minutes
-            }
+            // Delegate all night action handling to NightActionProcessor
+            await this.nightActionProcessor.handleNightActions();
 
             logger.info(`Game advanced to Night ${this.round}`, {
                 expectedActions: Array.from(this.expectedNightActions)
             });
         } catch (error) {
             logger.error('Error advancing to Night phase', { error });
-            throw error;
-        }
-    }
-
-    /**
-     * Handles all night actions such as Werewolf attacks, Seer investigations, Doctor protections.
-     */
-    async handleNightActions() {
-        try {
-            // Collect actions from roles that act during the night
-            const actionPromises = [];
-
-            // Werewolves attack
-            const werewolves = this.getPlayersByRole(ROLES.WEREWOLF);
-            if (werewolves.length > 0) {
-                actionPromises.push(this.collectWerewolfAttack(werewolves));
-            }
-
-            // Seer investigates
-            const seer = this.getPlayerByRole(ROLES.SEER);
-            if (seer && seer.isAlive) {
-                actionPromises.push(this.collectSeerInvestigation(seer));
-            }
-
-            // Bodyguard protects
-            const bodyguard = this.getPlayerByRole(ROLES.BODYGUARD);
-            if (bodyguard && bodyguard.isAlive) {
-                actionPromises.push(this.collectBodyguardProtection(bodyguard));
-            }
-
-            // Cupid chooses lovers
-            const cupid = this.getPlayerByRole(ROLES.CUPID);
-            if (cupid && cupid.isAlive) {
-                actionPromises.push(this.collectCupidLovers(cupid));
-            }
-
-            // Wait for all actions to be collected
-            await Promise.all(actionPromises);
-
-            // Process night actions
-            await this.processNightActions();
-
-            // Advance to Day phase
-            await this.advanceToDay();
-        } catch (error) {
-            logger.error('Error handling night actions', { error });
-            throw error;
-        }
-    }
-
-    /**
-     * Collects Werewolf attack target.
-     * @param {Player[]} werewolves - Array of werewolf players.
-     */
-    async collectWerewolfAttack(werewolves) {
-        try {
-            // For simplicity, if multiple werewolves are present, have them agree on a target
-            // Alternatively, handle voting among werewolves to choose a target
-            const attackTargets = werewolves.map(wolf => wolf.promptDM('Choose a player to attack by typing their username:'));
-
-            const responses = await Promise.all(attackTargets);
-            const validResponses = responses.filter(response => response !== null);
-
-            if (validResponses.length === 0) {
-                logger.warn('No valid attack targets provided by werewolves');
-                return;
-            }
-
-            // Majority vote or consensus
-            const target = this.getMostFrequent(validResponses);
-
-            const victim = this.getPlayerByUsername(target);
-            if (!victim || victim.role === ROLES.WEREWOLF || !victim.isAlive) {
-                logger.warn('Invalid attack target chosen by werewolves', { target });
-                return;
-            }
-
-            this.nightActions.werewolfVictim = victim.id;
-            logger.info('Werewolf attack recorded', { attackerIds: werewolves.map(w => w.id), targetId: victim.id });
-        } catch (error) {
-            logger.error('Error collecting Werewolf attack', { error });
-            throw error;
-        }
-    }
-
-    /**
-     * Collects Seer investigation target.
-     * @param {Player} seer - The Seer player.
-     */
-    async collectSeerInvestigation(seer) {
-        try {
-            const investigationTarget = await seer.promptDM('Choose a player to investigate by typing their username:');
-            if (!investigationTarget) {
-                logger.warn('Seer failed to provide an investigation target', { seerId: seer.id });
-                return;
-            }
-            const target = this.getPlayerByUsername(investigationTarget);
-            if (!target || !target.isAlive) {
-                await seer.sendDM('Invalid target. Your investigation has failed.');
-                logger.warn('Invalid Seer investigation target', { seerId: seer.id, targetUsername: investigationTarget });
-                return;
-            }
-            this.nightActions.seerTarget = target.id;
-            logger.info('Seer investigation recorded', { seerId: seer.id, targetId: target.id });
-        } catch (error) {
-            logger.error('Error collecting Seer investigation', { error });
-            throw error;
-        }
-    }
-
-    /**
-     * Collects Bodyguard protection target.
-     * @param {Player} bodyguard - The Bodyguard player.
-     */
-    async collectBodyguardProtection(bodyguard) {
-        try {
-            const protectTarget = await bodyguard.promptDM('Choose a player to protect by typing their username:');
-            if (!protectTarget) {
-                logger.warn('Bodyguard failed to provide a protection target', { bodyguardId: bodyguard.id });
-                return;
-            }
-            const target = this.getPlayerByUsername(protectTarget);
-            if (!target || !target.isAlive) {
-                await bodyguard.sendDM('Invalid target. Your protection has failed.');
-                logger.warn('Invalid Bodyguard protection target', { bodyguardId: bodyguard.id, targetUsername: protectTarget });
-                return;
-            }
-            if (target.id === this.lastProtectedPlayer) {
-                await bodyguard.sendDM('You cannot protect the same player on consecutive nights.');
-                logger.warn('Bodyguard attempted consecutive protection', { bodyguardId: bodyguard.id, targetId: target.id });
-                return;
-            }
-            this.nightActions.bodyguardProtection = target.id;
-            this.lastProtectedPlayer = target.id;
-            logger.info('Bodyguard protection recorded', { bodyguardId: bodyguard.id, protectTargetId: target.id });
-        } catch (error) {
-            logger.error('Error collecting Bodyguard protection', { error });
-            throw error;
-        }
-    }
-
-    /**
-     * Collects Cupid's lovers selection.
-     * @param {Player} cupid - The Cupid player.
-     */
-    async collectCupidLovers(cupid) {
-        try {
-            const chooseLoversMessage = 'Choose two players to be lovers by typing their usernames separated by a comma (e.g., Alice, Bob):';
-            const loversFilter = m => {
-                const names = m.content.split(',').map(name => name.trim());
-                if (names.length !== 2) return false;
-                const p1 = this.getPlayerByUsername(names[0]);
-                const p2 = this.getPlayerByUsername(names[1]);
-                return p1 && p2 && p1.id !== p2.id && p1.isAlive && p2.isAlive;
-            };
-            const loversResponse = await cupid.promptDM(chooseLoversMessage, loversFilter);
-            if (!loversResponse) {
-                logger.warn('Cupid failed to choose lovers in time', { cupidId: cupid.id });
-                return;
-            }
-            const [lover1Username, lover2Username] = loversResponse.split(',').map(name => name.trim());
-            const lover1 = this.getPlayerByUsername(lover1Username);
-            const lover2 = this.getPlayerByUsername(lover2Username);
-            if (!lover1 || !lover2 || lover1.id === lover2.id) {
-                await cupid.sendDM('Invalid lovers selection.');
-                logger.warn('Invalid lovers selection by Cupid', { cupidId: cupid.id, lover1Username, lover2Username });
-                return;
-            }
-            this.setLovers(lover1.id, lover2.id);
-            await cupid.sendDM(`You have chosen **${lover1.username}** and **${lover2.username}** as lovers.`);
-            logger.info('Cupid chose lovers', { cupidId: cupid.id, lover1Id: lover1.id, lover2Id: lover2.id });
-        } catch (error) {
-            logger.error('Error collecting Cupid lovers selection', { error });
             throw error;
         }
     }
@@ -676,61 +464,44 @@ class WerewolfGame {
  * Handles the death of lovers when one dies.
  * @param {Player} player - The player who died.
  */
-async handleLoversDeath(player) {
-    try {
-        // Log initial state
-        logger.info('Handling lover death', {
-            deadPlayerId: player.id,
-            deadPlayerName: player.username,
-            loversMap: Array.from(this.lovers.entries())
-        });
-
-        const loverId = this.lovers.get(player.id);
-        if (!loverId) {
-            logger.info('No lover found for dead player', { 
-                playerId: player.id,
-                playerName: player.username
+    async handleLoversDeath(deadPlayer) {
+        try {
+            logger.info('Handling lover death', {
+                deadPlayerId: deadPlayer.id,
+                deadPlayerName: deadPlayer.username,
+                loversMap: Array.from(this.lovers.entries())
             });
-            return;
+
+            // Find and remove lover relationship first to prevent loops
+            const loverId = this.lovers.get(deadPlayer.id);
+            if (!loverId) {
+                logger.info('No lover found for dead player', {
+                    playerId: deadPlayer.id,
+                    playerName: deadPlayer.username
+                });
+                return;
+            }
+
+            // Remove relationships before processing death
+            this.lovers.delete(deadPlayer.id);
+            this.lovers.delete(loverId);
+
+            const lover = this.players.get(loverId);
+            if (!lover || !lover.isAlive) {
+                return;
+            }
+
+            // Process lover death
+            lover.isAlive = false;
+            await this.broadcastMessage(`**${lover.username}** has died of heartbreak!`);
+            await this.moveToDeadChannel(lover);
+
+            // Check win conditions after all deaths
+            this.checkWinConditions();
+        } catch (error) {
+            logger.error('Error handling lover death', { error });
         }
-
-        const lover = this.players.get(loverId);
-        if (!lover || !lover.isAlive) {
-            logger.info('Lover already dead or not found', {
-                loverId,
-                loverAlive: lover?.isAlive
-            });
-            return;
-        }
-
-        // Set lover to dead
-        lover.isAlive = false;
-
-        // Broadcast death message
-        await this.broadcastMessage(`**${lover.username}**, who was in love with **${player.username}**, has died of heartbreak.`);
-        await this.moveToDeadChannel(lover);
-
-        // Clean up relationships
-        this.lovers.delete(player.id);
-        this.lovers.delete(loverId);
-
-        // Check win conditions after lover death
-        await this.checkWinConditions();
-
-        logger.info('Lover died of heartbreak', { 
-            deadPlayerId: player.id,
-            deadPlayerName: player.username,
-            loverId: lover.id,
-            loverName: lover.username
-        });
-    } catch (error) {
-        logger.error('Error handling lovers\' death', { 
-            error, 
-            playerId: player.id,
-            loversMap: Array.from(this.lovers.entries())
-        });
     }
-}
     /**
      * Broadcasts a message to the game channel.
      * @param {string|object} message - The message or embed to send.
@@ -743,9 +514,11 @@ async handleLoversDeath(player) {
                 throw new GameError('Channel Not Found', 'The game channel does not exist.');
             }
             await channel.send(message);
-            logger.info('Broadcast message sent to game channel', { message: typeof message === 'string' ? message : 'Embed object' });
+            logger.info('Broadcast message sent', { message: typeof message === 'string' ? message : 'Embed object' });
         } catch (error) {
-            logger.error('Error broadcasting message to game channel', { error });
+            logger.error('Error broadcasting message', { error });
+            // Throw wrapped error to allow proper handling
+            throw new GameError('Broadcast Failed', 'Failed to send message to game channel.');
         }
     }
 
@@ -1065,21 +838,6 @@ async handleLoversDeath(player) {
         // Add any other cleanup needed
     }
 
-    async advanceToDay() {
-        try {
-            this.phase = PHASES.DAY;
-            const channel = await this.client.channels.fetch(this.gameChannelId);
-            
-            // Use the day phase handler to create UI
-            const dayPhaseHandler = require('../handlers/dayPhaseHandler');
-            await dayPhaseHandler.createDayPhaseUI(channel, this.players);
-    
-            logger.info(`Game advanced to Day ${this.round}`);
-        } catch (error) {
-            logger.error('Error advancing to Day phase', { error });
-            throw error;
-        }
-    }
     checkWinConditions() {
         // If game is already over, don't check again
         if (this.gameOver) {
@@ -1117,40 +875,53 @@ async handleLoversDeath(player) {
     // Add to the class
 
     async processLoverSelection(cupidId, targetId) {
-        const cupid = this.players.get(cupidId);
-        const target = this.players.get(targetId);
-    
-        if (!target) {
-            throw new GameError('Invalid target', 'Selected player was not found.');
+        try {
+            const cupid = this.players.get(cupidId);
+            const target = this.players.get(targetId);
+        
+            if (!target) {
+                throw new GameError('Invalid target', 'Selected player was not found.');
+            }
+        
+            if (!target.isAlive) {
+                throw new GameError('Invalid target', 'You can only choose a living player as your lover.');
+            }
+        
+            if (targetId === cupidId) {
+                throw new GameError('Invalid target', 'You cannot choose yourself as your lover.');
+            }
+        
+            // Set up bidirectional lover relationship
+            this.lovers.set(cupidId, targetId);
+            this.lovers.set(targetId, cupidId);
+        
+            // Log the lover relationship
+            logger.info('Cupid chose lover', {
+                cupidId,
+                cupidName: cupid.username,
+                loverId: targetId,
+                loverName: target.username,
+                loversMap: Array.from(this.lovers.entries())
+            });
+        
+            // Notify both players
+            try {
+                await target.sendDM(`You have fallen in love with **${cupid.username}** (Cupid). If one of you dies, the other will die of heartbreak.`);
+                await cupid.sendDM(`You have chosen **${target.username}** as your lover. If one of you dies, the other will die of heartbreak.`);
+            } catch (error) {
+                // If notification fails, still maintain the lover relationship but log the error
+                logger.error('Failed to notify lovers', { error });
+                throw new GameError('Communication Error', 'Failed to notify players of their lover status.');
+            }
+        
+            return true;
+        } catch (error) {
+            // Ensure any errors are wrapped in GameError
+            if (!(error instanceof GameError)) {
+                throw new GameError('Lover Selection Failed', 'An error occurred while processing lover selection.');
+            }
+            throw error;
         }
-    
-        if (!target.isAlive) {
-            throw new GameError('Invalid target', 'You can only choose a living player as your lover.');
-        }
-    
-        if (targetId === cupidId) {
-            throw new GameError('Invalid target', 'You cannot choose yourself as your lover.');
-        }
-    
-        // Set up bidirectional lover relationship
-        this.lovers = new Map();  // Reset lovers map to ensure clean state
-        this.lovers.set(cupidId, targetId);
-        this.lovers.set(targetId, cupidId);
-    
-        // Log the lover relationship
-        logger.info('Cupid chose lover', {
-            cupidId,
-            cupidName: cupid.username,
-            loverId: targetId,
-            loverName: target.username,
-            loversMap: Array.from(this.lovers.entries())
-        });
-    
-        // Notify both players
-        await target.sendDM(`You have fallen in love with **${cupid.username}** (Cupid). If one of you dies, the other will die of heartbreak.`);
-        await cupid.sendDM(`You have chosen **${target.username}** as your lover. If one of you dies, the other will die of heartbreak.`);
-    
-        return true;
     }
     // Start of Selection
     getPhase() {
@@ -1166,17 +937,6 @@ async handleLoversDeath(player) {
         return userId === this.gameCreatorId || this.authorizedIds.includes(userId);
     }
 
-    areAllNightActionsComplete() {
-        // Check if all expected players have acted
-        for (const expectedId of this.expectedNightActions) {
-            if (!this.completedNightActions.has(expectedId)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    // Add this method to WerewolfGame class
     async checkAndProcessNightActions() {
         // Check if all expected actions are completed
         const allActionsComplete = Array.from(this.expectedNightActions).every(
@@ -1190,6 +950,7 @@ async handleLoversDeath(player) {
             });
             await this.nightActionProcessor.processNightActions();
         }
+        return allActionsComplete;
     }
 }
 module.exports = WerewolfGame;

@@ -78,29 +78,19 @@ class Player {
      * @param {string} message - The message to send.
      */
     async sendDM(message) {
-        if (!this.isAlive) {
-            logger.warn(`Attempted to send DM to dead player: ${this.username}`);
-            throw new GameError(
-                'Player is dead',
-                'Cannot send messages to dead players.'
-            );
+        if (!message || message.trim() === '') {
+            throw new GameError('Cannot send empty message.', 'Cannot send empty message.');
         }
 
-        if (message === null || message === undefined) {
-            throw new GameError(
-                'Invalid message',
-                'Cannot send null or undefined message.'
-            );
+        if (!this.isAlive) {
+            throw new GameError('Player is dead', 'Cannot send messages to dead players.');
         }
 
         try {
             if (!this.channel) {
                 const user = await this.client.users.fetch(this.id);
                 if (!user) {
-                    throw new GameError(
-                        'User not found',
-                        'Could not find Discord user.'
-                    );
+                    throw new GameError('User not found', 'Could not find Discord user.');
                 }
                 this.channel = await user.createDM();
             }
@@ -109,9 +99,6 @@ class Player {
             logger.info(`DM sent to ${this.username}`);
         } catch (error) {
             logger.error(`Error sending DM to ${this.username}:`, { error });
-            if (error instanceof GameError) {
-                throw error;
-            }
             throw new GameError('DM Failed', 'Failed to send direct message to player.');
         }
     }

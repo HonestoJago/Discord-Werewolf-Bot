@@ -57,7 +57,7 @@ module.exports = {
             }
 
             // Check if this is a Hunter's revenge action
-            const isHunterRevenge = action === 'choose_target' && 
+            const isHunterRevenge = 
                 player.role === ROLES.HUNTER && 
                 currentGame.pendingHunterRevenge === player.id;
 
@@ -76,9 +76,9 @@ module.exports = {
             // Process the action
             if (isHunterRevenge) {
                 await currentGame.voteProcessor.processHunterRevenge(player.id, targetId);
-                await interaction.reply({ 
+                await interaction.reply({
                     content: 'Your revenge has been executed.',
-                    ephemeral: true 
+                    ephemeral: true
                 });
                 return;
             }

@@ -18,31 +18,41 @@ describe('Action Command', () => {
             isAlive: true
         };
 
-        // Setup mock game
+        // Setup mock game with proper night action tracking
         mockGame = {
             phase: PHASES.NIGHT,
             players: new Map([['testPlayerId', mockPlayer]]),
-            processNightAction: jest.fn().mockResolvedValue(true)
+            processNightAction: jest.fn().mockResolvedValue(true),
+            voteProcessor: {
+                processHunterRevenge: jest.fn().mockResolvedValue(true)
+            },
+            expectedNightActions: new Set(['testPlayerId']),
+            completedNightActions: new Set()
         };
 
-        // Setup mock interaction with respond method
+        // Add target player to game's players Map
+        mockGame.players.set('targetId', {
+            id: 'targetId',
+            username: 'target',
+            role: ROLES.VILLAGER,
+            isAlive: true
+        });
+
+        // Setup mock interaction
         mockInteraction = createMockInteraction({
             options: {
-                getString: jest.fn()
-                    .mockImplementation(param => {
-                        const values = {
-                            action: 'attack',
-                            target: 'targetPlayerId'
-                        };
-                        return values[param];
-                    }),
+                getString: jest.fn(param => {
+                    if (param === 'action') return 'attack';
+                    if (param === 'target') return 'targetId';
+                    return null;
+                }),
                 getFocused: jest.fn().mockReturnValue('')
             },
             guild: null,  // Simulating DM
             user: { id: 'testPlayerId' },
-            respond: jest.fn().mockResolvedValue(true), // Add respond method
+            reply: jest.fn().mockResolvedValue(true),
             client: { 
-                games: new Map() // Add games collection
+                games: new Map() 
             }
         });
     });
@@ -58,15 +68,6 @@ describe('Action Command', () => {
         });
 
         test('successfully processes werewolf attack', async () => {
-            mockInteraction.options.getString = jest.fn()
-                .mockImplementation(param => {
-                    const values = {
-                        action: 'attack',
-                        target: 'targetId'
-                    };
-                    return values[param];
-                });
-
             await actionCommand.execute(mockInteraction, mockGame);
             
             expect(mockGame.processNightAction).toHaveBeenCalledWith(
@@ -89,6 +90,30 @@ describe('Action Command', () => {
             
             expect(mockInteraction.reply).toHaveBeenCalledWith({
                 content: 'The selected target is not valid.',
+                ephemeral: true
+            });
+        });
+
+        test('successfully processes hunter revenge', async () => {
+            // Setup hunter-specific mocks
+            mockPlayer.role = ROLES.HUNTER;
+            mockGame.pendingHunterRevenge = 'testPlayerId';
+
+            // Make sure getString returns the right values for Hunter revenge
+            mockInteraction.options.getString = jest.fn(param => {
+                if (param === 'action') return 'choose_target';
+                if (param === 'target') return 'targetId';
+                return null;
+            });
+
+            await actionCommand.execute(mockInteraction, mockGame);
+
+            expect(mockGame.voteProcessor.processHunterRevenge).toHaveBeenCalledWith(
+                'testPlayerId',
+                'targetId'
+            );
+            expect(mockInteraction.reply).toHaveBeenCalledWith({
+                content: 'Your revenge has been executed.',
                 ephemeral: true
             });
         });
