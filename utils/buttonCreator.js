@@ -5,8 +5,8 @@ function createRoleButtons() {
     const addButtons = new ActionRowBuilder()
         .addComponents(
             new ButtonBuilder()
-                .setCustomId('add_doctor')
-                .setLabel('➕ Doctor')
+                .setCustomId('add_bodyguard')
+                .setLabel('➕ Bodyguard')
                 .setStyle(ButtonStyle.Danger),
             new ButtonBuilder()
                 .setCustomId('add_cupid')
@@ -21,8 +21,8 @@ function createRoleButtons() {
     const removeButtons = new ActionRowBuilder()
         .addComponents(
             new ButtonBuilder()
-                .setCustomId('remove_doctor')
-                .setLabel('➖ Doctor')
+                .setCustomId('remove_bodyguard')
+                .setLabel('➖ Bodyguard')
                 .setStyle(ButtonStyle.Danger),
             new ButtonBuilder()
                 .setCustomId('remove_cupid')

@@ -83,7 +83,7 @@ class NightActionProcessor {
                 }
             }
 
-            await this.processDoctorProtection();
+            await this.processBodyguardProtection();
 
             // Process Werewolf attacks
             let hunterRevengeTriggered = false;
@@ -158,13 +158,13 @@ class NightActionProcessor {
         }
     }
 
-    async processDoctorProtection() {
+    async processBodyguardProtection() {
         for (const [playerId, action] of Object.entries(this.game.nightActions)) {
             if (action.action === 'protect') {
                 const target = this.game.players.get(action.target);
                 if (target) {
                     target.isProtected = true;
-                    logger.info('Doctor protected player', { targetId: target.id });
+                    logger.info('Bodyguard protected player', { targetId: target.id });
                 }
             }
         }
@@ -267,8 +267,8 @@ class NightActionProcessor {
         // Role-specific validations
         switch(action) {
             case 'protect':
-                if (player.role !== ROLES.DOCTOR) {
-                    throw new GameError('Invalid role', 'Only the Doctor can protect players.');
+                if (player.role !== ROLES.BODYGUARD) {
+                    throw new GameError('Invalid role', 'Only the Bodyguard can protect players.');
                 }
                 if (target === this.game.lastProtectedPlayer) {
                     throw new GameError('Invalid target', 'You cannot protect the same player two nights in a row.');

@@ -14,7 +14,7 @@ const VoteProcessor = require('./VoteProcessor');
 const ROLE_CONFIG = {
     [ROLES.WEREWOLF]: { maxCount: (playerCount) => Math.max(1, Math.floor(playerCount / 4)) },
     [ROLES.SEER]: { maxCount: 1 },
-    [ROLES.DOCTOR]: { maxCount: 1 },
+    [ROLES.BODYGUARD]: { maxCount: 1 },
     [ROLES.CUPID]: { maxCount: 1 },
     [ROLES.HUNTER]: { maxCount: 1 },
     [ROLES.VILLAGER]: { maxCount: (playerCount) => playerCount }
@@ -189,8 +189,8 @@ class WerewolfGame {
             roles.push(ROLES.SEER);
 
             // Add optional roles if they were selected during setup
-            if (this.selectedRoles.has(ROLES.DOCTOR)) {
-                roles.push(ROLES.DOCTOR);
+            if (this.selectedRoles.has(ROLES.BODYGUARD)) {
+                roles.push(ROLES.BODYGUARD);
             }
             if (this.selectedRoles.has(ROLES.CUPID)) {
                 roles.push(ROLES.CUPID);
@@ -419,7 +419,7 @@ class WerewolfGame {
                 // Add players who should act to expectedNightActions
                 const werewolves = this.getPlayersByRole(ROLES.WEREWOLF);
                 const seer = this.getPlayerByRole(ROLES.SEER);
-                const doctor = this.getPlayerByRole(ROLES.DOCTOR);
+                const bodyguard = this.getPlayerByRole(ROLES.BODYGUARD);
 
                 werewolves.forEach(w => {
                     if (w.isAlive) {
@@ -427,13 +427,13 @@ class WerewolfGame {
                     }
                 });
                 if (seer?.isAlive) this.expectedNightActions.add(seer.id);
-                if (doctor?.isAlive) this.expectedNightActions.add(doctor.id);
+                if (bodyguard?.isAlive) this.expectedNightActions.add(bodyguard.id);
 
                 // Send DM prompts to all night action roles
                 const notifications = {
                     [ROLES.WEREWOLF]: 'Use `/action attack` to choose your victim. You have 10 minutes.',
                     [ROLES.SEER]: 'Use `/action investigate` to learn if a player is a werewolf. You have 10 minutes.',
-                    [ROLES.DOCTOR]: 'Use `/action protect` to save someone from the werewolves. You have 10 minutes.'
+                    [ROLES.BODYGUARD]: 'Use `/action protect` to save someone from the werewolves. You have 10 minutes.'
                 };
 
                 // Send DMs to players with night actions
@@ -485,10 +485,10 @@ class WerewolfGame {
                 actionPromises.push(this.collectSeerInvestigation(seer));
             }
 
-            // Doctor protects
-            const doctor = this.getPlayerByRole(ROLES.DOCTOR);
-            if (doctor && doctor.isAlive) {
-                actionPromises.push(this.collectDoctorProtection(doctor));
+            // Bodyguard protects
+            const bodyguard = this.getPlayerByRole(ROLES.BODYGUARD);
+            if (bodyguard && bodyguard.isAlive) {
+                actionPromises.push(this.collectBodyguardProtection(bodyguard));
             }
 
             // Cupid chooses lovers
@@ -572,32 +572,32 @@ class WerewolfGame {
     }
 
     /**
-     * Collects Doctor protection target.
-     * @param {Player} doctor - The Doctor player.
+     * Collects Bodyguard protection target.
+     * @param {Player} bodyguard - The Bodyguard player.
      */
-    async collectDoctorProtection(doctor) {
+    async collectBodyguardProtection(bodyguard) {
         try {
-            const protectTarget = await doctor.promptDM('Choose a player to protect by typing their username:');
+            const protectTarget = await bodyguard.promptDM('Choose a player to protect by typing their username:');
             if (!protectTarget) {
-                logger.warn('Doctor failed to provide a protection target', { doctorId: doctor.id });
+                logger.warn('Bodyguard failed to provide a protection target', { bodyguardId: bodyguard.id });
                 return;
             }
             const target = this.getPlayerByUsername(protectTarget);
             if (!target || !target.isAlive) {
-                await doctor.sendDM('Invalid target. Your protection has failed.');
-                logger.warn('Invalid Doctor protection target', { doctorId: doctor.id, targetUsername: protectTarget });
+                await bodyguard.sendDM('Invalid target. Your protection has failed.');
+                logger.warn('Invalid Bodyguard protection target', { bodyguardId: bodyguard.id, targetUsername: protectTarget });
                 return;
             }
             if (target.id === this.lastProtectedPlayer) {
-                await doctor.sendDM('You cannot protect the same player on consecutive nights.');
-                logger.warn('Doctor attempted consecutive protection', { doctorId: doctor.id, targetId: target.id });
+                await bodyguard.sendDM('You cannot protect the same player on consecutive nights.');
+                logger.warn('Bodyguard attempted consecutive protection', { bodyguardId: bodyguard.id, targetId: target.id });
                 return;
             }
-            this.nightActions.doctorProtection = target.id;
+            this.nightActions.bodyguardProtection = target.id;
             this.lastProtectedPlayer = target.id;
-            logger.info('Doctor protection recorded', { doctorId: doctor.id, protectTargetId: target.id });
+            logger.info('Bodyguard protection recorded', { bodyguardId: bodyguard.id, protectTargetId: target.id });
         } catch (error) {
-            logger.error('Error collecting Doctor protection', { error });
+            logger.error('Error collecting Bodyguard protection', { error });
             throw error;
         }
     }

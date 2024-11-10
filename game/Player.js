@@ -8,7 +8,7 @@ const ROLES = require('../constants/roles');  // Add this import
 const validRoles = [
     ROLES.WEREWOLF,
     ROLES.SEER,
-    ROLES.DOCTOR,
+    ROLES.BODYGUARD,
     ROLES.CUPID,
     ROLES.HUNTER,
     ROLES.VILLAGER
@@ -45,8 +45,8 @@ class Player {
             case ROLES.SEER:
                 message += 'You are the Seer! Each night, you can investigate one player to learn if they are a Werewolf.';
                 break;
-            case ROLES.DOCTOR:
-                message += 'You are the Doctor! Each night, you can protect one player from being killed by the Werewolves.';
+            case ROLES.BODYGUARD:
+                message += 'You are the Bodyguard! Each night, you can protect one player from being killed by the Werewolves.';
                 break;
             case ROLES.CUPID:
                 message += 'You are Cupid! You are on the village team. During Night Zero, you will choose one player to be your lover - choose wisely, as if either of you dies, the other will die of heartbreak.';

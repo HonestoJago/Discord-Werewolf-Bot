@@ -3,9 +3,9 @@
 const ROLES = Object.freeze({
     WEREWOLF: 'werewolf',
     SEER: 'seer',
-    DOCTOR: 'doctor',
+    BODYGUARD: 'bodyguard',
     CUPID: 'cupid',
-    HUNTER: 'hunter',  // Add Hunter
+    HUNTER: 'hunter',
     VILLAGER: 'villager',
 });
 

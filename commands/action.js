@@ -17,7 +17,7 @@ module.exports = {
                 .addChoices(
                     { name: 'Attack (Werewolf)', value: 'attack' },
                     { name: 'Investigate (Seer)', value: 'investigate' },
-                    { name: 'Protect (Doctor)', value: 'protect' },
+                    { name: 'Protect (Bodyguard)', value: 'protect' },
                     { name: 'Choose Lovers (Cupid)', value: 'choose_lovers' },
                     { name: 'Choose Target (Hunter)', value: 'choose_target' }
                 ))
@@ -148,7 +148,7 @@ module.exports = {
                     }
                     break;
                 case 'protect':
-                    if (player.role !== ROLES.DOCTOR || 
+                    if (player.role !== ROLES.BODYGUARD || 
                         (currentGame.phase !== PHASES.NIGHT && 
                          currentGame.phase !== PHASES.NIGHT_ZERO)) {
                         return await interaction.respond([]);
