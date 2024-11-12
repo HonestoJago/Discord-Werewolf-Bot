@@ -56,9 +56,35 @@ module.exports = {
 
     async handleButton(interaction, currentGame) {
         try {
-            const [action, targetId] = interaction.customId.split('_');
+            const [action, targetId, vote] = interaction.customId.split('_');
             
-            if (action === 'second') {
+            if (action === 'vote') {
+                // Check if player is the nominated target
+                if (interaction.user.id === currentGame.nominatedPlayer) {
+                    await interaction.reply({
+                        content: 'You cannot vote in your own nomination.',
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                // Check if player is alive
+                const voter = currentGame.players.get(interaction.user.id);
+                if (!voter?.isAlive) {
+                    await interaction.reply({
+                        content: 'Only living players can vote.',
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                // Submit the vote
+                await currentGame.submitVote(interaction.user.id, vote === 'guilty');
+                await interaction.reply({
+                    content: `Your vote to ${vote === 'guilty' ? 'lynch' : 'spare'} has been recorded.`,
+                    ephemeral: true
+                });
+            } else if (action === 'second') {
                 // First handle the seconding
                 await currentGame.second(interaction.user.id);
                 await interaction.reply({ 
@@ -85,7 +111,8 @@ module.exports = {
                 await channel.send({
                     embeds: [createVotingEmbed(
                         currentGame.players.get(targetId),
-                        currentGame.players.get(interaction.user.id)
+                        currentGame.players.get(interaction.user.id),
+                        currentGame
                     )],
                     components: [row]
                 });
@@ -96,13 +123,6 @@ module.exports = {
                 } catch (error) {
                     logger.warn('Could not delete nomination message', { error });
                 }
-            } else if (action === 'vote') {
-                const [, targetId, vote] = interaction.customId.split('_');
-                await currentGame.submitVote(interaction.user.id, vote === 'guilty');
-                await interaction.reply({
-                    content: `Your vote to ${vote === 'guilty' ? 'lynch' : 'spare'} has been recorded.`,
-                    ephemeral: true
-                });
             }
         } catch (error) {
             await handleCommandError(interaction, error);

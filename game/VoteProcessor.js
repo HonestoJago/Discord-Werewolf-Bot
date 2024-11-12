@@ -20,15 +20,30 @@ class VoteProcessor {
         };
     
         const playerVotes = {};
-        this.game.votes.forEach((vote, voterId) => {
-            const player = this.game.players.get(voterId);
-            if (player) {
-                voteCounts[vote ? 'guilty' : 'innocent']++;
-                playerVotes[player.username] = vote;
-            }
-        });
-    
         const target = this.game.players.get(this.game.nominatedPlayer);
+        
+        // Count votes only from living players who aren't the target
+        const eligibleVoters = Array.from(this.game.players.values())
+            .filter(p => p.isAlive && p.id !== this.game.nominatedPlayer);
+        
+        // Calculate votes
+        for (const [voterId, vote] of this.game.votes.entries()) {
+            const voter = this.game.players.get(voterId);
+            if (voter && voter.isAlive && voterId !== this.game.nominatedPlayer) {
+                voteCounts[vote ? 'guilty' : 'innocent']++;
+                playerVotes[voter.username] = vote;
+            }
+        }
+    
+        // Check if we have all eligible votes
+        const totalVotes = voteCounts.guilty + voteCounts.innocent;
+        const expectedVotes = eligibleVoters.length;
+        
+        // If we don't have all votes yet, don't process the result
+        if (totalVotes < expectedVotes) {
+            return null;
+        }
+    
         const eliminated = voteCounts.guilty > voteCounts.innocent;
     
         // Create and send results embed

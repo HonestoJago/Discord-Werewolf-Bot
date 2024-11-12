@@ -150,6 +150,9 @@ client.on('interactionCreate', async interaction => {
             
             try {
                 switch (action) {
+                    case 'join':
+                        await buttonHandler.handleJoinGame(interaction, game);
+                        break;
                     case 'toggle':
                         await buttonHandler.handleToggleRole(interaction, game);
                         break;
@@ -162,7 +165,16 @@ client.on('interactionCreate', async interaction => {
                     case 'start':
                         await buttonHandler.handleStartGame(interaction, game);
                         break;
-                    // ... handle other button types
+                    case 'second':
+                    case 'vote':
+                        await dayPhaseHandler.handleButton(interaction, game);
+                        break;
+                    default:
+                        logger.warn('Unhandled button interaction', { 
+                            action, 
+                            customId: interaction.customId 
+                        });
+                        break;
                 }
             } catch (error) {
                 await handleCommandError(interaction, error);

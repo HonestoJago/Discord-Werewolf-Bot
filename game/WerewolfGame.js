@@ -9,6 +9,7 @@ const PHASES = require('../constants/phases'); // Direct import of frozen object
 const { createDayPhaseEmbed, createVoteResultsEmbed } = require('../utils/embedCreator');
 const NightActionProcessor = require('./NightActionProcessor');
 const VoteProcessor = require('./VoteProcessor');
+const dayPhaseHandler = require('../handlers/dayPhaseHandler');
 
 // Define roles and their properties in a configuration object
 const ROLE_CONFIG = {
@@ -367,12 +368,15 @@ class WerewolfGame {
                 // Set a short timeout to ensure all messages are sent before advancing
                 setTimeout(async () => {
                     try {
+                        logger.info('Advancing to Day phase after Night Zero (no Cupid)');
                         this.phase = PHASES.DAY;
                         this.round = 1; // Start first day
-                        await this.advanceToDay();
+                        const channel = await this.client.channels.fetch(this.gameChannelId);
+                        await dayPhaseHandler.createDayPhaseUI(channel, this.players);
                         await this.broadcastMessage('The sun rises on the first day. Discuss and find the werewolves!');
                     } catch (error) {
-                        logger.error('Error advancing to day after Night Zero', { error });
+                        logger.error('Error advancing to day after Night Zero', { error: error.stack });
+                        throw error;
                     }
                 }, 2000);
             } else {
@@ -383,19 +387,22 @@ class WerewolfGame {
                 // Set timeout for Cupid's action
                 this.nightActionTimeout = setTimeout(async () => {
                     try {
+                        logger.info('Advancing to Day phase after Cupid timeout');
                         this.phase = PHASES.DAY;
                         this.round = 1;
-                        await this.advanceToDay();
+                        const channel = await this.client.channels.fetch(this.gameChannelId);
+                        await dayPhaseHandler.createDayPhaseUI(channel, this.players);
                         await this.broadcastMessage('The sun rises on the first day. Discuss and find the werewolves!');
                     } catch (error) {
-                        logger.error('Error advancing after Cupid timeout', { error });
+                        logger.error('Error advancing after Cupid timeout', { error: error.stack });
+                        throw error;
                     }
                 }, 600000); // 10 minutes
             }
 
             logger.info('Night Zero started');
         } catch (error) {
-            logger.error('Error during Night Zero', { error });
+            logger.error('Error during Night Zero', { error: error.stack });
             throw error;
         }
     }
@@ -756,14 +763,21 @@ class WerewolfGame {
             throw new GameError('Invalid voter', 'Dead players cannot vote.');
         }
 
+        if (voterId === this.nominatedPlayer) {
+            throw new GameError('Invalid voter', 'You cannot vote in your own nomination.');
+        }
+
         // Record the vote
         this.votes.set(voterId, isGuilty);
 
         // Check if all votes are in
-        const aliveCount = Array.from(this.players.values()).filter(p => p.isAlive).length;
-        if (this.votes.size >= aliveCount) {
+        const eligibleVoters = Array.from(this.players.values())
+            .filter(p => p.isAlive && p.id !== this.nominatedPlayer)
+            .length;
+
+        if (this.votes.size >= eligibleVoters) {
             // Process voting results
-            const results = await this.processVotes();
+            const results = await this.voteProcessor.processVotes();
             return results;
         }
 

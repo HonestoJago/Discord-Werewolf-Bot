@@ -3,6 +3,23 @@ const { GameError } = require('../utils/error-handler');
 const ROLES = require('../constants/roles');
 const { EmbedBuilder, ButtonStyle } = require('discord.js');
 
+async function handleJoinGame(interaction, game) {
+    try {
+        // Add the player to the game
+        await game.addPlayer(interaction.user);
+        await interaction.reply({
+            content: 'You have joined the game!',
+            ephemeral: true
+        });
+    } catch (error) {
+        logger.error('Error joining game', { error });
+        await interaction.reply({
+            content: error instanceof GameError ? error.userMessage : 'Failed to join the game.',
+            ephemeral: true
+        });
+    }
+}
+
 async function handleToggleRole(interaction, game) {
     try {
         // Check authorization
@@ -180,6 +197,7 @@ async function handleResetRoles(interaction, game) {
 }
 
 module.exports = {
+    handleJoinGame,
     handleToggleRole,
     handleViewRoles,
     handleStartGame,

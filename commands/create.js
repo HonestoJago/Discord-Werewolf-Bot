@@ -51,9 +51,9 @@ module.exports = {
                 }
             };
 
-            // Create join button
+            // Create join button - IMPORTANT: Changed customId to match handler
             const joinButton = new ButtonBuilder()
-                .setCustomId('join_game')
+                .setCustomId('join')  // Changed from 'join_game' to 'join'
                 .setLabel('🎮 Join Game')
                 .setStyle(ButtonStyle.Success);
 

@@ -25,15 +25,35 @@ function createNominationEmbed(nominatorName, targetName) {
     };
 }
 
-function createVotingEmbed(target, seconder) {
-    return new EmbedBuilder()
+function createVotingEmbed(target, seconder, game) {
+    const eligibleVoters = Array.from(game.players.values())
+        .filter(p => p.isAlive && p.id !== target.id);
+    const votesReceived = game.votes.size;
+    const remainingVotes = eligibleVoters.length - votesReceived;
+
+    const embed = new EmbedBuilder()
         .setColor('#FF0000')
         .setTitle('⚖️ Time to Vote!')
-        .setDescription(`${target.username} has been nominated and seconded by ${seconder.username}.\n\nUse the buttons below to cast your vote.`)
+        .setDescription(
+            `${target.username} has been nominated and seconded by ${seconder.username}.\n\n` +
+            `**${target.username}** cannot vote in their own nomination.\n` +
+            `All other living players must vote.`
+        )
         .addFields(
-            { name: 'Instructions', value: 'Click Lynch to eliminate the player, or Let Live to spare them.' }
+            { 
+                name: 'Instructions', 
+                value: 'Click Lynch to eliminate the player, or Let Live to spare them.' 
+            },
+            {
+                name: 'Voting Status',
+                value: remainingVotes > 0 ? 
+                    `Waiting for ${remainingVotes} more vote${remainingVotes === 1 ? '' : 's'}...` :
+                    'All votes are in!'
+            }
         )
         .setTimestamp();
+
+    return embed;
 }
 
 function createVoteResultsEmbed(target, voteCounts, eliminated, playerVotes) {
@@ -52,6 +72,10 @@ function createVoteResultsEmbed(target, voteCounts, eliminated, playerVotes) {
                 value: Object.entries(playerVotes)
                     .map(([username, vote]) => `${username}: ${vote ? 'Lynch' : 'Spare'}`)
                     .join('\n') || 'No votes cast'
+            },
+            {
+                name: 'Note',
+                value: `${target.username} could not vote in their own nomination.`
             }
         )
         .setTimestamp();
