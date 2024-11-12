@@ -1,18 +1,12 @@
 const logger = require('../utils/logger');
 const { GameError } = require('../utils/error-handler');
 const ROLES = require('../constants/roles');
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, ButtonStyle } = require('discord.js');
 
-async function handleAddRole(interaction, game) {
+async function handleToggleRole(interaction, game) {
     try {
-        // Add debug logging
-        logger.info('Adding role', { 
-            currentPhase: game.getPhase(),
-            isLobby: game.isInLobby()
-        });
-
         // Check authorization
-        if (interaction.user.id !== game.gameCreatorId) {
+        if (!game.isGameCreatorOrAuthorized(interaction.user.id)) {
             await interaction.reply({
                 content: 'You are not authorized to modify roles.',
                 ephemeral: true
@@ -20,7 +14,7 @@ async function handleAddRole(interaction, game) {
             return;
         }
 
-        // Extract role from customId (format: 'add_rolename')
+        // Extract role from customId (format: 'toggle_rolename')
         const role = interaction.customId.split('_')[1];
         if (!Object.values(ROLES).includes(role)) {
             await interaction.reply({
@@ -30,44 +24,52 @@ async function handleAddRole(interaction, game) {
             return;
         }
 
-        game.addRole(role);
-        await interaction.deferUpdate();
-        
-        // Log after role addition
-        logger.info('Role added successfully', { 
-            role,
-            currentPhase: game.getPhase(),
-            isLobby: game.isInLobby()
-        });
-    } catch (error) {
-        logger.error('Error adding role', {
-            error,
-            currentPhase: game.getPhase(),
-            isLobby: game.isInLobby()
-        });
-        await interaction.reply({
-            content: error instanceof GameError ? error.userMessage : 'Failed to add role.',
-            ephemeral: true
-        });
-    }
-}
+        const currentCount = game.selectedRoles.get(role) || 0;
 
-async function handleRemoveRole(interaction, game) {
-    if (interaction.user.id !== game.gameCreatorId) {
-        await interaction.reply({
-            content: 'You are not authorized to modify roles.',
-            ephemeral: true
-        });
-        return;
-    }
+        try {
+            // Create new button components based on current message
+            const newComponents = interaction.message.components.map(row => {
+                const newRow = {
+                    type: 1,
+                    components: row.components.map(button => {
+                        // Convert to plain object if it's not already
+                        const buttonData = button.toJSON ? button.toJSON() : button;
+                        
+                        if (buttonData.custom_id === interaction.customId) {
+                            if (currentCount === 0) {
+                                game.addRole(role);
+                                return {
+                                    ...buttonData,
+                                    style: ButtonStyle.Primary
+                                };
+                            } else {
+                                game.removeRole(role);
+                                return {
+                                    ...buttonData,
+                                    style: ButtonStyle.Secondary
+                                };
+                            }
+                        }
+                        return buttonData;
+                    })
+                };
+                return newRow;
+            });
 
-    const role = interaction.customId.split('_')[1];
-    try {
-        game.removeRole(role);
-        await interaction.deferUpdate();
+            // Update the message with new components
+            await interaction.update({ components: newComponents });
+
+        } catch (error) {
+            logger.error('Error updating button', { error });
+            await interaction.reply({
+                content: error instanceof GameError ? error.userMessage : 'Failed to toggle role.',
+                ephemeral: true
+            });
+        }
     } catch (error) {
+        logger.error('Error toggling role', { error });
         await interaction.reply({
-            content: error instanceof GameError ? error.userMessage : 'Failed to remove role.',
+            content: error instanceof GameError ? error.userMessage : 'Failed to toggle role.',
             ephemeral: true
         });
     }
@@ -178,8 +180,7 @@ async function handleResetRoles(interaction, game) {
 }
 
 module.exports = {
-    handleAddRole,
-    handleRemoveRole,
+    handleToggleRole,
     handleViewRoles,
     handleStartGame,
     handleResetRoles

@@ -9,6 +9,7 @@ const { handleCommandError } = require('./utils/error-handler');
 const logger = require('./utils/logger');
 const WerewolfGame = require('./game/WerewolfGame');
 const dayPhaseHandler = require('./handlers/dayPhaseHandler');
+const buttonHandler = require('./handlers/buttonHandler');
 
 // Create a new Discord client with necessary intents
 const client = new Client({ 
@@ -136,75 +137,34 @@ client.on('interactionCreate', async interaction => {
             await command.execute(interaction, game);
         } 
         else if (interaction.isButton()) {
-            const [handlerId] = interaction.customId.split('_');
-            
-            // Map handlers
-            const handlers = {
-                'day': dayPhaseHandler.handleButton,
-                'second': dayPhaseHandler.handleButton,  // Map to same handler as it's handled inside
-                'vote': dayPhaseHandler.handleButton,    // Map to same handler as it's handled inside
-                'add': require('./handlers/buttonHandler').handleAddRole,
-                'remove': require('./handlers/buttonHandler').handleRemoveRole,
-                'view': require('./handlers/buttonHandler').handleViewRoles,
-                'start': require('./handlers/buttonHandler').handleStartGame,
-                'reset': require('./handlers/buttonHandler').handleResetRoles,
-                'join': async (interaction, game) => {
-                    try {
-                        if (!game) {
-                            throw new GameError('No game', 'There is no active game to join.');
-                        }
-                        
-                        // Add the player to the game
-                        game.addPlayer(interaction.user);
-                        
-                        await interaction.reply({ 
-                            content: 'You have successfully joined the Werewolf game!', 
-                            ephemeral: true 
-                        });
-                        
-                        await game.broadcastMessage(`**${interaction.user.username}** has joined the game.`);
-                        
-                        logger.info('Player joined via button', { 
-                            userId: interaction.user.id, 
-                            username: interaction.user.username,
-                            phase: game.phase 
-                        });
-                    } catch (error) {
-                        if (error instanceof GameError) {
-                            await interaction.reply({ 
-                                content: error.userMessage, 
-                                ephemeral: true 
-                            });
-                        } else {
-                            await handleCommandError(interaction, error);
-                        }
-                    }
-                }
-            };
-
-            const handler = handlers[handlerId];
-            if (!handler) {
-                logger.warn('No button handler found', { handlerId });
+            const game = client.games.get(interaction.guildId);
+            if (!game) {
+                await interaction.reply({
+                    content: 'No active game found.',
+                    ephemeral: true
+                });
                 return;
             }
 
+            const action = interaction.customId.split('_')[0];
+            
             try {
-                // Get the game instance for this guild
-                const game = interaction.client.games.get(interaction.guildId);
-                if (!game) {
-                    await interaction.reply({ 
-                        content: 'No active game found.', 
-                        ephemeral: true 
-                    });
-                    return;
+                switch (action) {
+                    case 'toggle':
+                        await buttonHandler.handleToggleRole(interaction, game);
+                        break;
+                    case 'view':
+                        await buttonHandler.handleViewRoles(interaction, game);
+                        break;
+                    case 'reset':
+                        await buttonHandler.handleResetRoles(interaction, game);
+                        break;
+                    case 'start':
+                        await buttonHandler.handleStartGame(interaction, game);
+                        break;
+                    // ... handle other button types
                 }
-
-                await handler(interaction, game);
             } catch (error) {
-                logger.error('Error handling button', { 
-                    error,
-                    buttonId: interaction.customId 
-                });
                 await handleCommandError(interaction, error);
             }
         }

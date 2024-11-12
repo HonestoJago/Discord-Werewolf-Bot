@@ -2,35 +2,19 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const ROLES = require('../constants/roles');
 
 function createRoleButtons() {
-    const addButtons = new ActionRowBuilder()
+    const roleButtons = new ActionRowBuilder()
         .addComponents(
             new ButtonBuilder()
-                .setCustomId('add_bodyguard')
-                .setLabel('➕ Bodyguard')
-                .setStyle(ButtonStyle.Danger),
-            new ButtonBuilder()
-                .setCustomId('add_cupid')
-                .setLabel('➕ Cupid')
+                .setCustomId('toggle_bodyguard')
+                .setLabel('🛡️ Bodyguard')
                 .setStyle(ButtonStyle.Secondary),
             new ButtonBuilder()
-                .setCustomId('add_hunter')
-                .setLabel('➕ Hunter')
-                .setStyle(ButtonStyle.Secondary)
-        );
-
-    const removeButtons = new ActionRowBuilder()
-        .addComponents(
-            new ButtonBuilder()
-                .setCustomId('remove_bodyguard')
-                .setLabel('➖ Bodyguard')
-                .setStyle(ButtonStyle.Danger),
-            new ButtonBuilder()
-                .setCustomId('remove_cupid')
-                .setLabel('➖ Cupid')
+                .setCustomId('toggle_cupid')
+                .setLabel('💘 Cupid')
                 .setStyle(ButtonStyle.Secondary),
             new ButtonBuilder()
-                .setCustomId('remove_hunter')
-                .setLabel('➖ Hunter')
+                .setCustomId('toggle_hunter')
+                .setLabel('🏹 Hunter')
                 .setStyle(ButtonStyle.Secondary)
         );
 
@@ -50,7 +34,7 @@ function createRoleButtons() {
                 .setStyle(ButtonStyle.Success)
         );
 
-    return [addButtons, removeButtons, utilityButtons];
+    return [roleButtons, utilityButtons];
 }
 
 module.exports = { createRoleButtons };
