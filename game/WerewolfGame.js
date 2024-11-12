@@ -778,6 +778,10 @@ class WerewolfGame {
         if (this.votes.size >= eligibleVoters) {
             // Process voting results
             const results = await this.voteProcessor.processVotes();
+            
+            // Note: We don't need to handle phase transition here anymore
+            // as it's handled in the VoteProcessor based on the elimination result
+            
             return results;
         }
 

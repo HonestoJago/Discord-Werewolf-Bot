@@ -1,3 +1,4 @@
+const dayPhaseHandler = require('../handlers/dayPhaseHandler');
 const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');
@@ -94,26 +95,30 @@ class VoteProcessor {
             // For non-Hunter players, mark as dead first, then handle effects
             target.isAlive = false;
             await this.game.broadcastMessage(`**${target.username}** has been eliminated!`);
-            
-            // Move to dead channel first
             await this.game.moveToDeadChannel(target);
-            
-            // Then handle lover deaths after the elimination message
             await this.game.handleLoversDeath(target);
+
+            // Check win conditions before advancing
+            if (!this.game.checkWinConditions()) {
+                await this.game.advanceToNight();
+            }
+        } else {
+            // If no elimination (tie or majority innocent), stay in day phase
+            await this.game.broadcastMessage('No player was eliminated. The voting continues...');
+            
+            // Refresh the day phase UI
+            const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
+            await dayPhaseHandler.createDayPhaseUI(channel, this.game.players);
         }
     
         // Reset voting state
         this.game.clearVotingState();
     
-        // Check win conditions before advancing
-        if (!this.game.checkWinConditions()) {
-            await this.game.advanceToNight();
-        }
-    
         return {
             eliminated: eliminated ? target.id : null,
             votesFor: voteCounts.guilty,
-            votesAgainst: voteCounts.innocent
+            votesAgainst: voteCounts.innocent,
+            stayInDay: !eliminated
         };
     }
 
