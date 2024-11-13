@@ -33,6 +33,19 @@ const PHASE_TRANSITIONS = {
 
 class WerewolfGame {
     constructor(client, guildId, gameChannelId, gameCreatorId, authorizedIds = []) {
+        if (!client) {
+            throw new Error('Discord client is required');
+        }
+        if (!guildId) {
+            throw new Error('Guild ID is required');
+        }
+        if (!gameChannelId) {
+            throw new Error('Game channel ID is required');
+        }
+        if (!gameCreatorId) {
+            throw new Error('Game creator ID is required');
+        }
+
         this.client = client;
         this.guildId = guildId;
         this.gameChannelId = gameChannelId;
@@ -681,35 +694,32 @@ class WerewolfGame {
      * Cleans up private channels after the game ends.
      */
     async cleanupChannels() {
-        logger.info('Cleaning up channels');
-
-        const cleanupChannel = async (channel, channelName) => {
-            if (!channel) {
-                logger.info(`${channelName} channel not found`);
-                return;
-            }
-
-            try {
-                await channel.delete();
-                logger.info(`${channelName} channel deleted successfully`);
-            } catch (error) {
-                if (error.code === 10003) { // Unknown Channel error
-                    logger.info(`${channelName} channel no longer exists`);
-                } else if (error.code === 'BitFieldInvalid') {
-                    logger.warn(`BitField error while deleting ${channelName} channel - ignoring`);
-                } else {
-                    logger.error(`Error deleting ${channelName} channel`, { error });
+        try {
+            if (this.werewolfChannel) {
+                try {
+                    await this.werewolfChannel.delete();
+                    logger.info('Werewolf channel deleted successfully');
+                } catch (error) {
+                    logger.error('Error deleting werewolf channel', { error });
                 }
             }
-        };
 
-        // Execute channel deletions
-        await cleanupChannel(this.werewolfChannel, 'Werewolf');
-        await cleanupChannel(this.deadChannel, 'Dead');
+            if (this.deadChannel) {
+                try {
+                    await this.deadChannel.delete();
+                    logger.info('Dead channel deleted successfully');
+                } catch (error) {
+                    logger.error('Error deleting dead channel', { error });
+                }
+            }
 
-        // Reset channel properties
-        this.werewolfChannel = null;
-        this.deadChannel = null;
+            // Clear the references
+            this.werewolfChannel = null;
+            this.deadChannel = null;
+        } catch (error) {
+            logger.error('Error in cleanupChannels', { error });
+            throw error;
+        }
     }
 
     /**
@@ -1123,29 +1133,52 @@ class WerewolfGame {
      * Serializes the game state for database storage
      */
     serializeGame() {
-        return {
-            players: Array.from(this.players.entries()).map(([id, player]) => ({
-                id,
-                username: player.username,
-                role: player.role,
-                isAlive: player.isAlive,
-                isProtected: player.isProtected
-            })),
-            phase: this.phase,
-            round: this.round,
-            votes: Array.from(this.votes.entries()),
-            nightActions: this.nightActions,
-            lastProtectedPlayer: this.lastProtectedPlayer,
-            lovers: Array.from(this.lovers.entries()),
-            selectedRoles: Array.from(this.selectedRoles.entries()),
-            pendingHunterRevenge: this.pendingHunterRevenge,
-            nominatedPlayer: this.nominatedPlayer,
-            nominator: this.nominator,
-            seconder: this.seconder,
-            votingOpen: this.votingOpen,
-            completedNightActions: Array.from(this.completedNightActions),
-            expectedNightActions: Array.from(this.expectedNightActions)
-        };
+        try {
+            // First log the current state before serialization
+            logger.info('Current game state before serialization', {
+                phase: this.phase,
+                round: this.round,
+                playerCount: this.players.size,
+                playersWithRoles: Array.from(this.players.values()).filter(p => p.role).length
+            });
+    
+            const serializedState = {
+                players: Array.from(this.players.values()).map(player => ({
+                    id: player.id,
+                    username: player.username,
+                    role: player.role || null,  // Explicitly handle null case
+                    isAlive: Boolean(player.isAlive),
+                    isProtected: Boolean(player.isProtected)
+                })),
+                phase: this.phase,
+                round: Number(this.round),
+                votes: Array.from(this.votes.entries()),
+                nightActions: this.nightActions || {},
+                lastProtectedPlayer: this.lastProtectedPlayer,
+                lovers: Array.from(this.lovers.entries()),
+                selectedRoles: Array.from(this.selectedRoles.entries()),
+                pendingHunterRevenge: this.pendingHunterRevenge,
+                nominatedPlayer: this.nominatedPlayer,
+                nominator: this.nominator,
+                seconder: this.seconder,
+                votingOpen: Boolean(this.votingOpen),
+                completedNightActions: Array.from(this.completedNightActions),
+                expectedNightActions: Array.from(this.expectedNightActions)
+            };
+    
+            // Validate the serialized state
+            if (!serializedState.phase || !PHASES[serializedState.phase]) {
+                throw new Error(`Invalid phase in game state: ${serializedState.phase}`);
+            }
+    
+            return serializedState;
+        } catch (error) {
+            logger.error('Error in serializeGame', { 
+                error: error.message,
+                stack: error.stack 
+            });
+            throw error;
+        }
     }
 
     /**
@@ -1153,23 +1186,51 @@ class WerewolfGame {
      */
     async saveGameState() {
         try {
+            // First get the current state
+            const currentState = this.serializeGame();
+            
+            // Log the state we're about to save
+            logger.info('Saving game state', { 
+                guildId: this.guildId,
+                currentPhase: this.phase,
+                statePhase: currentState.phase,
+                round: this.round,
+                playerCount: this.players.size
+            });
+    
+            // Save to database with explicit phase from current game state
             await Game.upsert({
                 guildId: this.guildId,
                 channelId: this.gameChannelId,
                 creatorId: this.gameCreatorId,
-                phase: this.phase,
+                phase: this.phase,  // Use the actual current phase
                 round: this.round,
-                gameState: this.serializeGame(),
+                gameState: currentState,
                 lastUpdated: new Date()
             });
             
-            logger.info('Game state saved', { 
+            // Verify the save was successful
+            const savedGame = await Game.findByPk(this.guildId);
+            if (savedGame.phase !== this.phase) {
+                logger.error('Phase mismatch after save', {
+                    expectedPhase: this.phase,
+                    savedPhase: savedGame.phase
+                });
+                throw new Error('Game state save verification failed');
+            }
+    
+            logger.info('Game state saved successfully', { 
                 guildId: this.guildId,
-                phase: this.phase,
-                round: this.round
+                phase: savedGame.phase,
+                round: savedGame.round
             });
         } catch (error) {
-            logger.error('Failed to save game state', { error });
+            logger.error('Failed to save game state', { 
+                error,
+                currentPhase: this.phase,
+                guildId: this.guildId
+            });
+            throw error;
         }
     }
 
@@ -1177,75 +1238,239 @@ class WerewolfGame {
      * Restores a game from saved state
      */
     static async restoreGame(client, guildId) {
-        const savedGame = await Game.findByPk(guildId);
-        if (!savedGame) return null;
-
-        const game = new WerewolfGame(
-            client,
-            savedGame.guildId,
-            savedGame.channelId,
-            savedGame.creatorId
-        );
-
         try {
-            const state = savedGame.gameState;
-            const guild = await client.guilds.fetch(guildId);
-            
-            // Restore players
-            for (const playerData of state.players) {
-                const player = new Player(playerData.id, playerData.username, client);
-                player.role = playerData.role;
-                player.isAlive = playerData.isAlive;
-                player.isProtected = playerData.isProtected;
-                game.players.set(player.id, player);
+            const savedGame = await Game.findByPk(guildId);
+            if (!savedGame) {
+                logger.error('No saved game found during restoration', { guildId });
+                return null;
             }
-
-            // Restore game state
-            game.phase = state.phase;
-            game.round = state.round;
-            game.votes = new Map(state.votes);
-            game.nightActions = state.nightActions;
-            game.lastProtectedPlayer = state.lastProtectedPlayer;
-            game.lovers = new Map(state.lovers);
-            game.selectedRoles = new Map(state.selectedRoles);
-            game.pendingHunterRevenge = state.pendingHunterRevenge;
-            game.nominatedPlayer = state.nominatedPlayer;
-            game.nominator = state.nominator;
-            game.seconder = state.seconder;
-            game.votingOpen = state.votingOpen;
-            game.completedNightActions = new Set(state.completedNightActions);
-            game.expectedNightActions = new Set(state.expectedNightActions);
+    
+            // Validate required fields
+            if (!savedGame.channelId || !savedGame.creatorId) {
+                logger.error('Saved game missing required fields', { 
+                    guildId,
+                    channelId: savedGame.channelId,
+                    creatorId: savedGame.creatorId 
+                });
+                return null;
+            }
+    
+            // Validate gameState
+            if (!savedGame.gameState || typeof savedGame.gameState !== 'object') {
+                logger.error('Invalid game state in saved game', { 
+                    guildId,
+                    gameState: savedGame.gameState 
+                });
+                return null;
+            }
+    
+            // Create new game instance with error handling
+            let game;
+            try {
+                game = new WerewolfGame(
+                    client,
+                    savedGame.guildId,
+                    savedGame.channelId,
+                    savedGame.creatorId
+                );
+            } catch (error) {
+                logger.error('Error creating new game instance', { 
+                    error: error.message,
+                    guildId 
+                });
+                throw error;
+            }
+    
+            // Rest of restoreGame remains the same...
+            game.phase = savedGame.phase;
+            game.round = savedGame.round;
+    
+            // Then restore the detailed state
+            const state = savedGame.gameState;
+            if (!state) {
+                logger.error('No game state found in saved game', { guildId });
+                return null;
+            }
+    
+            try {
+                // Restore players with error handling
+                if (state.players && Array.isArray(state.players)) {
+                    for (const playerData of state.players) {
+                        try {
+                            const player = new Player(playerData.id, playerData.username, client);
+                            player.role = playerData.role;
+                            player.isAlive = playerData.isAlive;
+                            player.isProtected = playerData.isProtected;
+                            game.players.set(player.id, player);
+                        } catch (error) {
+                            logger.error('Error restoring player', { error, playerData });
+                        }
+                    }
+                }
+    
+                // Restore other game state with type checking
+                game.votes = new Map(Array.isArray(state.votes) ? state.votes : []);
+                game.nightActions = state.nightActions || {};
+                game.lastProtectedPlayer = state.lastProtectedPlayer;
+                game.lovers = new Map(Array.isArray(state.lovers) ? state.lovers : []);
+                game.selectedRoles = new Map(Array.isArray(state.selectedRoles) ? state.selectedRoles : []);
+                game.pendingHunterRevenge = state.pendingHunterRevenge;
+                game.nominatedPlayer = state.nominatedPlayer;
+                game.nominator = state.nominator;
+                game.seconder = state.seconder;
+                game.votingOpen = Boolean(state.votingOpen);
+                game.completedNightActions = new Set(Array.isArray(state.completedNightActions) ? state.completedNightActions : []);
+                game.expectedNightActions = new Set(Array.isArray(state.expectedNightActions) ? state.expectedNightActions : []);
+            } catch (error) {
+                logger.error('Error restoring game state', { error });
+                throw error;
+            }
 
             // Restore special channels if they exist
-            const category = guild.channels.cache.find(c => 
-                c.type === 'GUILD_CATEGORY' && c.name === 'Werewolf Game');
-            
-            if (category) {
-                const werewolfChannel = category.children.find(c => c.name === 'werewolves');
-                const deadChannel = category.children.find(c => c.name === 'dead');
-                
-                game.werewolfChannel = werewolfChannel || null;
-                game.deadChannel = deadChannel || null;
+            try {
+                // First fetch the guild
+                const guild = await client.guilds.fetch(guildId);
+                if (!guild) {
+                    logger.error('Could not fetch guild during restoration', { guildId });
+                    return null;
+                }
+
+                // Then fetch the category
+                const categoryId = process.env.WEREWOLF_CATEGORY_ID;
+                if (!categoryId) {
+                    logger.warn('WEREWOLF_CATEGORY_ID not set in environment variables', { guildId });
+                } else {
+                    try {
+                        const category = await guild.channels.fetch(categoryId);
+                        
+                        if (category) {
+                            // Find channels by their proper names
+                            const channels = await guild.channels.fetch();
+                            const werewolfChannel = channels.find(c => 
+                                c.parentId === categoryId && c.name === 'werewolf-channel'
+                            );
+                            const deadChannel = channels.find(c => 
+                                c.parentId === categoryId && c.name === 'dead-players'
+                            );
+                            
+                            if (werewolfChannel) {
+                                game.werewolfChannel = werewolfChannel;
+                                logger.info('Restored werewolf channel', { channelId: werewolfChannel.id });
+                            }
+                            
+                            if (deadChannel) {
+                                game.deadChannel = deadChannel;
+                                logger.info('Restored dead channel', { channelId: deadChannel.id });
+                            }
+                        }
+                    } catch (error) {
+                        logger.warn('Error fetching special channels', { 
+                            error: error.message,
+                            categoryId 
+                        });
+                        // Don't throw - we can continue without these channels
+                    }
+                }
+
+                // Recreate phase-specific UI
+                try {
+                    const gameChannel = await guild.channels.fetch(savedGame.channelId);
+                    if (gameChannel) {
+                        switch (game.phase) {
+                            case PHASES.DAY:
+                                // If there's an active nomination and voting
+                                if (game.nominatedPlayer && game.seconder) {
+                                    const target = game.players.get(game.nominatedPlayer);
+                                    const nominator = game.players.get(game.nominator);
+                                    const seconder = game.players.get(game.seconder);
+                                    
+                                    if (target && nominator && seconder) {
+                                        // Recreate voting UI
+                                        const lynchButton = new ButtonBuilder()
+                                            .setCustomId(`vote_${target.id}_guilty`)
+                                            .setLabel('Lynch')
+                                            .setStyle(ButtonStyle.Danger);
+
+                                        const spareButton = new ButtonBuilder()
+                                            .setCustomId(`vote_${target.id}_innocent`)
+                                            .setLabel('Let Live')
+                                            .setStyle(ButtonStyle.Success);
+
+                                        const row = new ActionRowBuilder()
+                                            .addComponents(lynchButton, spareButton);
+
+                                        await gameChannel.send({
+                                            embeds: [createVoteResultsEmbed(target, nominator, game)],
+                                            components: [row]
+                                        });
+                                    }
+                                } else {
+                                    // Create regular day phase UI if no active vote
+                                    await dayPhaseHandler.createDayPhaseUI(gameChannel, game.players);
+                                }
+                                break;
+
+                            case PHASES.NIGHT:
+                            case PHASES.NIGHT_ZERO:
+                                // Recreate night phase UI and reminders
+                                if (typeof game.sendNightActionReminders === 'function') {
+                                    await game.sendNightActionReminders();
+                                }
+                                break;
+                        }
+                    } else {
+                        logger.error('Could not fetch game channel during restoration', {
+                            channelId: savedGame.channelId
+                        });
+                    }
+                } catch (error) {
+                    logger.error('Error recreating game UI', {
+                        error: error.message,
+                        phase: game.phase
+                    });
+                    // Don't throw - we can continue without recreating UI
+                }
+            } catch (error) {
+                logger.error('Error restoring channels and UI', {
+                    error: error.message,
+                    guildId
+                });
+                // Don't throw - we can continue without channels
             }
 
-            // Recreate phase-specific UI
-            const gameChannel = await client.channels.fetch(savedGame.channelId);
-            if (gameChannel) {
-                switch (game.phase) {
-                    case PHASES.DAY:
-                        await dayPhaseHandler.createDayPhaseUI(gameChannel, game.players);
-                        break;
-                    case PHASES.NIGHT:
-                        // Recreate night phase UI and reminders
-                        await game.sendNightActionReminders();
-                        break;
-                    // Add other phases as needed
+            // Add DM notifications to all players
+            for (const [playerId, player] of game.players) {
+                try {
+                    const dmChannel = await player.getDMChannel();
+                    if (dmChannel) {
+                        await dmChannel.send({
+                            embeds: [{
+                                color: 0x0099ff,
+                                title: '🔄 Game Restored',
+                                description: 
+                                    'The game you were participating in has been restored.\n\n' +
+                                    `**Your Role:** ${player.role}\n` +
+                                    `**Current Phase:** ${game.phase}\n` +
+                                    `**Status:** ${player.isAlive ? '🟢 Alive' : '💀 Dead'}\n\n` +
+                                    (game.phase === PHASES.NIGHT && player.isAlive ? 
+                                        'Check your action menu if you have any night actions to complete.' : 
+                                        'Continue participating in the game channel.'),
+                                footer: { text: 'Use /game-status for detailed game information' }
+                            }]
+                        });
+                    }
+                } catch (error) {
+                    logger.warn('Failed to send DM to player during game restoration', {
+                        playerId,
+                        error
+                    });
                 }
             }
 
             // Notify players of game restoration
             const phaseInfo = {
                 [PHASES.LOBBY]: "The game is in the lobby phase.",
+                [PHASES.NIGHT_ZERO]: "It is currently the first night. Check your DMs for any actions.",
                 [PHASES.NIGHT]: "It is currently night. Check your DMs for any actions you need to take.",
                 [PHASES.DAY]: "It is currently day. Continue your discussion and voting.",
                 [PHASES.GAME_OVER]: "The game has ended."
@@ -1274,10 +1499,14 @@ class WerewolfGame {
 
             return game;
         } catch (error) {
-            logger.error('Error restoring game', { error, guildId });
+            logger.error('Error restoring game', { 
+                error: error.message,
+                stack: error.stack,
+                guildId 
+            });
             throw error;
         }
     }
-}
-module.exports = WerewolfGame;
+};
 
+module.exports = WerewolfGame;

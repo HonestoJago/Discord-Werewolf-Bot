@@ -407,44 +407,22 @@ client.createGame = async (guildId, channelId, creatorId, testMode = false) => {
 
 // Function to end the current game
 client.endGame = async (guildId) => {
-    // Check if game exists in the Map
-    if (client.games.has(guildId)) {
-        throw new Error('A game is already in progress in this server.');
-    }
-    const game = new WerewolfGame(client, guildId, channelId, creatorId, testMode);
-    client.games.set(guildId, game);
-    
-    // Save initial game state to database
-    await Game.create({
-        guildId,
-        channelId,
-        creatorId,
-        phase: game.phase,
-        round: game.round,
-        gameState: game.serializeGame(),
-        lastUpdated: new Date()
-    });
-    
-    logger.info('New game instance created and saved', { guildId, creatorId });
-    return game;
-};
-
-// Function to end the current game
-client.endGame = async (guildId) => {
     const game = client.games.get(guildId);
     if (game) {
         try {
-            // Delete from database first
-            await Game.destroy({ where: { guildId } });
+            // First shutdown the game (this will clean up channels)
+            await game.shutdownGame();
             
-            // Then clean up the game instance
-            game.shutdownGame();
+            // Then remove from client's games collection
             client.games.delete(guildId);
             
-            logger.info('Game instance has been reset and removed from database.', { guildId });
+            // Finally remove from database
+            await Game.destroy({ where: { guildId } });
+            
+            logger.info('Game instance has been fully cleaned up and removed', { guildId });
         } catch (error) {
-            logger.error('Error cleaning up game from database', { error, guildId });
-            throw error;  // Propagate error to caller
+            logger.error('Error during game cleanup', { error, guildId });
+            throw error;
         }
     }
 };
