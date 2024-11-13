@@ -78,7 +78,7 @@ class Player {
      * @param {string} message - The message to send.
      */
     async sendDM(message) {
-        if (!message || message.trim() === '') {
+        if (!message) {
             throw new GameError('Cannot send empty message.', 'Cannot send empty message.');
         }
 

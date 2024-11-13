@@ -59,6 +59,19 @@ class VoteProcessor {
         await channel.send({ embeds: [resultsEmbed] });
     
         if (eliminated) {
+            // Announce whether the eliminated player was a werewolf
+            const isWerewolf = target.role === ROLES.WEREWOLF;
+            await this.game.broadcastMessage({
+                embeds: [{
+                    color: isWerewolf ? 0x008000 : 0x800000, // Green for werewolf, red for non-werewolf
+                    title: isWerewolf ? '🐺 A Wolf Among Us!' : '❌ An Innocent Soul',
+                    description: isWerewolf ?
+                        `*The village's suspicions were correct! **${target.username}** was indeed a Werewolf!*` :
+                        `*Alas, **${target.username}** was not a Werewolf. The real beasts still lurk among you...*`,
+                    footer: { text: isWerewolf ? 'But are there more?' : 'Choose more carefully next time...' }
+                }]
+            });
+
             // Handle Hunter's revenge BEFORE marking as dead
             if (target.role === ROLES.HUNTER) {
                 logger.info('Hunter was voted out', {

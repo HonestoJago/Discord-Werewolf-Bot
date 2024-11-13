@@ -60,22 +60,51 @@ class NightActionProcessor {
                 throw new GameError('Action already submitted', 'You have already submitted your action for this night.');
             }
 
-            // Store the action
+            // Handle Seer investigation immediately
+            if (action === 'investigate') {
+                const seer = this.game.players.get(playerId);
+                const target = this.game.players.get(targetId);
+
+                if (!target) {
+                    throw new GameError('Invalid target', 'Target player not found.');
+                }
+
+                const isWerewolf = target.role === ROLES.WEREWOLF;
+                const aliveStatus = target.isAlive ? '' : ' (deceased)';
+                
+                // Send the result immediately
+                await seer.sendDM({
+                    embeds: [{
+                        color: 0x4B0082,
+                        title: '🔮 Vision Revealed',
+                        description: 
+                            `*Your mystical powers reveal the truth about **${target.username}**${aliveStatus}...*\n\n` +
+                            `Your vision shows that they are **${isWerewolf ? 'a Werewolf!' : 'Not a Werewolf.'}**`,
+                        footer: { text: 'Use this knowledge wisely...' }
+                    }]
+                });
+
+                logger.info('Seer investigation completed', {
+                    seerId: seer.id,
+                    targetId: target.id,
+                    targetAlive: target.isAlive,
+                    result: isWerewolf ? 'werewolf' : 'not werewolf'
+                });
+            }
+
+            // Store the action for other roles
             this.game.nightActions[playerId] = { action, target: targetId };
             this.game.completedNightActions.add(playerId);
 
-            // Send appropriate confirmation message
-            await player.sendDM('Your action has been recorded. Wait for the night phase to end to see the results.');
+            // Only send generic confirmation for non-Seer actions
+            if (action !== 'investigate') {
+                await player.sendDM('Your action has been recorded. Wait for the night phase to end to see the results.');
+            }
 
             logger.info('Night action collected', { playerId, action, targetId });
 
             // Check if all actions are complete and process if they are
-            const allComplete = this.areAllNightActionsComplete();
-            if (allComplete) {
-                logger.info('All night actions completed, processing actions', {
-                    expectedActions: Array.from(this.game.expectedNightActions),
-                    completedActions: Array.from(this.game.completedNightActions)
-                });
+            if (this.areAllNightActionsComplete()) {
                 await this.processNightActions();
             }
 
@@ -87,24 +116,23 @@ class NightActionProcessor {
 
     async processNightActions() {
         try {
-            // Process all investigations first
-            await this.processSeerInvestigation();
-
             // Process protection
             await this.processBodyguardProtection();
 
             // Then process attacks and deaths
             await this.processWerewolfAttacks();
 
+            // Clean up night state
+            this.game.nightActions = {};
+            this.game.completedNightActions.clear();
+            this.game.expectedNightActions.clear();
+
             // Check win conditions after all deaths
             if (!this.game.checkWinConditions()) {
-                // Only advance to day if game isn't over
                 await this.game.advanceToDay();
             }
-
         } catch (error) {
             logger.error('Error processing night actions', { error });
-            // Don't throw - we want to continue even if there's an error
         }
     }
 
@@ -116,79 +144,6 @@ class NightActionProcessor {
                     target.isProtected = true;
                     this.game.lastProtectedPlayer = target.id;
                     logger.info('Bodyguard protected player', { targetId: target.id });
-                }
-            }
-        }
-    }
-
-    async processSeerInvestigation() {
-        if (this.investigationProcessed) {
-            return;
-        }
-
-        for (const [playerId, action] of Object.entries(this.game.nightActions)) {
-            if (action.action === 'investigate') {
-                const seer = this.game.players.get(playerId);
-                const target = this.game.players.get(action.target);
-                
-                try {
-                    if (!target) {
-                        logger.warn('Invalid Seer investigation target', { 
-                            seerId: seer.id, 
-                            targetId: action.target 
-                        });
-                        continue;
-                    }
-
-                    // Only send the result once
-                    const isWerewolf = target.role === ROLES.WEREWOLF;
-                    
-                    // Create a more detailed log to track the investigation
-                    logger.info('Processing Seer investigation', {
-                        seerId: seer.id,
-                        seerName: seer.username,
-                        targetId: target.id,
-                        targetName: target.username,
-                        targetRole: target.role,
-                        isWerewolf: isWerewolf
-                    });
-
-                    try {
-                        // Send the result to the Seer
-                        await seer.sendDM({
-                            embeds: [{
-                                color: 0x4B0082,
-                                title: '🔮 Vision Revealed',
-                                description: 
-                                    `*Your mystical powers reveal the truth about **${target.username}**...*\n\n` +
-                                    `Your vision shows that they are **${isWerewolf ? 'a Werewolf!' : 'Not a Werewolf.'}**`,
-                                footer: { text: 'Use this knowledge wisely...' }
-                            }]
-                        });
-                        
-                        this.investigationProcessed = true;
-                        
-                        logger.info('Seer investigation completed', {
-                            seerId: seer.id,
-                            targetId: target.id,
-                            result: isWerewolf ? 'werewolf' : 'not werewolf'
-                        });
-                    } catch (dmError) {
-                        // Log the specific DM error but don't throw
-                        logger.error('Error sending Seer investigation DM', { 
-                            error: dmError,
-                            seerId: seer.id,
-                            targetId: target.id 
-                        });
-                    }
-                } catch (error) {
-                    // Log the full error details
-                    logger.error('Error in Seer investigation', { 
-                        error: error.stack || error,
-                        seerId: seer?.id,
-                        targetId: target?.id,
-                        action: action
-                    });
                 }
             }
         }
@@ -586,8 +541,10 @@ class NightActionProcessor {
                         embeds: [{
                             color: 0x800000,
                             title: '🐺 A Grim Discovery',
-                            description: `*As dawn breaks, the village finds **${target.username}** dead...*`,
-                            footer: { text: 'The wolves have claimed another victim.' }
+                            description: 
+                                `*As dawn breaks, the village finds **${target.username}** dead, their body savagely mauled...*\n\n` +
+                                `The werewolves have claimed another victim.`,
+                            footer: { text: 'The hunt continues...' }
                         }]
                     });
                     
