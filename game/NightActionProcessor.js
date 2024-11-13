@@ -326,7 +326,16 @@ class NightActionProcessor {
             if (bodyguard?.isAlive) {
                 this.game.expectedNightActions.add(bodyguard.id);
                 // Send prompt to Bodyguard
-                await bodyguard.sendDM('Use `/action protect` to choose a player to protect tonight.');
+                await bodyguard.sendDM({
+                    embeds: [{
+                        color: 0x4B0082,
+                        title: '🛡️ Choose Your Ward',
+                        description: 
+                            '*Your vigilant eyes scan the village, ready to protect the innocent...*\n\n' +
+                            'Use `/action protect` to choose a player to protect tonight.',
+                        footer: { text: 'Your shield may mean the difference between life and death...' }
+                    }]
+                });
             }
 
             // Send prompts to other roles
@@ -336,7 +345,16 @@ class NightActionProcessor {
 
             werewolves.forEach(async wolf => {
                 if (wolf.isAlive) {
-                    await wolf.sendDM('Use `/action attack` to choose a player to attack tonight.');
+                    await wolf.sendDM({
+                        embeds: [{
+                            color: 0x800000,
+                            title: '🐺 The Hunt Begins',
+                            description: 
+                                '*Your fangs gleam in the moonlight as you stalk your prey...*\n\n' +
+                                'Use `/action attack` to choose your victim tonight.',
+                            footer: { text: 'Choose wisely, for the village grows suspicious...' }
+                        }]
+                    });
                 }
             });
 
