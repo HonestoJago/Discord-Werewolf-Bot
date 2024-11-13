@@ -965,6 +965,17 @@ class WerewolfGame {
     }
 
     checkWinConditions() {
+        // Add debug logging
+    logger.debug('Checking win conditions', {
+        livingPlayers: this.getAlivePlayers().length,
+        livingWerewolves: this.getPlayersByRole(ROLES.WEREWOLF).length,
+        phase: this.phase
+    });
+
+    // Don't check win conditions during setup phases
+    if (this.phase === PHASES.LOBBY || this.phase === PHASES.NIGHT_ZERO) {
+        return false;
+    }
         // If game is already over, don't check again
         if (this.gameOver) {
             return true;

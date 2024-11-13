@@ -4,6 +4,9 @@
 # Dependency directories
 node_modules/
 
+# Data directory
+data/
+
 # Logs
 logs
 *.log
