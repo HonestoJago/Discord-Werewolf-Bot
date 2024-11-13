@@ -130,5 +130,39 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Documentation crafted with assistance from Claude AI
 - Thanks to all contributors
 
+## 📸 Screenshots
+
+### Game Setup
+![Game Loading Interface](assets/images/loading_GUI.png)
+*Initial game setup and role configuration interface*
+
+### Day Phase
+![Day Phase Discussion](assets/images/day_phase.png)
+*Players discussing during the day phase*
+
+![Day Phase Attacks](assets/images/day_attacks.png)
+*Results of night actions revealed during day*
+
+### Night Actions
+![Werewolf DM](assets/images/werewolf_DM.png)
+*Werewolves receive their role and instructions*
+
+![Seer DM](assets/images/seer_DM.png)
+*Seer receiving their investigation results*
+
+### Voting System
+![Second Nomination](assets/images/second_nomination.png)
+*Players seconding nominations for elimination*
+
+![Voting Interface](assets/images/voting.png)
+*Final voting interface for player elimination*
+
+### Private Channels
+![Werewolf Channel](assets/images/private_werewolf_channel.png)
+*Private channel for werewolves to coordinate*
+
+![Dead Chat](assets/images/dead_chat.png)
+*Spectator channel for eliminated players*
+
 ---
 Made with ❤️ by Jonathan Frodella
