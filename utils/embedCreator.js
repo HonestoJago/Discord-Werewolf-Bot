@@ -16,11 +16,13 @@ function createPlayerListEmbed(players, phase) {
 
 function createNominationEmbed(nominatorName, targetName) {
     return {
-        color: 0xff0000,
-        title: '⚖️ Player Nominated',
-        description: `**${nominatorName}** has nominated **${targetName}** for elimination.\n\nThis nomination needs a second within 60 seconds to proceed to voting.`,
+        color: 0x800000,
+        title: '⚖️ Accusation Made',
+        description: 
+            `*In a moment of courage or folly, **${nominatorName}** points an accusing finger at **${targetName}**.*\n\n` +
+            'Will anyone support this accusation? A second is needed to bring this to trial.',
         footer: {
-            text: 'Click the button below to second this nomination'
+            text: 'The next 60 seconds could determine a villager\'s fate...'
         }
     };
 }
@@ -58,24 +60,20 @@ function createVotingEmbed(target, seconder, game) {
 
 function createVoteResultsEmbed(target, voteCounts, eliminated, playerVotes) {
     const embed = new EmbedBuilder()
-        .setColor(eliminated ? '#FF0000' : '#00FF00')
-        .setTitle('Vote Results')
+        .setColor(eliminated ? '#800000' : '#006400')
+        .setTitle(eliminated ? '⚰️ The Village Has Spoken' : '🕊️ Mercy Prevails')
         .setDescription(eliminated ? 
-            `${target.username} has been eliminated.` :
-            `${target.username} has survived the vote.`
+            `*With heavy hearts, the village condemns **${target.username}** to death.*` :
+            `*The village shows mercy, and **${target.username}** lives to see another day.*`
         )
         .addFields(
-            { name: 'Votes to Lynch', value: voteCounts.guilty.toString(), inline: true },
-            { name: 'Votes to Spare', value: voteCounts.innocent.toString(), inline: true },
+            { name: '🔨 Votes for Death', value: voteCounts.guilty.toString(), inline: true },
+            { name: '💐 Votes for Mercy', value: voteCounts.innocent.toString(), inline: true },
             { 
-                name: 'Individual Votes', 
+                name: '📜 The Verdict',
                 value: Object.entries(playerVotes)
-                    .map(([username, vote]) => `${username}: ${vote ? 'Lynch' : 'Spare'}`)
-                    .join('\n') || 'No votes cast'
-            },
-            {
-                name: 'Note',
-                value: `${target.username} could not vote in their own nomination.`
+                    .map(([username, vote]) => `${username}: ${vote ? '🔨' : '💐'}`)
+                    .join('\n') || '*No votes were cast*'
             }
         )
         .setTimestamp();
@@ -85,22 +83,22 @@ function createVoteResultsEmbed(target, voteCounts, eliminated, playerVotes) {
 
 function createDayPhaseEmbed(players, nominationActive = false) {
     const embed = new EmbedBuilder()
-        .setColor('#FFA500')  // Orange for day phase
-        .setTitle('Day Phase')
+        .setColor('#FFA500')
+        .setTitle('☀️ Village Council')
         .setDescription(nominationActive ? 
-            'A nomination is in progress...' : 
-            'Use the Nominate button to start a vote against a player.'
+            '*Tensions rise as accusations fly...*' : 
+            '*The village gathers to root out evil. Who among you acts suspicious?*'
         )
         .addFields(
             { 
-                name: 'Alive Players', 
+                name: '🎭 Living Villagers', 
                 value: Array.from(players.values())
                     .filter(p => p.isAlive)
-                    .map(p => p.username)
-                    .join('\n') || 'No players alive'
+                    .map(p => `• ${p.username}`)
+                    .join('\n') || '*The village lies empty...*'
             }
         )
-        .setTimestamp();
+        .setFooter({ text: 'Choose wisely, for the fate of the village hangs in the balance...' });
 
     return embed;
 }

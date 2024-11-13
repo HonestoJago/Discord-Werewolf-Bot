@@ -83,7 +83,8 @@ class Player {
         }
 
         if (!this.isAlive) {
-            throw new GameError('Player is dead', 'Cannot send messages to dead players.');
+            logger.info(`Skipping DM to dead player ${this.username}`);
+            return;
         }
 
         try {

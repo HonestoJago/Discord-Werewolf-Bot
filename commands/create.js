@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const WerewolfGame = require('../game/WerewolfGame');
 const { createRoleConfigEmbed } = require('../utils/embedCreator');
-const { createRoleButtons } = require('../utils/buttonCreator');
+const { createGameSetupButtons } = require('../utils/buttonCreator');
 const { GameError, handleCommandError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 
@@ -22,53 +22,47 @@ module.exports = {
             // Store game instance
             interaction.client.games.set(interaction.guildId, game);
 
-            // Create thematic welcome message and configuration instructions
+            // Create thematic welcome message
             const welcomeEmbed = {
                 color: 0x800000, // Dark red for werewolf theme
-                title: '🐺 Welcome to Werewolf 🌕',
+                title: '🌕 A New Hunt Begins 🐺',
                 description: 
-                    '*As darkness falls upon the village, rumors of werewolves spread through the streets...*\n\n' +
-                    'You have been chosen to organize this gathering. Choose your roles wisely:\n\n' +
-                    '**Role Guidelines:**\n' +
-                    '• Werewolves: Max 1/4 of total players (rounded down)\n' +  // Fixed ratio
-                    '• Special Roles (Seer, Doctor, Cupid): Max 1 each\n' +
-                    '• Villagers: As many as needed\n\n' +
-                    '*Remember: A balanced game makes for the most thrilling hunt.*',
+                    '*The village elder has called for a gathering. Dark rumors spread of wolves among the sheep...*\n\n' +
+                    '**Game Setup**\n' +
+                    'This game will be played with video and voice chat:\n' +
+                    '• During the day, all players will have cameras and mics ON\n' +
+                    '• During the night, all players will turn cameras and mics OFF\n\n' +
+                    '**Basic Roles (Automatic)**\n' +
+                    '• Werewolves (1 per 4 players)\n' +
+                    '• Seer (1)\n' +
+                    '• Villagers (remaining players)\n\n' +
+                    '**Optional Roles**\n' +
+                    'The following roles can be added to enhance the game:\n' +
+                    '• 🛡️ Bodyguard: Protects one player each night\n' +
+                    '• 💘 Cupid: Chooses one player to be their lover (both die if either dies)\n' +
+                    '• 🏹 Hunter: Takes someone with them when they die',
                 fields: [
                     {
-                        name: 'Current Setup',
-                        value: 'No roles configured yet. Use the buttons below to add roles.',
+                        name: '📜 How to Join',
+                        value: 'Click the Join button below or use `/join` to enter the game.',
                         inline: false
                     },
                     {
-                        name: 'Next Steps',
-                        value: '1. Click Join button or use `/join` to join\n2. Configure roles using buttons below\n3. Start the game when ready',
+                        name: '⚔️ Optional Roles',
+                        value: 'Game creator can toggle optional roles using the buttons below.\nThese roles will be randomly assigned when the game starts.',
                         inline: false
                     }
                 ],
                 footer: {
-                    text: 'May the village survive the night...'
+                    text: 'The hunt begins when the creator clicks Start Game...'
                 }
             };
 
-            // Create join button - IMPORTANT: Changed customId to match handler
-            const joinButton = new ButtonBuilder()
-                .setCustomId('join')  // Changed from 'join_game' to 'join'
-                .setLabel('🎮 Join Game')
-                .setStyle(ButtonStyle.Success);
-
-            // Create role configuration buttons
-            const roleButtons = createRoleButtons();
-
-            // Add join button to first row
-            const allButtons = [
-                { type: 1, components: [joinButton] },  // New row with join button
-                ...roleButtons  // Existing role buttons
-            ];
+            const buttons = createGameSetupButtons();
 
             await interaction.reply({
                 embeds: [welcomeEmbed],
-                components: allButtons,
+                components: buttons,
                 ephemeral: false
             });
 

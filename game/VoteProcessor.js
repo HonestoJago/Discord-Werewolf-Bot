@@ -140,7 +140,16 @@ class VoteProcessor {
         target.isAlive = false;
 
         // Broadcast the revenge
-        await this.game.broadcastMessage(`**${hunter.username}** uses their dying action to take **${target.username}** with them!`);
+        await this.game.broadcastMessage({
+            embeds: [{
+                color: 0x800000,
+                title: '🏹 The Hunter\'s Final Shot',
+                description: 
+                    `*With their dying breath, **${hunter.username}** raises their bow...*\n\n` +
+                    `In a final act of vengeance, they take **${target.username}** with them to the grave!`,
+                footer: { text: 'Even in death, the Hunter\'s aim remains true...' }
+            }]
+        });
         
         // Move both to dead channel
         await this.game.moveToDeadChannel(hunter);

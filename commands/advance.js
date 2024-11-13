@@ -4,6 +4,7 @@ const { SlashCommandBuilder } = require('discord.js');
 const logger = require('../utils/logger');
 const { handleCommandError, GameError } = require('../utils/error-handler');
 const PHASES = require('../constants/phases');
+const dayPhaseHandler = require('../handlers/dayPhaseHandler');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -27,6 +28,7 @@ module.exports = {
             await interaction.deferReply({ ephemeral: true });
 
             const currentPhase = currentGame.phase;
+            const channel = await interaction.client.channels.fetch(currentGame.gameChannelId);
             
             switch (currentPhase) {
                 case PHASES.DAY:
@@ -38,17 +40,39 @@ module.exports = {
                 case PHASES.NIGHT:
                     currentGame.phase = PHASES.DAY;
                     currentGame.round += 1;
-                    const channel = await interaction.client.channels.fetch(currentGame.gameChannelId);
-                    await currentGame.broadcastMessage(`Day ${currentGame.round} has begun!`);
+                    await currentGame.broadcastMessage({
+                        embeds: [{
+                            color: 0xFFA500,
+                            title: '☀️ Dawn Breaks Over the Village',
+                            description: 
+                                '*The morning sun reveals the events of the night...*\n\n' +
+                                '**All players:** Please turn your cameras and microphones ON.\n' +
+                                'The time for discussion begins. Who among you seems suspicious?',
+                            footer: { text: 'Debate wisely, for a wrong accusation could doom the village.' }
+                        }]
+                    });
+                    
+                    // Create the day phase UI with nomination controls
                     await dayPhaseHandler.createDayPhaseUI(channel, currentGame.players);
                     break;
                     
                 case PHASES.NIGHT_ZERO:
                     currentGame.phase = PHASES.DAY;
                     currentGame.round = 1;
-                    const dayChannel = await interaction.client.channels.fetch(currentGame.gameChannelId);
-                    await currentGame.broadcastMessage('The sun rises on the first day. Discuss and find the werewolves!');
-                    await dayPhaseHandler.createDayPhaseUI(dayChannel, currentGame.players);
+                    await currentGame.broadcastMessage({
+                        embeds: [{
+                            color: 0xFFA500,
+                            title: '☀️ The First Dawn',
+                            description: 
+                                '*As the sun rises on the first day, the village awakens to an uneasy morning...*\n\n' +
+                                '**All players:** Please turn your cameras and microphones ON.\n' +
+                                'The time has come to root out the evil among you.',
+                            footer: { text: 'Trust no one, for wolves wear sheep\'s clothing...' }
+                        }]
+                    });
+                    
+                    // Create the day phase UI with nomination controls
+                    await dayPhaseHandler.createDayPhaseUI(channel, currentGame.players);
                     break;
                     
                 default:

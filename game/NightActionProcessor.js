@@ -64,14 +64,21 @@ class NightActionProcessor {
             this.game.nightActions[playerId] = { action, target: targetId };
             this.game.completedNightActions.add(playerId);
 
-            // Send appropriate confirmation message only once
-            const confirmationMessage = action === 'investigate' 
-                ? 'Your investigation will be completed after all night actions are processed.'
-                : 'Your action has been recorded. Wait for the night phase to end to see the results.';
-                
-            await player.sendDM(confirmationMessage);
+            // Send appropriate confirmation message
+            await player.sendDM('Your action has been recorded. Wait for the night phase to end to see the results.');
 
             logger.info('Night action collected', { playerId, action, targetId });
+
+            // Check if all actions are complete and process if they are
+            const allComplete = this.areAllNightActionsComplete();
+            if (allComplete) {
+                logger.info('All night actions completed, processing actions', {
+                    expectedActions: Array.from(this.game.expectedNightActions),
+                    completedActions: Array.from(this.game.completedNightActions)
+                });
+                await this.processNightActions();
+            }
+
         } catch (error) {
             logger.error('Error processing night action', { error });
             throw error;
@@ -83,72 +90,21 @@ class NightActionProcessor {
             // Process all investigations first
             await this.processSeerInvestigation();
 
-            // Clear any existing timeout
-            if (this.game.nightActionTimeout) {
-                clearTimeout(this.game.nightActionTimeout);
-                this.game.nightActionTimeout = null;
-            }
-
-            // Process Cupid's action during Night Zero
-            if (this.game.phase === PHASES.NIGHT_ZERO) {
-                await this.processCupidAction();
-                // Only advance after checking all required actions are complete
-                if (this.areAllNightActionsComplete()) {
-                    await this.advanceToDay();
-                }
-                return;
-            }
-
             // Process protection
             await this.processBodyguardProtection();
 
             // Then process attacks and deaths
-            let hunterRevengeTriggered = false;
-            let protectedKill = false;
-
-            // Process Werewolf attacks
             await this.processWerewolfAttacks();
 
             // Check win conditions after all deaths
-            if (this.game.checkWinConditions()) {
-                return;
-            }
-
-            // Only advance phase if no Hunter revenge is pending and game isn't over
-            if (!hunterRevengeTriggered) {
-                await this.advanceToDay();
+            if (!this.game.checkWinConditions()) {
+                // Only advance to day if game isn't over
+                await this.game.advanceToDay();
             }
 
         } catch (error) {
             logger.error('Error processing night actions', { error });
-            throw error;
-        }
-    }
-
-    async advanceToDay() {
-        try {
-            logger.info('Attempting to advance to Day phase', {
-                currentPhase: this.game.phase,
-                round: this.game.round
-            });
-
-            // Guard against multiple transitions
-            if (this.game.phase === PHASES.DAY) {
-                logger.warn('Already in Day phase, skipping transition');
-                return;
-            }
-
-            this.game.phase = PHASES.DAY;
-            const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
-            
-            // Use the day phase handler to create UI
-            const dayPhaseHandler = require('../handlers/dayPhaseHandler');
-            await dayPhaseHandler.createDayPhaseUI(channel, this.game.players);
-
-            logger.info(`Successfully advanced to Day ${this.game.round}`);
-        } catch (error) {
-            logger.error('Error advancing to Day phase', { error });
-            throw error;
+            // Don't throw - we want to continue even if there's an error
         }
     }
 
@@ -176,7 +132,7 @@ class NightActionProcessor {
                 const target = this.game.players.get(action.target);
                 
                 try {
-                    if (!target?.isAlive) {
+                    if (!target) {
                         logger.warn('Invalid Seer investigation target', { 
                             seerId: seer.id, 
                             targetId: action.target 
@@ -184,25 +140,55 @@ class NightActionProcessor {
                         continue;
                     }
 
-                    // Only send the result once and mark as processed
-                    if (!this.investigationProcessed) {
-                        const isWerewolf = target.role === ROLES.WEREWOLF;
-                        await seer.sendDM(
-                            `Your investigation reveals that **${target.username}** is ` +
-                            `**${isWerewolf ? 'a Werewolf' : 'Not a Werewolf'}**.`
-                        );
+                    // Only send the result once
+                    const isWerewolf = target.role === ROLES.WEREWOLF;
+                    
+                    // Create a more detailed log to track the investigation
+                    logger.info('Processing Seer investigation', {
+                        seerId: seer.id,
+                        seerName: seer.username,
+                        targetId: target.id,
+                        targetName: target.username,
+                        targetRole: target.role,
+                        isWerewolf: isWerewolf
+                    });
+
+                    try {
+                        // Send the result to the Seer
+                        await seer.sendDM({
+                            embeds: [{
+                                color: 0x4B0082,
+                                title: '🔮 Vision Revealed',
+                                description: 
+                                    `*Your mystical powers reveal the truth about **${target.username}**...*\n\n` +
+                                    `Your vision shows that they are **${isWerewolf ? 'a Werewolf!' : 'Not a Werewolf.'}**`,
+                                footer: { text: 'Use this knowledge wisely...' }
+                            }]
+                        });
                         
                         this.investigationProcessed = true;
                         
-                        logger.info('Seer investigation processed', {
+                        logger.info('Seer investigation completed', {
                             seerId: seer.id,
                             targetId: target.id,
                             result: isWerewolf ? 'werewolf' : 'not werewolf'
                         });
+                    } catch (dmError) {
+                        // Log the specific DM error but don't throw
+                        logger.error('Error sending Seer investigation DM', { 
+                            error: dmError,
+                            seerId: seer.id,
+                            targetId: target.id 
+                        });
                     }
                 } catch (error) {
-                    logger.error('Error processing Seer investigation', { error });
-                    throw new GameError('Investigation failed', 'Failed to complete the investigation.');
+                    // Log the full error details
+                    logger.error('Error in Seer investigation', { 
+                        error: error.stack || error,
+                        seerId: seer?.id,
+                        targetId: target?.id,
+                        action: action
+                    });
                 }
             }
         }
@@ -364,12 +350,12 @@ class NightActionProcessor {
             // Clear previous actions first
             this.game.expectedNightActions.clear();
             this.game.nightActions = {};
+            this.game.completedNightActions.clear();
             
             // Get all role players first
             const werewolves = this.game.getPlayersByRole(ROLES.WEREWOLF);
             const seer = this.game.getPlayerByRole(ROLES.SEER);
             const bodyguard = this.game.getPlayerByRole(ROLES.BODYGUARD);
-            const cupid = this.game.getPlayerByRole(ROLES.CUPID);
 
             // Add living players to expected actions
             werewolves.forEach(wolf => {
@@ -384,43 +370,24 @@ class NightActionProcessor {
 
             if (bodyguard?.isAlive) {
                 this.game.expectedNightActions.add(bodyguard.id);
+                // Send prompt to Bodyguard
+                await bodyguard.sendDM('Use `/action protect` to choose a player to protect tonight.');
             }
 
-            if (this.game.phase === PHASES.NIGHT_ZERO && cupid?.isAlive) {
-                this.game.expectedNightActions.add(cupid.id);
+            // Send prompts to other roles
+            if (seer?.isAlive) {
+                await seer.sendDM('Use `/action investigate` to investigate a player tonight.');
             }
 
-            // Then collect actions
-            const actionPromises = [];
+            werewolves.forEach(async wolf => {
+                if (wolf.isAlive) {
+                    await wolf.sendDM('Use `/action attack` to choose a player to attack tonight.');
+                }
+            });
 
-            // Werewolves attack
-            if (werewolves.length > 0) {
-                actionPromises.push(this.collectWerewolfAttack(werewolves));
-            }
-
-            // Seer investigates
-            if (seer && seer.isAlive) {
-                actionPromises.push(this.collectSeerInvestigation(seer));
-            }
-
-            // Bodyguard protects
-            if (bodyguard && bodyguard.isAlive) {
-                actionPromises.push(this.collectBodyguardProtection(bodyguard));
-            }
-
-            // Cupid chooses lover
-            if (cupid && cupid.isAlive && this.game.phase === PHASES.NIGHT_ZERO) {
-                actionPromises.push(this.collectCupidLover(cupid));
-            }
-
-            // Wait for all actions to be collected
-            await Promise.all(actionPromises);
-
-            // Process night actions
-            await this.processNightActions();
-
-            // Advance to Day phase
-            await this.game.advanceToDay();
+            logger.info('Night actions initialized', {
+                expectedActions: Array.from(this.game.expectedNightActions)
+            });
         } catch (error) {
             logger.error('Error handling night actions', { error });
             throw error;
@@ -576,50 +543,61 @@ class NightActionProcessor {
     }
 
     async processWerewolfAttacks() {
-        let protectedKill = false;
-        
-        for (const [playerId, action] of Object.entries(this.game.nightActions)) {
-            if (action.action === 'attack') {
-                const target = this.game.players.get(action.target);
-                
-                logger.info('Processing werewolf attack', {
-                    targetId: action.target,
-                    targetRole: target?.role,
-                    targetIsAlive: target?.isAlive,
-                    targetIsProtected: target?.isProtected
-                });
+        try {
+            for (const [playerId, action] of Object.entries(this.game.nightActions)) {
+                if (action.action === 'attack') {
+                    const target = this.game.players.get(action.target);
+                    
+                    logger.info('Processing werewolf attack', {
+                        targetId: action.target,
+                        targetRole: target?.role,
+                        targetIsAlive: target?.isAlive,
+                        targetIsProtected: target?.isProtected
+                    });
 
-                if (target?.isAlive) {
-                    if (target.isProtected) {
-                        protectedKill = true;
+                    if (!target?.isAlive) {
                         continue;
                     }
 
-                    if (target.role === ROLES.HUNTER) {
-                        // Handle Hunter case first
-                        this.game.pendingHunterRevenge = target.id;
-                        this.game.expectedNightActions.clear();
-                        this.game.expectedNightActions.add(target.id);
-                        
-                        // Send DM before marking as dead
-                        await target.sendDM('You have been eliminated! Use `/action choose_target` to choose someone to take with you.');
-                        target.isAlive = false;
-                        await this.game.broadcastMessage(`**${target.username}** was attacked during the night!`);
-                        await this.game.moveToDeadChannel(target);
-                        return;
+                    if (target.isProtected) {
+                        // Only send protection message once
+                        if (!this.protectionMessageSent) {
+                            await this.game.broadcastMessage({
+                                embeds: [{
+                                    color: 0x4B0082,
+                                    title: '🛡️ Protection Prevails',
+                                    description: '*The Bodyguard\'s vigilance thwarts the wolves\' attack!*',
+                                    footer: { text: 'The village sleeps peacefully...' }
+                                }]
+                            });
+                            this.protectionMessageSent = true;
+                        }
+                        continue;
                     }
 
-                    // For non-Hunter players
-                    await this.game.broadcastMessage(`**${target.username}** was killed during the night.`);
+                    // Handle Hunter case
+                    if (target.role === ROLES.HUNTER) {
+                        this.game.pendingHunterRevenge = target.id;
+                        await target.sendDM('You have been eliminated! Use `/action choose_target` to choose someone to take with you.');
+                    }
+
                     target.isAlive = false;
+                    await this.game.broadcastMessage({
+                        embeds: [{
+                            color: 0x800000,
+                            title: '🐺 A Grim Discovery',
+                            description: `*As dawn breaks, the village finds **${target.username}** dead...*`,
+                            footer: { text: 'The wolves have claimed another victim.' }
+                        }]
+                    });
+                    
                     await this.game.moveToDeadChannel(target);
                     await this.game.handleLoversDeath(target);
                 }
             }
-        }
-
-        if (protectedKill) {
-            await this.game.broadcastMessage('The Bodyguard successfully protected their target - nobody died tonight!');
+        } catch (error) {
+            logger.error('Error processing werewolf attacks', { error });
+            // Log error but don't throw - allow phase to continue
         }
     }
 

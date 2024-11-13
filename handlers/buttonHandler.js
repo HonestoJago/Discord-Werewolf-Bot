@@ -93,59 +93,53 @@ async function handleToggleRole(interaction, game) {
 }
 
 async function handleViewRoles(interaction, game) {
-    // Get current role counts
-    const roleSetup = Array.from(game.selectedRoles.entries())
-        .map(([role, count]) => `${role}: ${count}`)
-        .join('\n');
-
-    // Get current player list
-    const playerList = Array.from(game.players.values())
-        .map(player => player.username)
-        .join('\n');
-
-    // Calculate automatic roles
     const playerCount = game.players.size;
-    
-    // Only show role calculations if there are players
-    let roleBreakdown;
-    if (playerCount === 0) {
-        roleBreakdown = 'Waiting for players to join...';
-    } else {
-        const werewolfCount = Math.floor(playerCount / 4);
-        const villagerCount = Math.max(0, playerCount - werewolfCount - 1  // -1 for Seer
-            - (game.selectedRoles.get(ROLES.DOCTOR) || 0)
-            - (game.selectedRoles.get(ROLES.CUPID) || 0)
-            - (game.selectedRoles.get(ROLES.HUNTER) || 0));  // Subtract Hunter from villager count
-
-        roleBreakdown = `Seer: 1\nWerewolves: ${werewolfCount}\nVillagers: ${villagerCount}`;
-    }
+    const werewolfCount = Math.floor(playerCount / 4);
+    const villagerCount = Math.max(0, playerCount - werewolfCount - 1  // -1 for Seer
+        - (game.selectedRoles.get(ROLES.BODYGUARD) || 0)
+        - (game.selectedRoles.get(ROLES.CUPID) || 0)
+        - (game.selectedRoles.get(ROLES.HUNTER) || 0));
 
     const embed = new EmbedBuilder()
-        .setColor('#0099ff')
-        .setTitle('Game Setup')
+        .setColor('#800000')
+        .setTitle('📜 Village Registry')
+        .setDescription('*The elder reviews the gathering...*')
         .addFields(
             { 
-                name: 'Current Players', 
-                value: playerList || 'No players yet', 
+                name: '🎭 Villagers Present', 
+                value: playerCount === 0 ? 
+                    '*The village square stands empty...*' :
+                    Array.from(game.players.values())
+                        .map(player => `• ${player.username}`)
+                        .join('\n'),
                 inline: false 
             },
             { 
-                name: 'Player Count', 
-                value: `${playerCount} players`, 
-                inline: true 
-            },
-            {
-                name: 'Automatic Roles',
-                value: roleBreakdown,
+                name: '🌙 Basic Roles',
+                value: playerCount === 0 ?
+                    '*Waiting for villagers to gather...*' :
+                    `🐺 Werewolves: ${werewolfCount}\n` +
+                    `👁️ Seer: 1\n` +
+                    `👥 Villagers: ${villagerCount}`,
                 inline: true
             },
             { 
-                name: 'Optional Roles', 
-                value: roleSetup || 'No optional roles selected', 
+                name: '⚔️ Optional Roles', 
+                value: Array.from(game.selectedRoles.entries())
+                    .filter(([role]) => ![ROLES.WEREWOLF, ROLES.SEER].includes(role))
+                    .map(([role, count]) => {
+                        const roleIcons = {
+                            [ROLES.BODYGUARD]: '🛡️',
+                            [ROLES.CUPID]: '💘',
+                            [ROLES.HUNTER]: '🏹'
+                        };
+                        return `${roleIcons[role]} ${role}: ${count}`;
+                    })
+                    .join('\n') || '*No optional roles selected*',
                 inline: true 
             }
         )
-        .setTimestamp();
+        .setFooter({ text: 'May the fates be kind to the innocent...' });
 
     await interaction.reply({
         embeds: [embed],

@@ -156,7 +156,17 @@ class WerewolfGame {
 
             await this.assignRoles();
             await this.createPrivateChannels();
-            await this.broadcastMessage(`Game is starting with ${this.players.size} players, including ${this.getPlayersByRole(ROLES.WEREWOLF).length} werewolves.`);
+            await this.broadcastMessage({
+                embeds: [{
+                    color: 0x800000,
+                    title: '🌕 Night Falls on the Village 🐺',
+                    description: 
+                        '*As darkness descends, fear grips the hearts of the villagers...*\n\n' +
+                        '**All players:** Please turn off your cameras and microphones now.\n' +
+                        'The first night begins, and with it, ancient powers awaken...',
+                    footer: { text: 'Stay silent until dawn breaks...' }
+                }]
+            });
             
             // Initialize night zero
             await this.nightZero();
@@ -414,7 +424,18 @@ class WerewolfGame {
         try {
             this.phase = PHASES.NIGHT;
             this.round += 1;
-            await this.broadcastMessage(`--- Night ${this.round} ---`);
+            
+            await this.broadcastMessage({
+                embeds: [{
+                    color: 0x2C3E50,
+                    title: '🌙 Night Falls Once More',
+                    description: 
+                        '*As darkness envelops the village, danger lurks in the shadows...*\n\n' +
+                        '**All players:** Please turn off your cameras and microphones now.\n' +
+                        'The night phase begins, and with it, dark deeds will be done...',
+                    footer: { text: 'Remain silent until morning comes...' }
+                }]
+            });
 
             // Reset night action tracking
             this.completedNightActions.clear();
@@ -580,7 +601,43 @@ class WerewolfGame {
     getAlivePlayers() {
         return Array.from(this.players.values()).filter((player) => player.isAlive);
     }
-
+    
+    async advanceToDay() {
+        try {
+            // Guard against multiple transitions
+            if (this.phase === PHASES.DAY) {
+                logger.warn('Already in Day phase, skipping transition');
+                return;
+            }
+    
+            this.phase = PHASES.DAY;
+            
+            // Clear any night state
+            this.completedNightActions.clear();
+            this.expectedNightActions.clear();
+            this.nightActions = {};
+            
+            await this.broadcastMessage({
+                embeds: [{
+                    color: 0xFFA500,
+                    title: '☀️ Dawn Breaks Over the Village',
+                    description: 
+                        '*The morning sun reveals the events of the night...*\n\n' +
+                        '**All players:** Please turn your cameras and microphones ON.\n' +
+                        'The time for discussion begins. Who among you seems suspicious?',
+                    footer: { text: 'Debate wisely, for a wrong accusation could doom the village.' }
+                }]
+            });
+    
+            const channel = await this.client.channels.fetch(this.gameChannelId);
+            await dayPhaseHandler.createDayPhaseUI(channel, this.players);
+    
+            logger.info(`Advanced to Day ${this.round}`);
+        } catch (error) {
+            logger.error('Error advancing to Day phase', { error });
+            throw error;
+        }
+    }
     /**
      * Shuts down the game, cleaning up channels and resetting state.
      */
