@@ -11,8 +11,7 @@ module.exports = {
 
     async execute(interaction) {
         try {
-            // Use client's endGame method which handles Map storage
-            interaction.client.endGame(interaction.guildId);
+            await interaction.client.endGame(interaction.guildId);
             await interaction.reply('Game has been ended.');
         } catch (error) {
             await handleCommandError(interaction, error);

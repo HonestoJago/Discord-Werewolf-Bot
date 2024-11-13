@@ -11,6 +11,7 @@ const NightActionProcessor = require('./NightActionProcessor');
 const VoteProcessor = require('./VoteProcessor');
 const dayPhaseHandler = require('../handlers/dayPhaseHandler');
 const PlayerStats = require('../models/Player');
+const Game = require('../models/Game');
 
 // Define roles and their properties in a configuration object
 const ROLE_CONFIG = {
@@ -73,7 +74,16 @@ class WerewolfGame {
         // Add the processors
         this.nightActionProcessor = new NightActionProcessor(this);
         this.voteProcessor = new VoteProcessor(this);
-     }
+    
+        // Set up periodic state saving
+        this.stateSaveInterval = setInterval(async () => {
+            try {
+                await this.saveGameState();
+            } catch (error) {
+                logger.error('Error in periodic state save', { error });
+            }
+        }, 5 * 60 * 1000); // Save every 5 minutes
+    }
 
     /**
      * Adds a player to the game.
@@ -110,6 +120,10 @@ class WerewolfGame {
 
             const player = new Player(user.id, user.username, this.client);
             this.players.set(user.id, player);
+            // Save game state after adding player
+            this.saveGameState().catch(error => {
+                logger.error('Error saving game state after adding player', { error });
+            });
             logger.info('Player added to the game', { 
                 playerId: user.id, 
                 username: user.username,
@@ -449,6 +463,8 @@ class WerewolfGame {
             logger.info(`Game advanced to Night ${this.round}`, {
                 expectedActions: Array.from(this.expectedNightActions)
             });
+
+            await this.saveGameState();
         } catch (error) {
             logger.error('Error advancing to Night phase', { error });
             throw error;
@@ -1101,6 +1117,166 @@ class WerewolfGame {
             await this.nightActionProcessor.processNightActions();
         }
         return allActionsComplete;
+    }
+
+    /**
+     * Serializes the game state for database storage
+     */
+    serializeGame() {
+        return {
+            players: Array.from(this.players.entries()).map(([id, player]) => ({
+                id,
+                username: player.username,
+                role: player.role,
+                isAlive: player.isAlive,
+                isProtected: player.isProtected
+            })),
+            phase: this.phase,
+            round: this.round,
+            votes: Array.from(this.votes.entries()),
+            nightActions: this.nightActions,
+            lastProtectedPlayer: this.lastProtectedPlayer,
+            lovers: Array.from(this.lovers.entries()),
+            selectedRoles: Array.from(this.selectedRoles.entries()),
+            pendingHunterRevenge: this.pendingHunterRevenge,
+            nominatedPlayer: this.nominatedPlayer,
+            nominator: this.nominator,
+            seconder: this.seconder,
+            votingOpen: this.votingOpen,
+            completedNightActions: Array.from(this.completedNightActions),
+            expectedNightActions: Array.from(this.expectedNightActions)
+        };
+    }
+
+    /**
+     * Saves the current game state to the database
+     */
+    async saveGameState() {
+        try {
+            await Game.upsert({
+                guildId: this.guildId,
+                channelId: this.gameChannelId,
+                creatorId: this.gameCreatorId,
+                phase: this.phase,
+                round: this.round,
+                gameState: this.serializeGame(),
+                lastUpdated: new Date()
+            });
+            
+            logger.info('Game state saved', { 
+                guildId: this.guildId,
+                phase: this.phase,
+                round: this.round
+            });
+        } catch (error) {
+            logger.error('Failed to save game state', { error });
+        }
+    }
+
+    /**
+     * Restores a game from saved state
+     */
+    static async restoreGame(client, guildId) {
+        const savedGame = await Game.findByPk(guildId);
+        if (!savedGame) return null;
+
+        const game = new WerewolfGame(
+            client,
+            savedGame.guildId,
+            savedGame.channelId,
+            savedGame.creatorId
+        );
+
+        try {
+            const state = savedGame.gameState;
+            const guild = await client.guilds.fetch(guildId);
+            
+            // Restore players
+            for (const playerData of state.players) {
+                const player = new Player(playerData.id, playerData.username, client);
+                player.role = playerData.role;
+                player.isAlive = playerData.isAlive;
+                player.isProtected = playerData.isProtected;
+                game.players.set(player.id, player);
+            }
+
+            // Restore game state
+            game.phase = state.phase;
+            game.round = state.round;
+            game.votes = new Map(state.votes);
+            game.nightActions = state.nightActions;
+            game.lastProtectedPlayer = state.lastProtectedPlayer;
+            game.lovers = new Map(state.lovers);
+            game.selectedRoles = new Map(state.selectedRoles);
+            game.pendingHunterRevenge = state.pendingHunterRevenge;
+            game.nominatedPlayer = state.nominatedPlayer;
+            game.nominator = state.nominator;
+            game.seconder = state.seconder;
+            game.votingOpen = state.votingOpen;
+            game.completedNightActions = new Set(state.completedNightActions);
+            game.expectedNightActions = new Set(state.expectedNightActions);
+
+            // Restore special channels if they exist
+            const category = guild.channels.cache.find(c => 
+                c.type === 'GUILD_CATEGORY' && c.name === 'Werewolf Game');
+            
+            if (category) {
+                const werewolfChannel = category.children.find(c => c.name === 'werewolves');
+                const deadChannel = category.children.find(c => c.name === 'dead');
+                
+                game.werewolfChannel = werewolfChannel || null;
+                game.deadChannel = deadChannel || null;
+            }
+
+            // Recreate phase-specific UI
+            const gameChannel = await client.channels.fetch(savedGame.channelId);
+            if (gameChannel) {
+                switch (game.phase) {
+                    case PHASES.DAY:
+                        await dayPhaseHandler.createDayPhaseUI(gameChannel, game.players);
+                        break;
+                    case PHASES.NIGHT:
+                        // Recreate night phase UI and reminders
+                        await game.sendNightActionReminders();
+                        break;
+                    // Add other phases as needed
+                }
+            }
+
+            // Notify players of game restoration
+            const phaseInfo = {
+                [PHASES.LOBBY]: "The game is in the lobby phase.",
+                [PHASES.NIGHT]: "It is currently night. Check your DMs for any actions you need to take.",
+                [PHASES.DAY]: "It is currently day. Continue your discussion and voting.",
+                [PHASES.GAME_OVER]: "The game has ended."
+            };
+
+            await game.broadcastMessage({
+                embeds: [{
+                    color: 0x0099ff,
+                    title: '🔄 Game Restored',
+                    description: 
+                        'The game has been restored after a brief interruption.\n\n' +
+                        `**Current Phase:** ${game.phase}\n` +
+                        `**Round:** ${game.round}\n` +
+                        `**Players Alive:** ${game.getAlivePlayers().length}/${game.players.size}\n\n` +
+                        phaseInfo[game.phase],
+                    footer: { text: 'Use /game-status for detailed game information' }
+                }]
+            });
+
+            logger.info('Game restored successfully', {
+                guildId,
+                phase: game.phase,
+                round: game.round,
+                alivePlayers: game.getAlivePlayers().length
+            });
+
+            return game;
+        } catch (error) {
+            logger.error('Error restoring game', { error, guildId });
+            throw error;
+        }
     }
 }
 module.exports = WerewolfGame;

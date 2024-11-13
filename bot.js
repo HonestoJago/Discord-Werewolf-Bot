@@ -12,6 +12,7 @@ const dayPhaseHandler = require('./handlers/dayPhaseHandler');
 const buttonHandler = require('./handlers/buttonHandler');
 const sequelize = require('./utils/database');
 const PlayerStats = require('./models/Player');
+const Game = require('./models/Game');
 
 // Create a new Discord client with necessary intents
 const client = new Client({ 
@@ -68,9 +69,95 @@ const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
     }
 })();
 
+const MAX_GAME_AGE_HOURS = 24; // Configure maximum age for abandoned games
+
 // When the client is ready, run this code once (only triggered once)
-client.once('ready', () => {
-    logger.info(`Logged in as ${client.user.tag}! Bot is online and ready.`, { timestamp: new Date().toISOString() });
+client.once('ready', async () => {
+    try {
+        // Find all saved games
+        const savedGames = await Game.findAll();
+        
+        logger.info('Found saved games during startup', { 
+            count: savedGames.length,
+            games: savedGames.map(g => ({
+                guildId: g.guildId,
+                phase: g.phase,
+                lastUpdated: g.lastUpdated
+            }))
+        });
+        
+        for (const savedGame of savedGames) {
+            // Check if game is too old
+            const gameAge = new Date() - new Date(savedGame.lastUpdated);
+            const gameAgeHours = gameAge / (1000 * 60 * 60);
+            
+            if (gameAgeHours > MAX_GAME_AGE_HOURS) {
+                logger.info('Removing stale game', { 
+                    guildId: savedGame.guildId, 
+                    ageHours: gameAgeHours 
+                });
+                await Game.destroy({ where: { guildId: savedGame.guildId } });
+                continue;
+            }
+
+            try {
+                // Verify the game channel still exists
+                const channel = await client.channels.fetch(savedGame.channelId)
+                    .catch(() => null);
+                
+                if (!channel) {
+                    logger.warn('Game channel no longer exists, cleaning up game', {
+                        guildId: savedGame.guildId
+                    });
+                    await Game.destroy({ where: { guildId: savedGame.guildId } });
+                    continue;
+                }
+
+                // Send prompt to channel asking if they want to restore the game
+                await channel.send({
+                    embeds: [{
+                        color: 0x0099ff,
+                        title: '🎮 Unfinished Game Found',
+                        description: 
+                            `A game was interrupted in this channel:\n\n` +
+                            `**Phase:** ${savedGame.phase}\n` +
+                            `**Round:** ${savedGame.round}\n` +
+                            `**Last Updated:** ${new Date(savedGame.lastUpdated).toLocaleString()}\n\n` +
+                            'Would you like to restore this game?'
+                    }],
+                    components: [{
+                        type: 1,
+                        components: [
+                            {
+                                type: 2,
+                                style: 1,
+                                label: 'Restore Game',
+                                custom_id: `restore_${savedGame.guildId}`,
+                            },
+                            {
+                                type: 2,
+                                style: 4,
+                                label: 'Delete Game',
+                                custom_id: `delete_${savedGame.guildId}`,
+                            }
+                        ]
+                    }]
+                });
+
+            } catch (error) {
+                logger.error('Error handling saved game', {
+                    error,
+                    guildId: savedGame.guildId
+                });
+                // Clean up failed game
+                await Game.destroy({ where: { guildId: savedGame.guildId } });
+            }
+        }
+        
+        logger.info(`Bot ready!`);
+    } catch (error) {
+        logger.error('Error in startup game restoration process', { error });
+    }
 });
 
 // Listen for interactions
@@ -147,6 +234,70 @@ client.on('interactionCreate', async interaction => {
             await command.execute(interaction, game);
         } 
         else if (interaction.isButton()) {
+            // Check if this is a game restoration button
+            if (interaction.customId.startsWith('restore_') || interaction.customId.startsWith('delete_')) {
+                const [action, guildId] = interaction.customId.split('_');
+                const savedGame = await Game.findByPk(guildId);
+                
+                if (!savedGame) {
+                    await interaction.reply({
+                        content: 'This game is no longer available.',
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                // Check against the actual creatorId stored in the database record
+                if (interaction.user.id !== savedGame.creatorId) {
+                    await interaction.reply({
+                        content: 'Only the game creator can make this decision.',
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                await interaction.deferUpdate();
+
+                if (action === 'restore') {
+                    try {
+                        const restoredGame = await WerewolfGame.restoreGame(client, guildId);
+                        if (restoredGame) {
+                            client.games.set(guildId, restoredGame);
+                            await interaction.message.edit({
+                                embeds: [{
+                                    color: 0x00ff00,
+                                    title: '✅ Game Restored',
+                                    description: 'The game has been successfully restored.'
+                                }],
+                                components: []
+                            });
+                        }
+                    } catch (error) {
+                        logger.error('Error restoring game', { error, guildId });
+                        await interaction.message.edit({
+                            embeds: [{
+                                color: 0xff0000,
+                                title: '❌ Restoration Failed',
+                                description: 'Failed to restore the game. Starting a new game might be necessary.'
+                            }],
+                            components: []
+                        });
+                    }
+                } else if (action === 'delete') {
+                    await Game.destroy({ where: { guildId } });
+                    await interaction.message.edit({
+                        embeds: [{
+                            color: 0xff0000,
+                            title: '🗑️ Game Deleted',
+                            description: 'The unfinished game has been deleted.'
+                        }],
+                        components: []
+                    });
+                }
+                return;
+            }
+
+            // Handle regular game buttons
             const game = client.games.get(interaction.guildId);
             if (!game) {
                 await interaction.reply({
@@ -222,24 +373,79 @@ client.on('interactionCreate', async interaction => {
 });
 
 // Function to create a new game
-client.createGame = (guildId, channelId, creatorId, testMode = false) => {
+client.createGame = async (guildId, channelId, creatorId, testMode = false) => {
+    try {
+        // Check if game exists in memory
+        if (client.games.has(guildId)) {
+            throw new Error('A game is already in progress in this server.');
+        }
+
+        // Check if game exists in database and delete it if it does
+        await Game.destroy({ where: { guildId } });
+        
+        const game = new WerewolfGame(client, guildId, channelId, creatorId, testMode);
+        client.games.set(guildId, game);
+        
+        // Save initial game state to database
+        await Game.create({
+            guildId,
+            channelId,
+            creatorId,
+            phase: game.phase,
+            round: game.round,
+            gameState: game.serializeGame(),
+            lastUpdated: new Date()
+        });
+        
+        logger.info('New game instance created and saved', { guildId, creatorId });
+        return game;
+    } catch (error) {
+        logger.error('Error creating game', { error, guildId });
+        throw error;
+    }
+};
+
+// Function to end the current game
+client.endGame = async (guildId) => {
     // Check if game exists in the Map
     if (client.games.has(guildId)) {
         throw new Error('A game is already in progress in this server.');
     }
     const game = new WerewolfGame(client, guildId, channelId, creatorId, testMode);
     client.games.set(guildId, game);
-    logger.info('New game instance created', { guildId, creatorId });
+    
+    // Save initial game state to database
+    await Game.create({
+        guildId,
+        channelId,
+        creatorId,
+        phase: game.phase,
+        round: game.round,
+        gameState: game.serializeGame(),
+        lastUpdated: new Date()
+    });
+    
+    logger.info('New game instance created and saved', { guildId, creatorId });
     return game;
 };
 
 // Function to end the current game
-client.endGame = (guildId) => {
+client.endGame = async (guildId) => {
     const game = client.games.get(guildId);
     if (game) {
-        game.shutdownGame();  // If you have cleanup logic
-        client.games.delete(guildId);
-        logger.info('Game instance has been reset.', { guildId });
+        try {
+            // Delete from database first
+            await Game.destroy({ where: { guildId } });
+            
+            // Then clean up the game instance
+            game.shutdownGame();
+            client.games.delete(guildId);
+            
+            logger.info('Game instance has been reset and removed from database.', { guildId });
+        } catch (error) {
+            logger.error('Error cleaning up game from database', { error, guildId });
+            throw error;  // Propagate error to caller
+        }
     }
 };
 
@@ -247,9 +453,14 @@ client.endGame = (guildId) => {
 (async () => {
     try {
         await sequelize.sync();
-        logger.info('Database synchronized');
+        
+        // Test database connection with a count query
+        const gameCount = await Game.count();
+        logger.info('Database synchronized and tested', { 
+            existingGames: gameCount 
+        });
     } catch (error) {
-        logger.error('Database sync failed:', error);
+        logger.error('Database sync or test failed:', error);
     }
 })();
 
@@ -264,4 +475,19 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (error) => {
     logger.fatal('Uncaught Exception thrown', { error, timestamp: new Date().toISOString() });
     process.exit(1);
+});
+
+// Add disconnect handler
+client.on('shardDisconnect', () => {
+    logger.warn('Bot disconnected from Discord');
+});
+
+// Add reconnect handler
+client.on('shardReconnecting', () => {
+    logger.info('Attempting to reconnect to Discord');
+});
+
+// Add resume handler
+client.on('shardResume', () => {
+    logger.info('Connection to Discord restored');
 });
