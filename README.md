@@ -1,60 +1,109 @@
-# Discord Werewolf Bot 🐺
+# Discord Werewolf Bot 🐺 (Early Development)
 
-A sophisticated Discord bot that brings the classic social deduction game Werewolf (Mafia) to life with video and voice chat integration. This bot provides a fully automated game experience with multiple roles, private channels, and seamless phase management.
+A Discord bot that brings the classic social deduction game Werewolf (Mafia) to life with video and voice chat integration. This project is currently in early development, with plans to add more roles, features, and gameplay mechanics in future updates.
 
-## ✨ Key Features
+## 🚧 Development Status
 
-### 🎮 Immersive Gameplay
-- **Video/Voice Integration**: Real-time face-to-face discussions during day phases
-- **Automated Moderation**: Fully automated game flow with phase management
-- **Private Channels**: Secure channels for werewolves and spectators
-- **Direct Messaging**: Private role assignments and night actions
-- **Interactive UI**: Button-based controls and rich embeds
+This bot is currently in active development. While core gameplay mechanics are functional, you may encounter bugs or incomplete features. We welcome contributions and feedback to help improve the project.
 
-### 🎭 Role System
+### Planned Features
+- Additional roles (Witch, Mason, Fool, etc.)
+- Custom game settings (day/night duration, role combinations)
+- Game statistics and player rankings
+- Multiple language support
+- Web dashboard for server configuration
+- Advanced moderation tools
+
+## ✨ Current Features
+
+### 🎮 Gameplay Integration
+- **Video/Voice Management**: Automated control of player video/audio based on game phase
+- **Private Channels**: Secure communication for special roles and spectators
+- **Direct Messaging**: Private role assignments and night action coordination
+- **Interactive UI**: Button-based controls and rich embeds for intuitive gameplay
+
+### 🎭 Current Role System
 
 #### Core Roles
-- 🐺 **Werewolves**: Hunt in packs (1 per 4 players)
-- 👁️ **Seer**: Investigates one player nightly
-- 👥 **Villagers**: Deduce and eliminate threats
+- 🐺 **Werewolves** (1 per 4 players)
+  - Form a minority team trying to eliminate villagers
+  - Vote each night to eliminate one player
+  - Win when they equal or outnumber villagers
 
-#### Special Roles
-- 🛡️ **Bodyguard**: Protects players from werewolf attacks
-- 💘 **Cupid**: Links players' fates through love
-- 🏹 **Hunter**: Takes revenge upon death
+- 👁️ **Seer** (Always 1)
+  - Investigates one player each night
+  - Learns if the investigated player is a werewolf
+  - Must balance sharing information with staying alive
 
-## 🎮 Game Flow
+- 👥 **Villagers** (Remaining players)
+  - Must deduce and eliminate werewolves through discussion
+  - Vote during the day to eliminate suspicious players
+  - Win when all werewolves are eliminated
+
+#### Optional Roles
+- 🛡️ **Bodyguard**
+  - Protects one player each night from werewolf attacks
+  - Cannot protect the same player twice in a row
+  - Must strategically choose protection targets
+
+- 💘 **Cupid**
+  - Chooses two players to be lovers at the start
+  - If one lover dies, the other dies of heartbreak
+  - Creates interesting strategic dynamics
+
+- 🏹 **Hunter**
+  - When eliminated, can take one other player with them
+  - Powerful revenge ability that can turn the tide
+  - Must choose target carefully
+
+## 🎮 Detailed Game Flow
 
 ### Setup Phase
-1. Create game with `/create`
-2. Players join via button or `/join`
-3. Game creator configures optional roles
-4. Start game when ready
+1. Server admin uses `/create` to start a new game session
+2. Players join using the Join button or `/join` command
+3. Game creator can:
+   - Toggle optional roles (Bodyguard, Cupid, Hunter)
+   - View current player list and role distribution
+   - Start the game when ready (minimum 4 players)
 
-### Night Zero
-- Werewolves learn their teammates
-- Seer receives initial investigation
-- Cupid (if present) chooses lovers
+### Night Zero (First Night)
+1. All players receive their roles via DM
+2. Special role actions occur:
+   - Werewolves learn their teammates
+   - Seer receives first investigation
+   - Cupid (if present) chooses lovers
+3. Players should disable cameras/mics
 
 ### Day Phase
-- All players enable cameras/mics
-- Discuss and nominate suspects
-- Vote to eliminate suspects
+1. All players enable cameras and microphones
+2. Discussion period begins
+3. Players can:
+   - Nominate suspects for elimination
+   - Second others' nominations
+   - Vote on eliminations
+4. Voting System:
+   - Nominations need a second to proceed to voting
+   - All living players except the accused can vote
+   - Majority needed for elimination
 
 ### Night Phase
-- All players disable cameras/mics
-- Role-specific actions occur
-- Results revealed at dawn
+1. All players disable cameras and microphones
+2. Role-specific actions occur in order:
+   - Seer investigates a player
+   - Bodyguard protects a player
+   - Werewolves vote to eliminate a player
+3. Results are revealed at dawn
 
-## 🚀 Setup & Installation
+## 🚀 Detailed Installation Guide
 
 ### Prerequisites
 - Node.js 16.9.0 or higher
-- Discord Bot Token
+- Discord Bot Token (from Discord Developer Portal)
 - Discord Server with admin privileges
+- Git (for cloning repository)
 
-### Environment Setup
-1. Create `.env` file:
+### Environment Variables
+Create a `.env` file in the root directory with the following:
 
 BOT_TOKEN=your_discord_bot_token
 CLIENT_ID=your_client_id
