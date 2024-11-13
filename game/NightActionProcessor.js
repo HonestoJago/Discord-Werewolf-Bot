@@ -2,6 +2,7 @@ const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');
 const PHASES = require('../constants/phases');
+const { createSeerRevealEmbed } = require('../utils/embedCreator');
 
 class NightActionProcessor {
     constructor(game) {
@@ -582,6 +583,30 @@ class NightActionProcessor {
             if (this.game.nightActionTimeout) {
                 clearTimeout(this.game.nightActionTimeout);
                 this.game.nightActionTimeout = null;
+            }
+
+            // Handle Seer's initial revelation
+            const seer = this.game.getPlayerByRole(ROLES.SEER);
+            if (seer?.isAlive) {
+                // Get all players except the seer
+                const validTargets = Array.from(this.game.players.values()).filter(
+                    p => p.id !== seer.id && p.isAlive
+                );
+                
+                if (validTargets.length > 0) {
+                    const randomPlayer = validTargets[Math.floor(Math.random() * validTargets.length)];
+                    const isWerewolf = randomPlayer.role === ROLES.WEREWOLF;
+                    
+                    await seer.sendDM({
+                        embeds: [createSeerRevealEmbed(randomPlayer, isWerewolf)]
+                    });
+                    
+                    logger.info('Seer received initial vision', {
+                        seerId: seer.id,
+                        targetId: randomPlayer.id,
+                        isWerewolf: isWerewolf
+                    });
+                }
             }
 
             // Only get Cupid for Night Zero

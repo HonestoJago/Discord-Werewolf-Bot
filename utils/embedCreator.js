@@ -170,6 +170,17 @@ function createRoleCard(role) {
         );
 }
 
+function createSeerRevealEmbed(target, isWerewolf) {
+    return new EmbedBuilder()
+        .setColor(0x4B0082)  // Deep purple for mystical effect
+        .setTitle('🔮 Initial Vision')
+        .setDescription(
+            `*As the game begins, your mystical powers reveal a vision of **${target.username}**...*\n\n` +
+            `Your vision shows that they are **${isWerewolf ? 'a Werewolf!' : 'Not a Werewolf.'}**`
+        )
+        .setFooter({ text: 'Use this knowledge wisely to help the village...' });
+}
+
 module.exports = { 
     createPlayerListEmbed,
     createNominationEmbed,
@@ -177,5 +188,6 @@ module.exports = {
     createVoteResultsEmbed,
     createDayPhaseEmbed,
     createNominationSelectEmbed,
-    createRoleCard
+    createRoleCard,
+    createSeerRevealEmbed,
 };
