@@ -841,7 +841,6 @@ class WerewolfGame {
         if (!this.votingOpen) {
             throw new GameError('Invalid state', 'Voting is not currently open.');
         }
-
         const voter = this.players.get(voterId);
         if (!voter?.isAlive) {
             throw new GameError('Invalid voter', 'Dead players cannot vote.');
@@ -878,17 +877,38 @@ class WerewolfGame {
             if (!validTransitions || validTransitions.length === 0) {
                 throw new GameError('Invalid phase', 'Cannot advance from current game phase.');
             }
-
-            // Simply advance to the next valid phase
+    
             const nextPhase = validTransitions[0];
-
-            if (!validTransitions.includes(nextPhase)) {
-                throw new GameError('Invalid transition', 'Cannot transition to the next phase.');
-            }
-
+            const phaseMessages = {
+                [PHASES.DAY]: {
+                    title: '☀️ Dawn Breaks',
+                    description: '*The morning sun rises over the village...*\n\n' +
+                        '**All players:** Please turn your cameras and microphones ON.\n' +
+                        `Round ${this.round}: The village gathers to discuss the night's events.`
+                },
+                [PHASES.NIGHT]: {
+                    title: '🌙 Night Falls',
+                    description: '*Darkness descends upon the village...*\n\n' +
+                        '**All players:** Please turn your cameras and microphones OFF.\n' +
+                        'Check your DMs for your night actions.'
+                }
+            };
+    
             this.phase = nextPhase;
+            
+            // Send thematic transition message
+            if (phaseMessages[nextPhase]) {
+                await this.broadcastMessage({
+                    embeds: [{
+                        color: nextPhase === PHASES.DAY ? 0xFFA500 : 0x000066,
+                        title: phaseMessages[nextPhase].title,
+                        description: phaseMessages[nextPhase].description,
+                        footer: { text: `Day ${this.round}` }
+                    }]
+                });
+            }
+    
             logger.info(`Phase advanced to ${this.phase}`, { round: this.round });
-
         } catch (error) {
             logger.error('Error advancing phase', { error });
             throw error;
@@ -1510,3 +1530,4 @@ class WerewolfGame {
 };
 
 module.exports = WerewolfGame;
+

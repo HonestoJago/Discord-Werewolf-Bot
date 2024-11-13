@@ -68,33 +68,45 @@ function createNominationEmbed(nominatorName, targetName) {
     };
 }
 
-function createVotingEmbed(target, seconder, game) {
+function createTimedEmbed(title, description, endTime) {
+    const timeRemaining = Math.max(0, endTime - Date.now());
+    const minutes = Math.floor(timeRemaining / 60000);
+    const seconds = Math.floor((timeRemaining % 60000) / 1000);
+
+    return new EmbedBuilder()
+        .setColor('#FFA500')
+        .setTitle(title)
+        .setDescription(description)
+        .addFields({
+            name: '⏳ Time Remaining',
+            value: `${minutes}:${seconds.toString().padStart(2, '0')}`
+        })
+        .setTimestamp(endTime);
+}
+
+function createVotingEmbed(target, seconder, game, endTime) {
+    const embed = createTimedEmbed(
+        '⚖️ Time to Vote!',
+        `${target.username} has been nominated...`,
+        endTime
+    );
     const eligibleVoters = Array.from(game.players.values())
         .filter(p => p.isAlive && p.id !== target.id);
     const votesReceived = game.votes.size;
     const remainingVotes = eligibleVoters.length - votesReceived;
 
-    const embed = new EmbedBuilder()
-        .setColor('#FF0000')
-        .setTitle('⚖️ Time to Vote!')
-        .setDescription(
-            `${target.username} has been nominated and seconded by ${seconder.username}.\n\n` +
-            `**${target.username}** cannot vote in their own nomination.\n` +
-            `All other living players must vote.`
-        )
-        .addFields(
-            { 
-                name: 'Instructions', 
-                value: 'Click Lynch to eliminate the player, or Let Live to spare them.' 
-            },
-            {
-                name: 'Voting Status',
-                value: remainingVotes > 0 ? 
-                    `Waiting for ${remainingVotes} more vote${remainingVotes === 1 ? '' : 's'}...` :
-                    'All votes are in!'
-            }
-        )
-        .setTimestamp();
+    embed.addFields(
+        { 
+            name: 'Instructions', 
+            value: 'Click Lynch to eliminate the player, or Let Live to spare them.' 
+        },
+        {
+            name: 'Voting Status',
+            value: remainingVotes > 0 ? 
+                `Waiting for ${remainingVotes} more vote${remainingVotes === 1 ? '' : 's'}...` :
+                'All votes are in!'
+        }
+    );
 
     return embed;
 }
