@@ -68,16 +68,19 @@ yarn-error.log
 # Project specific
 config.json
 
-# Test coverage
+# Test files and coverage
 coverage/
+__tests__/
+__mocks__/
+jest.config.js
+jest.config.local.js
+*.test.js
+*.spec.js
 
 # macOS specific
 .DS_Store
 .AppleDouble
 .LSOverride
-
-# Jest
-jest.config.local.js
 
 # Local development files
 *.local

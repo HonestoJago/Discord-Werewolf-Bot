@@ -103,17 +103,8 @@ node bot.js
 - Extensive logging system
 - State persistence
 - Modular design
-- Test coverage with Jest
 
 ## 🧪 Development
-
-### Testing
-
-# Run tests
-npm test
-
-# Run with coverage
-npm run test:coverage
 
 ### Contributing
 1. Fork repository
