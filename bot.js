@@ -10,6 +10,8 @@ const logger = require('./utils/logger');
 const WerewolfGame = require('./game/WerewolfGame');
 const dayPhaseHandler = require('./handlers/dayPhaseHandler');
 const buttonHandler = require('./handlers/buttonHandler');
+const sequelize = require('./utils/database');
+const PlayerStats = require('./models/Player');
 
 // Create a new Discord client with necessary intents
 const client = new Client({ 
@@ -134,6 +136,14 @@ client.on('interactionCreate', async interaction => {
                 isDM: isDM
             });
 
+            // Special handling for stats command since it doesn't need a game instance
+            if (interaction.commandName === 'stats') {
+                const command = client.commands.get('stats');
+                await command.execute(interaction);
+                return;
+            }
+
+            // Regular command handling
             await command.execute(interaction, game);
         } 
         else if (interaction.isButton()) {
@@ -233,7 +243,17 @@ client.endGame = (guildId) => {
     }
 };
 
-// Log in to Discord with your bot token
+// Add this before client.login
+(async () => {
+    try {
+        await sequelize.sync();
+        logger.info('Database synchronized');
+    } catch (error) {
+        logger.error('Database sync failed:', error);
+    }
+})();
+
+// Keep existing login
 client.login(process.env.BOT_TOKEN);
 
 // Global error handlers

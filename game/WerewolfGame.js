@@ -10,6 +10,7 @@ const { createDayPhaseEmbed, createVoteResultsEmbed } = require('../utils/embedC
 const NightActionProcessor = require('./NightActionProcessor');
 const VoteProcessor = require('./VoteProcessor');
 const dayPhaseHandler = require('../handlers/dayPhaseHandler');
+const PlayerStats = require('../models/Player');
 
 // Define roles and their properties in a configuration object
 const ROLE_CONFIG = {
@@ -932,11 +933,20 @@ class WerewolfGame {
         // Count living villager team (everyone who's not a werewolf)
         const livingVillagerTeam = alivePlayers.filter(p => p.role !== ROLES.WEREWOLF).length;
 
+        let winners = new Set();
+
         // If all werewolves are dead, villagers win
         if (livingWerewolves === 0) {
             this.phase = PHASES.GAME_OVER;  // Set phase first
             this.gameOver = true;
+            // Add all non-werewolf players to winners
+            this.players.forEach(player => {
+                if (player.role !== ROLES.WEREWOLF) {
+                    winners.add(player.id);
+                }
+            });
             this.broadcastMessage('**Villagers win!** All werewolves have been eliminated.');
+            this.updatePlayerStats(winners);
             return true;
         }
 
@@ -944,13 +954,74 @@ class WerewolfGame {
         if (livingWerewolves >= livingVillagerTeam) {
             this.phase = PHASES.GAME_OVER;  // Set phase first
             this.gameOver = true;
+            // Add all werewolf players to winners
+            this.players.forEach(player => {
+                if (player.role === ROLES.WEREWOLF) {
+                    winners.add(player.id);
+                }
+            });
             this.broadcastMessage('**Werewolves win!** They have reached parity with the villagers.');
+            this.updatePlayerStats(winners);
             return true;
         }
 
         return false;
     }
-
+    
+    async updatePlayerStats(winners) {
+        try {
+            logger.info('Starting to update player stats', { 
+                playerCount: this.players.size,
+                winnerCount: winners.size 
+            });
+    
+            for (const [playerId, player] of this.players) {
+                try {
+                    // Convert ID to string to match database format
+                    const discordId = playerId.toString();
+                    
+                    let stats = await PlayerStats.findByPk(discordId);
+                    if (!stats) {
+                        logger.info('Creating new player stats record', { 
+                            discordId, 
+                            username: player.username 
+                        });
+                        stats = await PlayerStats.create({
+                            discordId,
+                            username: player.username
+                        });
+                    }
+    
+                    // Update stats
+                    await stats.increment('gamesPlayed');
+                    if (winners.has(playerId)) {
+                        await stats.increment('gamesWon');
+                    }
+    
+                    // Update role-specific count
+                    const roleField = `times${player.role.charAt(0).toUpperCase() + player.role.slice(1)}`;
+                    await stats.increment(roleField);
+    
+                    logger.info('Updated stats for player', { 
+                        discordId,
+                        username: player.username,
+                        role: player.role,
+                        won: winners.has(playerId)
+                    });
+                } catch (error) {
+                    logger.error('Error updating individual player stats', {
+                        playerId,
+                        error: error.message
+                    });
+                }
+            }
+        } catch (error) {
+            logger.error('Error in updatePlayerStats', { 
+                error: error.message,
+                stack: error.stack 
+            });
+        }
+    }
     // Add to the class
 
     async processLoverSelection(cupidId, targetId) {
