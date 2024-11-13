@@ -1,5 +1,46 @@
 const { EmbedBuilder } = require('discord.js');
 
+// First, we'd need to add these role-specific constants
+const ROLE_ABILITIES = {
+    'werewolf': 'Vote each night to eliminate a player',
+    'seer': 'Investigate one player each night to learn if they are a werewolf',
+    'bodyguard': 'Protect one player each night from werewolf attacks',
+    'cupid': 'Choose one player to be your lover at the start of the game. If either lover dies, both die of heartbreak.',
+    'hunter': 'Take one player with you when you die',
+    'villager': 'Vote during the day to eliminate suspicious players'
+};
+
+const ROLE_WIN_CONDITIONS = {
+    'werewolf': 'Win when werewolves equal or outnumber villagers',
+    'seer': 'Win when all werewolves are eliminated',
+    'bodyguard': 'Win when all werewolves are eliminated',
+    'cupid': 'Win when all werewolves are eliminated',
+    'hunter': 'Win when all werewolves are eliminated',
+    'villager': 'Win when all werewolves are eliminated'
+};
+
+const ROLE_TIPS = {
+    'werewolf': 'Try to appear helpful during day discussions. Coordinate with other werewolves at night.',
+    'seer': 'Share information carefully - revealing too much too early makes you a target',
+    'bodyguard': 'Pay attention to discussions to identify likely werewolf targets',
+    'cupid': 'Choose your lover wisely - your fates are linked! Consider picking someone you trust.',
+    'hunter': 'Your revenge shot is powerful - use it wisely when eliminated',
+    'villager': 'Pay attention to voting patterns and player behavior'
+};
+
+const ROLE_EMOJIS = {
+    'werewolf': '🐺',
+    'seer': '👁️',
+    'bodyguard': '🛡️',
+    'cupid': '💘',
+    'hunter': '🏹',
+    'villager': '👥'
+};
+
+function getRoleEmoji(role) {
+    return ROLE_EMOJIS[role] || '❓';
+}
+
 function createPlayerListEmbed(players, phase) {
     const embed = new EmbedBuilder()
         .setColor('#0099ff')
@@ -119,11 +160,22 @@ function createNominationSelectEmbed(players) {
         );
 }
 
+function createRoleCard(role) {
+    return new EmbedBuilder()
+        .setTitle(`${getRoleEmoji(role)} ${role}`)
+        .addFields(
+            { name: 'Abilities', value: ROLE_ABILITIES[role] },
+            { name: 'Win Condition', value: ROLE_WIN_CONDITIONS[role] },
+            { name: 'Tips', value: ROLE_TIPS[role] }
+        );
+}
+
 module.exports = { 
     createPlayerListEmbed,
     createNominationEmbed,
     createVotingEmbed,
     createVoteResultsEmbed,
     createDayPhaseEmbed,
-    createNominationSelectEmbed
+    createNominationSelectEmbed,
+    createRoleCard
 };

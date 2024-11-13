@@ -4,6 +4,7 @@ const { PermissionsBitField } = require('discord.js');
 const logger = require('../utils/logger'); // Importing logger
 const { GameError } = require('../utils/error-handler'); // Importing GameError
 const ROLES = require('../constants/roles');  // Add this import
+const { createRoleCard } = require('../utils/embedCreator');
 
 const validRoles = [
     ROLES.WEREWOLF,
@@ -36,32 +37,39 @@ class Player {
         }
         this.role = role;
 
-        // Send role-specific DM
-        let message = `Your role is: **${role}**\n\n`;
-        switch (role) {
-            case ROLES.WEREWOLF:
-                message += 'You are a Werewolf! Each night, you and your fellow werewolves will choose a victim to eliminate.';
-                break;
-            case ROLES.SEER:
-                message += 'You are the Seer! Each night, you can investigate one player to learn if they are a Werewolf.';
-                break;
-            case ROLES.BODYGUARD:
-                message += 'You are the Bodyguard! Each night, you can protect one player from being killed by the Werewolves.';
-                break;
-            case ROLES.CUPID:
-                message += 'You are Cupid! You are on the village team. During Night Zero, you will choose one player to be your lover - choose wisely, as if either of you dies, the other will die of heartbreak.';
-                break;
-            case ROLES.HUNTER:
-                message += 'You are the Hunter! You are on the village team. If you are eliminated (either by werewolves or by village vote), ' +
-                          'you can choose one player to take down with you. Use `/action hunter_revenge` when prompted after your death.';
-                break;
-            case ROLES.VILLAGER:
-                message += 'You are a Villager! Work with the village to identify and eliminate the Werewolves.';
-                break;
-        }
-
         try {
-            await this.sendDM(message);
+            // Create and send role card
+            const roleCard = createRoleCard(role);
+            
+            // Add game-specific information based on role
+            let additionalInfo = '';
+            switch (role) {
+                case ROLES.WEREWOLF:
+                    additionalInfo = '\n\nUse `/action attack` during night phases to eliminate players.';
+                    break;
+                case ROLES.SEER:
+                    additionalInfo = '\n\nUse `/action investigate` during night phases to learn about other players.';
+                    break;
+                case ROLES.BODYGUARD:
+                    additionalInfo = '\n\nUse `/action protect` during night phases to guard players.';
+                    break;
+                case ROLES.CUPID:
+                    additionalInfo = '\n\nUse `/action choose_lovers` during Night Zero to select your lover.';
+                    break;
+                case ROLES.HUNTER:
+                    additionalInfo = '\n\nWhen eliminated, use `/action choose_target` to take revenge.';
+                    break;
+                case ROLES.VILLAGER:
+                    additionalInfo = '\n\nStay vigilant and vote wisely during day phases!';
+                    break;
+            }
+
+            // Send the role card and additional information
+            await this.sendDM({ 
+                embeds: [roleCard],
+                content: `You have been assigned a role!${additionalInfo}`
+            });
+
             logger.info('Role assigned and DM sent', {
                 playerId: this.id,
                 username: this.username,
