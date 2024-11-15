@@ -83,7 +83,7 @@ module.exports = {
                 return;
             }
 
-            // Process regular night action
+            // Correctly reference processNightAction through nightActionProcessor
             await currentGame.processNightAction(interaction.user.id, action, targetId);
 
             // Only send the ephemeral reply, let NightActionProcessor handle the DM

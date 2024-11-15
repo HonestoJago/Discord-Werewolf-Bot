@@ -1168,6 +1168,16 @@ class WerewolfGame {
             throw error;
         }
     }
+
+    /**
+     * Processes a night action by delegating to NightActionProcessor.
+     * @param {string} playerId - The ID of the player performing the action.
+     * @param {string} action - The action being performed.
+     * @param {string} targetId - The ID of the target player.
+     */
+    async processNightAction(playerId, action, targetId) {
+        return await this.nightActionProcessor.processNightAction(playerId, action, targetId);
+    }
 };
 
 module.exports = WerewolfGame;
