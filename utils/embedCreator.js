@@ -244,11 +244,6 @@ function createGameEndEmbed(winners, gameStats) {
                 inline: false
             },
             {
-                name: '⚠️ Channel Cleanup',
-                value: 'Using the buttons below will delete the werewolf and dead chat channels.',
-                inline: false
-            },
-            {
                 name: '🎮 New Game',
                 value: 'Use `/create` to start a new game!',
                 inline: false
