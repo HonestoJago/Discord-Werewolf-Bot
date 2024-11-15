@@ -1,5 +1,6 @@
 const WerewolfGame = require('../game/WerewolfGame');
 const logger = require('./logger');
+const Game = require('../models/Game');
 
 class GameManager {
     static async createGame(client, guildId, channelId, creatorId) {
@@ -40,7 +41,15 @@ class GameManager {
             if (game) {
                 await game.shutdownGame();
                 client.games.delete(guildId);
-                logger.info('Game cleaned up successfully', { guildId });
+                
+                await Game.destroy({ 
+                    where: { guildId: guildId }
+                });
+                
+                logger.info('Game cleaned up successfully', { 
+                    guildId,
+                    cleanedFromDB: true 
+                });
             }
         } catch (error) {
             logger.error('Error cleaning up game', {

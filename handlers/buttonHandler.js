@@ -163,9 +163,18 @@ async function handleStartGame(interaction, game) {
     } catch (error) {
         logger.error('Error starting game', { error });
         if (interaction.deferred) {
-            await interaction.editReply('Failed to start game.');
+            await interaction.editReply(
+                error instanceof GameError ? 
+                    error.userMessage : 
+                    'Failed to start game. Please try again.'
+            );
         } else {
-            await interaction.reply({ content: 'Failed to start game.', ephemeral: true });
+            await interaction.reply({ 
+                content: error instanceof GameError ? 
+                    error.userMessage : 
+                    'Failed to start game. Please try again.',
+                ephemeral: true 
+            });
         }
     }
 }

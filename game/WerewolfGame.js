@@ -217,6 +217,11 @@ class WerewolfGame {
             const players = Array.from(this.players.values());
             const playerCount = players.length;
             
+            logger.info('Starting role assignment', { 
+                playerCount,
+                selectedRoles: Array.from(this.selectedRoles.entries())
+            });
+            
             // Create array of roles based on selectedRoles
             let roles = [];
             
@@ -226,21 +231,38 @@ class WerewolfGame {
             
             // Add one seer
             roles.push(ROLES.SEER);
-
-            // Add optional roles if they were selected during setup
-            if (this.selectedRoles.has(ROLES.BODYGUARD)) {
+    
+            // Add optional roles if they were selected
+            if (this.selectedRoles.get(ROLES.BODYGUARD)) {
                 roles.push(ROLES.BODYGUARD);
             }
-            if (this.selectedRoles.has(ROLES.CUPID)) {
+            if (this.selectedRoles.get(ROLES.CUPID)) {
                 roles.push(ROLES.CUPID);
             }
-            if (this.selectedRoles.has(ROLES.HUNTER)) {
+            if (this.selectedRoles.get(ROLES.HUNTER)) {
                 roles.push(ROLES.HUNTER);
+            }
+            
+            // Validate total roles before adding villagers
+            if (roles.length > playerCount) {
+                throw new GameError(
+                    'Too many roles', 
+                    `Cannot start game: ${roles.length} roles selected for ${playerCount} players. ` +
+                    'Please remove some optional roles.'
+                );
             }
             
             // Fill remaining slots with villagers
             const villagerCount = playerCount - roles.length;
             roles.push(...Array(villagerCount).fill(ROLES.VILLAGER));
+            
+            // Log roles before shuffling
+            logger.info('Roles before assignment', { 
+                roles,
+                playerCount,
+                werewolfCount,
+                villagerCount
+            });
             
             // Shuffle roles
             for (let i = roles.length - 1; i > 0; i--) {
@@ -281,7 +303,14 @@ class WerewolfGame {
             });
             
         } catch (error) {
-            logger.error('Error in assignRoles', { error });
+            logger.error('Error in assignRoles', { 
+                error: error.message,
+                stack: error.stack,
+                players: Array.from(this.players.values()).map(p => ({
+                    id: p.id,
+                    username: p.username
+                }))
+            });
             throw error;
         }
     }
@@ -1335,16 +1364,6 @@ class WerewolfGame {
                 return null;
             }
     
-            // Validate required fields
-            if (!savedGame.channelId || !savedGame.creatorId) {
-                logger.error('Saved game missing required fields', { 
-                    guildId,
-                    channelId: savedGame.channelId,
-                    creatorId: savedGame.creatorId 
-                });
-                return null;
-            }
-    
             // Create new game instance using static create method
             const game = await WerewolfGame.create(
                 client,
@@ -1408,7 +1427,7 @@ class WerewolfGame {
                             `**Current Phase:** ${game.phase}\n` +
                             `**Round:** ${game.round}\n` +
                             `**Players Alive:** ${game.getAlivePlayers().length}/${game.players.size}\n\n` +
-                            'The game is in the lobby phase.',
+                            (game.phase === 'LOBBY' ? 'The game is in the lobby phase.' : 'Continue with the current phase.'),
                         footer: { text: 'Use /game-status for detailed game information' }
                     }]
                 });
@@ -1437,9 +1456,30 @@ class WerewolfGame {
 
     // Add static create method
     static async create(client, guildId, channelId, creatorId) {
-        const game = new WerewolfGame(client, guildId, channelId, creatorId);
-        await game.saveGameState();
-        return game;
+        try {
+            logger.info('Creating new game instance', {
+                guildId,
+                channelId,
+                creatorId
+            });
+
+            const game = new WerewolfGame(client, guildId, channelId, creatorId);
+            await game.saveGameState();
+
+            logger.info('Game instance created successfully', {
+                guildId,
+                phase: game.phase
+            });
+
+            return game;
+        } catch (error) {
+            logger.error('Error in WerewolfGame.create', {
+                error: error.message,
+                stack: error.stack,
+                guildId
+            });
+            throw error;
+        }
     }
 };
 
