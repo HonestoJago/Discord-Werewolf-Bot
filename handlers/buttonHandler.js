@@ -2,6 +2,9 @@ const logger = require('../utils/logger');
 const { GameError } = require('../utils/error-handler');
 const ROLES = require('../constants/roles');
 const { EmbedBuilder, ButtonStyle } = require('discord.js');
+const GameManager = require('../utils/gameManager');
+const { createGameSetupButtons } = require('../utils/buttonCreator');
+const { createGameWelcomeEmbed } = require('../utils/embedCreator');
 
 async function handleJoinGame(interaction, game) {
     try {
@@ -192,28 +195,34 @@ async function handleResetRoles(interaction, game) {
 
 async function handleNewGame(interaction, game) {
     try {
-        const client = interaction.client;
-        
-        // End current game
-        await client.endGame(interaction.guildId);
+        // Cleanup existing game
+        await GameManager.cleanupGame(interaction.client, interaction.guildId);
         
         // Create new game
-        const newGame = await client.createGame(
+        const newGame = await GameManager.createGame(
+            interaction.client,
             interaction.guildId,
             interaction.channelId,
             interaction.user.id
         );
         
-        // Update message to remove buttons
-        await interaction.message.edit({
-            components: []
+        // Store new game
+        interaction.client.games.set(interaction.guildId, newGame);
+
+        // Update UI
+        await interaction.update({
+            embeds: [createGameWelcomeEmbed()],
+            components: createGameSetupButtons()
         });
-        
-        await interaction.reply('New game created! Use `/join` to join the game.');
+
+        logger.info('New game created via button', {
+            guildId: interaction.guildId,
+            creatorId: interaction.user.id
+        });
     } catch (error) {
         logger.error('Error creating new game', { error });
         await interaction.reply({
-            content: 'Failed to create new game.',
+            content: 'Failed to create new game. Please try using `/create` instead.',
             ephemeral: true
         });
     }

@@ -13,6 +13,7 @@ const buttonHandler = require('./handlers/buttonHandler');
 const sequelize = require('./utils/database');
 const PlayerStats = require('./models/Player');
 const Game = require('./models/Game');
+const GameManager = require('./utils/gameManager');
 
 // Create a new Discord client with necessary intents
 const client = new Client({ 
@@ -395,58 +396,13 @@ client.on('interactionCreate', async interaction => {
 });
 
 // Function to create a new game
-client.createGame = async (guildId, channelId, creatorId, testMode = false) => {
-    try {
-        // Check if game exists in memory
-        if (client.games.has(guildId)) {
-            throw new Error('A game is already in progress in this server.');
-        }
-
-        // Check if game exists in database and delete it if it does
-        await Game.destroy({ where: { guildId } });
-        
-        const game = new WerewolfGame(client, guildId, channelId, creatorId, testMode);
-        client.games.set(guildId, game);
-        
-        // Save initial game state to database
-        await Game.create({
-            guildId,
-            channelId,
-            creatorId,
-            phase: game.phase,
-            round: game.round,
-            gameState: game.serializeGame(),
-            lastUpdated: new Date()
-        });
-        
-        logger.info('New game instance created and saved', { guildId, creatorId });
-        return game;
-    } catch (error) {
-        logger.error('Error creating game', { error, guildId });
-        throw error;
-    }
+client.createGame = async (guildId, channelId, creatorId) => {
+    return await GameManager.createGame(client, guildId, channelId, creatorId);
 };
 
 // Function to end the current game
 client.endGame = async (guildId) => {
-    const game = client.games.get(guildId);
-    if (game) {
-        try {
-            // First shutdown the game (this will clean up channels)
-            await game.shutdownGame();
-            
-            // Then remove from client's games collection
-            client.games.delete(guildId);
-            
-            // Finally remove from database
-            await Game.destroy({ where: { guildId } });
-            
-            logger.info('Game instance has been fully cleaned up and removed', { guildId });
-        } catch (error) {
-            logger.error('Error during game cleanup', { error, guildId });
-            throw error;
-        }
-    }
+    return await GameManager.cleanupGame(client, guildId);
 };
 
 // Add this before client.login

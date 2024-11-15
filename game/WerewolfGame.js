@@ -501,14 +501,23 @@ class WerewolfGame {
                 logger.warn('Dead channel is not set');
                 return;
             }
-
-            // Update dead channel permissions for the dead player
+    
+            // Add to dead channel
             await this.deadChannel.permissionOverwrites.create(player.id, {
                 ViewChannel: true,
                 SendMessages: true,
                 ReadMessageHistory: true
             });
-
+    
+            // If player was a werewolf, remove them from werewolf channel
+            if (player.role === ROLES.WEREWOLF && this.werewolfChannel) {
+                await this.werewolfChannel.permissionOverwrites.delete(player.id);
+                logger.info('Removed dead werewolf from werewolf channel', { 
+                    playerId: player.id,
+                    username: player.username 
+                });
+            }
+    
             await this.deadChannel.send(`**${player.username}** has joined the dead chat.`);
             await player.sendDM('You have died! You can now speak with other dead players in the #dead-players channel.');
             
@@ -1336,37 +1345,15 @@ class WerewolfGame {
                 return null;
             }
     
-            // Validate gameState
-            if (!savedGame.gameState || typeof savedGame.gameState !== 'object') {
-                logger.error('Invalid game state in saved game', { 
-                    guildId,
-                    gameState: savedGame.gameState 
-                });
-                return null;
-            }
+            // Create new game instance using static create method
+            const game = await WerewolfGame.create(
+                client,
+                savedGame.guildId,
+                savedGame.channelId,
+                savedGame.creatorId
+            );
     
-            // Create new game instance with error handling
-            let game;
-            try {
-                game = new WerewolfGame(
-                    client,
-                    savedGame.guildId,
-                    savedGame.channelId,
-                    savedGame.creatorId
-                );
-            } catch (error) {
-                logger.error('Error creating new game instance', { 
-                    error: error.message,
-                    guildId 
-                });
-                throw error;
-            }
-    
-            // Rest of restoreGame remains the same...
-            game.phase = savedGame.phase;
-            game.round = savedGame.round;
-    
-            // Then restore the detailed state
+            // Restore game state from saved data
             const state = savedGame.gameState;
             if (!state) {
                 logger.error('No game state found in saved game', { guildId });
@@ -1374,8 +1361,13 @@ class WerewolfGame {
             }
     
             try {
+                // First restore basic game properties
+                game.phase = savedGame.phase;
+                game.round = savedGame.round;
+    
                 // Restore players with error handling
                 if (state.players && Array.isArray(state.players)) {
+                    game.players.clear(); // Clear any default players
                     for (const playerData of state.players) {
                         try {
                             const player = new Player(playerData.id, playerData.username, client);
@@ -1402,191 +1394,52 @@ class WerewolfGame {
                 game.votingOpen = Boolean(state.votingOpen);
                 game.completedNightActions = new Set(Array.isArray(state.completedNightActions) ? state.completedNightActions : []);
                 game.expectedNightActions = new Set(Array.isArray(state.expectedNightActions) ? state.expectedNightActions : []);
+    
+                // Add to client.games map
+                client.games.set(guildId, game);
+    
+                // Send restoration confirmation
+                await game.broadcastMessage({
+                    embeds: [{
+                        color: 0x0099ff,
+                        title: '🔄 Game Restored',
+                        description: 
+                            'The game has been restored after a brief interruption.\n\n' +
+                            `**Current Phase:** ${game.phase}\n` +
+                            `**Round:** ${game.round}\n` +
+                            `**Players Alive:** ${game.getAlivePlayers().length}/${game.players.size}\n\n` +
+                            'The game is in the lobby phase.',
+                        footer: { text: 'Use /game-status for detailed game information' }
+                    }]
+                });
+    
+                logger.info('Game restored successfully', {
+                    guildId,
+                    phase: game.phase,
+                    round: game.round,
+                    alivePlayers: game.getAlivePlayers().length
+                });
+    
+                return game;
             } catch (error) {
                 logger.error('Error restoring game state', { error });
                 throw error;
             }
-
-            // Restore special channels if they exist
-            try {
-                // First fetch the guild
-                const guild = await client.guilds.fetch(guildId);
-                if (!guild) {
-                    logger.error('Could not fetch guild during restoration', { guildId });
-                    return null;
-                }
-
-                // Then fetch the category
-                const categoryId = process.env.WEREWOLF_CATEGORY_ID;
-                if (!categoryId) {
-                    logger.warn('WEREWOLF_CATEGORY_ID not set in environment variables', { guildId });
-                } else {
-                    try {
-                        const category = await guild.channels.fetch(categoryId);
-                        
-                        if (category) {
-                            // Find channels by their proper names
-                            const channels = await guild.channels.fetch();
-                            const werewolfChannel = channels.find(c => 
-                                c.parentId === categoryId && c.name === 'werewolf-channel'
-                            );
-                            const deadChannel = channels.find(c => 
-                                c.parentId === categoryId && c.name === 'dead-players'
-                            );
-                            
-                            if (werewolfChannel) {
-                                game.werewolfChannel = werewolfChannel;
-                                logger.info('Restored werewolf channel', { channelId: werewolfChannel.id });
-                            }
-                            
-                            if (deadChannel) {
-                                game.deadChannel = deadChannel;
-                                logger.info('Restored dead channel', { channelId: deadChannel.id });
-                            }
-                        }
-                    } catch (error) {
-                        logger.warn('Error fetching special channels', { 
-                            error: error.message,
-                            categoryId 
-                        });
-                        // Don't throw - we can continue without these channels
-                    }
-                }
-
-                // Recreate phase-specific UI
-                try {
-                    const gameChannel = await guild.channels.fetch(savedGame.channelId);
-                    if (gameChannel) {
-                        switch (game.phase) {
-                            case PHASES.DAY:
-                                // If there's an active nomination and voting
-                                if (game.nominatedPlayer && game.seconder) {
-                                    const target = game.players.get(game.nominatedPlayer);
-                                    const nominator = game.players.get(game.nominator);
-                                    const seconder = game.players.get(game.seconder);
-                                    
-                                    if (target && nominator && seconder) {
-                                        // Recreate voting UI
-                                        const lynchButton = new ButtonBuilder()
-                                            .setCustomId(`vote_${target.id}_guilty`)
-                                            .setLabel('Lynch')
-                                            .setStyle(ButtonStyle.Danger);
-
-                                        const spareButton = new ButtonBuilder()
-                                            .setCustomId(`vote_${target.id}_innocent`)
-                                            .setLabel('Let Live')
-                                            .setStyle(ButtonStyle.Success);
-
-                                        const row = new ActionRowBuilder()
-                                            .addComponents(lynchButton, spareButton);
-
-                                        await gameChannel.send({
-                                            embeds: [createVoteResultsEmbed(target, nominator, game)],
-                                            components: [row]
-                                        });
-                                    }
-                                } else {
-                                    // Create regular day phase UI if no active vote
-                                    await dayPhaseHandler.createDayPhaseUI(gameChannel, game.players);
-                                }
-                                break;
-
-                            case PHASES.NIGHT:
-                            case PHASES.NIGHT_ZERO:
-                                // Recreate night phase UI and reminders
-                                if (typeof game.sendNightActionReminders === 'function') {
-                                    await game.sendNightActionReminders();
-                                }
-                                break;
-                        }
-                    } else {
-                        logger.error('Could not fetch game channel during restoration', {
-                            channelId: savedGame.channelId
-                        });
-                    }
-                } catch (error) {
-                    logger.error('Error recreating game UI', {
-                        error: error.message,
-                        phase: game.phase
-                    });
-                    // Don't throw - we can continue without recreating UI
-                }
-            } catch (error) {
-                logger.error('Error restoring channels and UI', {
-                    error: error.message,
-                    guildId
-                });
-                // Don't throw - we can continue without channels
-            }
-
-            // Add DM notifications to all players
-            for (const [playerId, player] of game.players) {
-                try {
-                    const dmChannel = await player.getDMChannel();
-                    if (dmChannel) {
-                        await dmChannel.send({
-                            embeds: [{
-                                color: 0x0099ff,
-                                title: '🔄 Game Restored',
-                                description: 
-                                    'The game you were participating in has been restored.\n\n' +
-                                    `**Your Role:** ${player.role}\n` +
-                                    `**Current Phase:** ${game.phase}\n` +
-                                    `**Status:** ${player.isAlive ? '🟢 Alive' : '💀 Dead'}\n\n` +
-                                    (game.phase === PHASES.NIGHT && player.isAlive ? 
-                                        'Check your action menu if you have any night actions to complete.' : 
-                                        'Continue participating in the game channel.'),
-                                footer: { text: 'Use /game-status for detailed game information' }
-                            }]
-                        });
-                    }
-                } catch (error) {
-                    logger.warn('Failed to send DM to player during game restoration', {
-                        playerId,
-                        error
-                    });
-                }
-            }
-
-            // Notify players of game restoration
-            const phaseInfo = {
-                [PHASES.LOBBY]: "The game is in the lobby phase.",
-                [PHASES.NIGHT_ZERO]: "It is currently the first night. Check your DMs for any actions.",
-                [PHASES.NIGHT]: "It is currently night. Check your DMs for any actions you need to take.",
-                [PHASES.DAY]: "It is currently day. Continue your discussion and voting.",
-                [PHASES.GAME_OVER]: "The game has ended."
-            };
-
-            await game.broadcastMessage({
-                embeds: [{
-                    color: 0x0099ff,
-                    title: '🔄 Game Restored',
-                    description: 
-                        'The game has been restored after a brief interruption.\n\n' +
-                        `**Current Phase:** ${game.phase}\n` +
-                        `**Round:** ${game.round}\n` +
-                        `**Players Alive:** ${game.getAlivePlayers().length}/${game.players.size}\n\n` +
-                        phaseInfo[game.phase],
-                    footer: { text: 'Use /game-status for detailed game information' }
-                }]
-            });
-
-            logger.info('Game restored successfully', {
-                guildId,
-                phase: game.phase,
-                round: game.round,
-                alivePlayers: game.getAlivePlayers().length
-            });
-
-            return game;
         } catch (error) {
-            logger.error('Error restoring game', { 
+            logger.error('Error in game restoration', { 
                 error: error.message,
                 stack: error.stack,
                 guildId 
             });
             throw error;
         }
+    }
+
+    // Add static create method
+    static async create(client, guildId, channelId, creatorId) {
+        const game = new WerewolfGame(client, guildId, channelId, creatorId);
+        await game.saveGameState();
+        return game;
     }
 };
 
