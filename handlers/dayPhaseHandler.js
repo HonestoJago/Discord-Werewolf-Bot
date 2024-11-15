@@ -31,10 +31,16 @@ module.exports = {
     async handleSelect(interaction, currentGame) {
         try {
             const targetId = interaction.values[0];
+            
+            // Clear any existing nomination before starting a new one
+            if (currentGame.nominatedPlayer) {
+                await currentGame.voteProcessor.clearNomination('A new nomination has been made.');
+            }
+            
             const target = currentGame.players.get(targetId);
             
-            // Create nomination
-            await currentGame.nominate(interaction.user.id, targetId);
+            // Use voteProcessor directly instead of going through game
+            await currentGame.voteProcessor.nominate(interaction.user.id, targetId);
 
             // Create second button
             const secondButton = new ButtonBuilder()
@@ -78,15 +84,15 @@ module.exports = {
                     return;
                 }
 
-                // Submit the vote
-                await currentGame.submitVote(interaction.user.id, vote === 'guilty');
+                // Submit the vote through voteProcessor
+                await currentGame.voteProcessor.submitVote(interaction.user.id, vote === 'guilty');
                 await interaction.reply({
                     content: `Your vote to ${vote === 'guilty' ? 'lynch' : 'spare'} has been recorded.`,
                     ephemeral: true
                 });
             } else if (action === 'second') {
-                // First handle the seconding
-                await currentGame.second(interaction.user.id);
+                // Use voteProcessor directly
+                await currentGame.voteProcessor.second(interaction.user.id);
                 await interaction.reply({ 
                     content: 'You have seconded the nomination.', 
                     ephemeral: true 

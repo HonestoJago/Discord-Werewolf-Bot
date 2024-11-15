@@ -117,10 +117,69 @@ class NightActionProcessor {
 
     async processNightActions() {
         try {
-            // Process protection
-            await this.processBodyguardProtection();
+            // Process Cupid's action first if it's Night Zero
+            if (this.game.phase === PHASES.NIGHT_ZERO) {
+                for (const [playerId, action] of Object.entries(this.game.nightActions)) {
+                    if (action.action === 'choose_lovers') {
+                        const cupid = this.game.players.get(playerId);
+                        const lover = this.game.players.get(action.target);
+                        
+                        if (!cupid || !lover) {
+                            logger.error('Invalid Cupid or lover selection', { 
+                                cupidId: playerId, 
+                                loverId: action.target 
+                            });
+                            continue;
+                        }
 
-            // Then process attacks and deaths
+                        if (!lover.isAlive) {
+                            logger.error('Cannot select dead player as lover', { 
+                                loverId: action.target 
+                            });
+                            continue;
+                        }
+
+                        if (cupid.id === lover.id) {
+                            logger.error('Cupid cannot select self as lover', { 
+                                cupidId: cupid.id 
+                            });
+                            continue;
+                        }
+
+                        // Set up bidirectional lover relationship
+                        this.game.lovers.set(cupid.id, lover.id);
+                        this.game.lovers.set(lover.id, cupid.id);
+                        
+                        // Notify both players
+                        await lover.sendDM({
+                            embeds: [{
+                                color: 0xff69b4,
+                                title: '💘 You Have Been Struck By Cupid\'s Arrow!',
+                                description: `You have fallen in love with **${cupid.username}**. If either of you dies, the other will die of heartbreak.`
+                            }]
+                        });
+                        
+                        await cupid.sendDM({
+                            embeds: [{
+                                color: 0xff69b4,
+                                title: '💘 Love Blossoms',
+                                description: `You have chosen **${lover.username}** as your lover. If either of you dies, the other will die of heartbreak.`
+                            }]
+                        });
+
+                        logger.info('Lovers set', {
+                            cupidId: cupid.id,
+                            cupidName: cupid.username,
+                            loverId: lover.id,
+                            loverName: lover.username,
+                            loversMap: Array.from(this.game.lovers.entries())
+                        });
+                    }
+                }
+            }
+
+            // Process other night actions...
+            await this.processBodyguardProtection();
             await this.processWerewolfAttacks();
 
             // Clean up night state
@@ -632,6 +691,56 @@ class NightActionProcessor {
         return Array.from(this.game.expectedNightActions).every(
             playerId => this.game.completedNightActions.has(playerId)
         );
+    }
+
+    async handleLoversDeath(deadPlayer) {
+        try {
+            logger.info('Handling lover death', {
+                deadPlayerId: deadPlayer.id,
+                deadPlayerName: deadPlayer.username,
+                loversMap: Array.from(this.game.lovers.entries())
+            });
+
+            // Check both directions for lover relationship
+            const loverId = this.game.lovers.get(deadPlayer.id);
+            if (!loverId) {
+                logger.info('No lover found for dead player', {
+                    playerId: deadPlayer.id,
+                    playerName: deadPlayer.username
+                });
+                return;
+            }
+
+            const lover = this.game.players.get(loverId);
+            if (!lover || !lover.isAlive) {
+                return;
+            }
+
+            // Remove relationships before processing death
+            this.game.lovers.delete(deadPlayer.id);
+            this.game.lovers.delete(loverId);
+
+            // Mark as dead before sending messages
+            lover.isAlive = false;
+
+            // Send heartbreak message
+            await this.game.broadcastMessage({
+                embeds: [{
+                    color: 0xff69b4,
+                    title: '💔 A Heart Breaks',
+                    description: `**${lover.username}** has died of heartbreak!`,
+                    footer: { text: 'Love and death are forever intertwined...' }
+                }]
+            });
+            
+            // Move to dead channel after death message
+            await this.game.moveToDeadChannel(lover);
+
+            // Check win conditions after all deaths are processed
+            this.game.checkWinConditions();
+        } catch (error) {
+            logger.error('Error handling lover death', { error });
+        }
     }
 }
 

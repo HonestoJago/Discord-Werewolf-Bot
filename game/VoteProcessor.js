@@ -10,6 +10,115 @@ class VoteProcessor {
         this.game = game;
     }
 
+    async nominate(nominatorId, targetId) {
+        if (this.game.phase !== PHASES.DAY) {
+            throw new GameError('Wrong phase', 'Nominations can only be made during the day.');
+        }
+
+        const nominator = this.game.players.get(nominatorId);
+        const target = this.game.players.get(targetId);
+
+        if (!nominator?.isAlive) {
+            throw new GameError('Invalid nominator', 'Dead players cannot make nominations.');
+        }
+        if (!target?.isAlive) {
+            throw new GameError('Invalid target', 'Dead players cannot be nominated.');
+        }
+        if (nominatorId === targetId) {
+            throw new GameError('Invalid target', 'You cannot nominate yourself.');
+        }
+
+        // Don't change phase, just set nomination state
+        this.game.nominatedPlayer = targetId;
+        this.game.nominator = nominatorId;
+        this.game.votingOpen = false;
+
+        // Start nomination timeout
+        this.game.nominationTimeout = setTimeout(async () => {
+            if (this.game.nominatedPlayer && !this.game.votingOpen) {
+                await this.clearNomination('No second received within one minute. Nomination failed.');
+            }
+        }, this.game.NOMINATION_WAIT_TIME);
+
+        await this.game.broadcastMessage({
+            embeds: [{
+                title: 'Player Nominated',
+                description: `${nominator.username} has nominated ${target.username} for elimination.\n` +
+                           `A second is required within one minute to proceed to voting.`
+            }]
+        });
+
+        logger.info('Player nominated', { 
+            nominator: nominator.username, 
+            target: target.username 
+        });
+    }
+
+    async second(seconderId) {
+        if (!this.game.nominatedPlayer || this.game.votingOpen) {
+            throw new GameError('Invalid state', 'No active nomination to second.');
+        }
+
+        const seconder = this.game.players.get(seconderId);
+        if (!seconder?.isAlive) {
+            throw new GameError('Invalid seconder', 'Dead players cannot second nominations.');
+        }
+        if (seconderId === this.game.nominator) {
+            throw new GameError('Invalid seconder', 'The nominator cannot second their own nomination.');
+        }
+
+        this.game.seconder = seconderId;
+        this.game.votingOpen = true;
+        this.game.votes.clear();
+
+        logger.info('Nomination seconded', {
+            seconder: seconder.username,
+            target: this.game.players.get(this.game.nominatedPlayer).username
+        });
+    }
+
+    async submitVote(voterId, isGuilty) {
+        if (!this.game.votingOpen) {
+            throw new GameError('Invalid state', 'Voting is not currently open.');
+        }
+        const voter = this.game.players.get(voterId);
+        if (!voter?.isAlive) {
+            throw new GameError('Invalid voter', 'Dead players cannot vote.');
+        }
+
+        if (voterId === this.game.nominatedPlayer) {
+            throw new GameError('Invalid voter', 'You cannot vote in your own nomination.');
+        }
+
+        // Record the vote
+        this.game.votes.set(voterId, isGuilty);
+
+        // Check if all votes are in
+        const eligibleVoters = Array.from(this.game.players.values())
+            .filter(p => p.isAlive && p.id !== this.game.nominatedPlayer)
+            .length;
+
+        if (this.game.votes.size >= eligibleVoters) {
+            // Process voting results
+            const results = await this.processVotes();
+            return results;
+        }
+
+        return null;
+    }
+
+    clearVotingState() {
+        this.game.nominatedPlayer = null;
+        this.game.nominator = null;
+        this.game.seconder = null;
+        this.game.votingOpen = false;
+        this.game.votes.clear();
+        if (this.game.nominationTimeout) {
+            clearTimeout(this.game.nominationTimeout);
+            this.game.nominationTimeout = null;
+        }
+    }
+
     async processVotes() {
         if (!this.game.votingOpen) {
             throw new GameError('Invalid state', 'No votes to process.');
@@ -43,6 +152,16 @@ class VoteProcessor {
         // If we don't have all votes yet, don't process the result
         if (totalVotes < expectedVotes) {
             return null;
+        }
+    
+        if (voteCounts.guilty === voteCounts.innocent) {
+            await this.clearNomination('The vote was tied. No player was eliminated.');
+            return {
+                eliminated: null,
+                votesFor: voteCounts.guilty,
+                votesAgainst: voteCounts.innocent,
+                stayInDay: true
+            };
         }
     
         const eliminated = voteCounts.guilty > voteCounts.innocent;
@@ -104,7 +223,7 @@ class VoteProcessor {
                         target.isAlive = false;
                         await this.game.broadcastMessage(`**${target.username}** has been eliminated!`);
                         await this.game.moveToDeadChannel(target);
-                        await this.game.handleLoversDeath(target);
+                        await this.game.nightActionProcessor.handleLoversDeath(target);
                         this.game.pendingHunterRevenge = null;
                         
                         if (!this.game.checkWinConditions()) {
@@ -114,7 +233,7 @@ class VoteProcessor {
                 }, 300000); // 5 minutes
 
                 // Clear voting state but stay in day phase
-                this.game.clearVotingState();
+                this.clearVotingState();
                 return;
             }
 
@@ -122,7 +241,7 @@ class VoteProcessor {
             target.isAlive = false;
             await this.game.broadcastMessage(`**${target.username}** has been eliminated!`);
             await this.game.moveToDeadChannel(target);
-            await this.game.handleLoversDeath(target);
+            await this.game.nightActionProcessor.handleLoversDeath(target);
 
             // Check win conditions before advancing
             if (!this.game.checkWinConditions()) {
@@ -138,7 +257,7 @@ class VoteProcessor {
         }
     
         // Reset voting state
-        this.game.clearVotingState();
+        this.clearVotingState();
     
         return {
             eliminated: eliminated ? target.id : null,
@@ -182,7 +301,7 @@ class VoteProcessor {
         await this.game.moveToDeadChannel(target);
         
         // Handle any lover deaths
-        await this.game.handleLoversDeath(target);
+        await this.game.nightActionProcessor.handleLoversDeath(target);
         
         // Clear the pending state
         this.game.pendingHunterRevenge = null;
@@ -191,6 +310,19 @@ class VoteProcessor {
         if (!this.game.checkWinConditions()) {
             await this.game.advanceToNight();
         }
+    }
+
+    async clearNomination(reason) {
+        this.clearVotingState();
+
+        await this.game.broadcastMessage({
+            embeds: [{
+                title: 'Nomination Failed',
+                description: reason
+            }]
+        });
+
+        logger.info('Nomination cleared', { reason });
     }
 }
 

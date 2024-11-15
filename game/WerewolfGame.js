@@ -465,6 +465,10 @@ class WerewolfGame {
      * Advances the game to the Night phase.
      */
     async advanceToNight() {
+        // Clear any existing nomination before advancing to night
+        if (this.nominatedPlayer) {
+            await this.voteProcessor.clearNomination('Day phase is ending.');
+        }
         try {
             this.phase = PHASES.NIGHT;
             this.round += 1;
@@ -543,64 +547,6 @@ class WerewolfGame {
         }
     }
 
-    /**
- * Handles the death of lovers when one dies.
- * @param {Player} player - The player who died.
- */
-    async handleLoversDeath(deadPlayer) {
-        try {
-            logger.info('Handling lover death', {
-                deadPlayerId: deadPlayer.id,
-                deadPlayerName: deadPlayer.username,
-                loversMap: Array.from(this.lovers.entries())
-            });
-
-            // Check both directions for lover relationship
-            const loverId = this.lovers.get(deadPlayer.id);
-            const reverseCheck = Array.from(this.lovers.entries())
-                .find(([id, targetId]) => targetId === deadPlayer.id)?.[0];
-            
-            const actualLoverId = loverId || reverseCheck;
-
-            if (!actualLoverId) {
-                logger.info('No lover found for dead player', {
-                    playerId: deadPlayer.id,
-                    playerName: deadPlayer.username
-                });
-                return;
-            }
-
-            const lover = this.players.get(actualLoverId);
-            if (!lover || !lover.isAlive) {
-                return;
-            }
-
-            // Remove relationships before processing death
-            this.lovers.delete(deadPlayer.id);
-            this.lovers.delete(actualLoverId);
-
-            // Mark as dead before sending messages
-            lover.isAlive = false;
-
-            // Send heartbreak message
-            await this.broadcastMessage({
-                embeds: [{
-                    color: 0xff69b4,
-                    title: '💔 A Heart Breaks',
-                    description: `**${lover.username}** has died of heartbreak!`,
-                    footer: { text: 'Love and death are forever intertwined...' }
-                }]
-            });
-            
-            // Move to dead channel after death message
-            await this.moveToDeadChannel(lover);
-
-            // Check win conditions after all deaths are processed
-            this.checkWinConditions();
-        } catch (error) {
-            logger.error('Error handling lover death', { error });
-        }
-    }
     /**
      * Broadcasts a message to the game channel.
      * @param {string|object} message - The message or embed to send.
@@ -709,6 +655,10 @@ class WerewolfGame {
      * Shuts down the game, cleaning up channels and resetting state.
      */
     async shutdownGame() {
+        // Clear any existing nomination before shutting down
+        if (this.nominatedPlayer) {
+            await this.voteProcessor.clearNomination('Game is ending.');
+        }
         try {
             await this.cleanupChannels();
             this.players.forEach(player => player.reset());
@@ -804,193 +754,6 @@ class WerewolfGame {
         
         // After processing the action, check if all actions are complete
         await this.checkAndProcessNightActions();
-    }
-
-    // Nomination methods
-    async nominate(nominatorId, targetId) {
-        if (this.phase !== PHASES.DAY) {
-            throw new GameError('Wrong phase', 'Nominations can only be made during the day.');
-        }
-
-        const nominator = this.players.get(nominatorId);
-        const target = this.players.get(targetId);
-
-        if (!nominator?.isAlive) {
-            throw new GameError('Invalid nominator', 'Dead players cannot make nominations.');
-        }
-        if (!target?.isAlive) {
-            throw new GameError('Invalid target', 'Dead players cannot be nominated.');
-        }
-        if (nominatorId === targetId) {
-            throw new GameError('Invalid target', 'You cannot nominate yourself.');
-        }
-
-        // Don't change phase, just set nomination state
-        this.nominatedPlayer = targetId;
-        this.nominator = nominatorId;
-        this.votingOpen = false;
-
-        // Start nomination timeout
-        this.nominationTimeout = setTimeout(async () => {
-            if (this.nominatedPlayer && !this.votingOpen) {
-                await this.clearNomination('No second received within one minute. Nomination failed.');
-            }
-        }, this.NOMINATION_WAIT_TIME);
-
-        await this.broadcastMessage({
-            embeds: [{
-                title: 'Player Nominated',
-                description: `${nominator.username} has nominated ${target.username} for elimination.\n` +
-                           `A second is required within one minute to proceed to voting.`
-            }]
-        });
-
-        logger.info('Player nominated', { 
-            nominator: nominator.username, 
-            target: target.username 
-        });
-    }
-
-    async second(seconderId) {
-        if (!this.nominatedPlayer || this.votingOpen) {
-            throw new GameError('Invalid state', 'No active nomination to second.');
-        }
-
-        const seconder = this.players.get(seconderId);
-        if (!seconder?.isAlive) {
-            throw new GameError('Invalid seconder', 'Dead players cannot second nominations.');
-        }
-        if (seconderId === this.nominator) {
-            throw new GameError('Invalid seconder', 'The nominator cannot second their own nomination.');
-        }
-
-        this.seconder = seconderId;
-        this.votingOpen = true;
-        this.votes.clear();
-
-        logger.info('Nomination seconded', {
-            seconder: seconder.username,
-            target: this.players.get(this.nominatedPlayer).username
-        });
-    }
-
-    async submitVote(voterId, isGuilty) {
-        if (!this.votingOpen) {
-            throw new GameError('Invalid state', 'Voting is not currently open.');
-        }
-        const voter = this.players.get(voterId);
-        if (!voter?.isAlive) {
-            throw new GameError('Invalid voter', 'Dead players cannot vote.');
-        }
-
-        if (voterId === this.nominatedPlayer) {
-            throw new GameError('Invalid voter', 'You cannot vote in your own nomination.');
-        }
-
-        // Record the vote
-        this.votes.set(voterId, isGuilty);
-
-        // Check if all votes are in
-        const eligibleVoters = Array.from(this.players.values())
-            .filter(p => p.isAlive && p.id !== this.nominatedPlayer)
-            .length;
-
-        if (this.votes.size >= eligibleVoters) {
-            // Process voting results
-            const results = await this.voteProcessor.processVotes();
-            
-            // Note: We don't need to handle phase transition here anymore
-            // as it's handled in the VoteProcessor based on the elimination result
-            
-            return results;
-        }
-
-        return null;
-    }
-
-    async advancePhase() {
-        try {
-            const validTransitions = PHASE_TRANSITIONS[this.phase];
-            if (!validTransitions || validTransitions.length === 0) {
-                throw new GameError('Invalid phase', 'Cannot advance from current game phase.');
-            }
-    
-            const nextPhase = validTransitions[0];
-            const phaseMessages = {
-                [PHASES.DAY]: {
-                    title: '☀️ Dawn Breaks',
-                    description: '*The morning sun rises over the village...*\n\n' +
-                        '**All players:** Please turn your cameras and microphones ON.\n' +
-                        `Round ${this.round}: The village gathers to discuss the night's events.`
-                },
-                [PHASES.NIGHT]: {
-                    title: '🌙 Night Falls',
-                    description: '*Darkness descends upon the village...*\n\n' +
-                        '**All players:** Please turn your cameras and microphones OFF.\n' +
-                        'Check your DMs for your night actions.'
-                }
-            };
-    
-            this.phase = nextPhase;
-            
-            // Send thematic transition message
-            if (phaseMessages[nextPhase]) {
-                await this.broadcastMessage({
-                    embeds: [{
-                        color: nextPhase === PHASES.DAY ? 0xFFA500 : 0x000066,
-                        title: phaseMessages[nextPhase].title,
-                        description: phaseMessages[nextPhase].description,
-                        footer: { text: `Day ${this.round}` }
-                    }]
-                });
-            }
-    
-            logger.info(`Phase advanced to ${this.phase}`, { round: this.round });
-        } catch (error) {
-            logger.error('Error advancing phase', { error });
-            throw error;
-        }
-    }
-
-    clearVotingState() {
-        this.nominatedPlayer = null;
-        this.nominator = null;
-        this.seconder = null;
-        this.votes.clear();
-        this.votingOpen = false;
-        if (this.nominationTimeout) {
-            clearTimeout(this.nominationTimeout);
-            this.nominationTimeout = null;
-        }
-    }
-
-    // Add to WerewolfGame class
-
-    async processVotes() {
-        return await this.voteProcessor.processVotes();
-    }
-
-    async clearNomination(reason) {
-        if (this.nominationTimeout) {
-            clearTimeout(this.nominationTimeout);
-            this.nominationTimeout = null;
-        }
-
-        // Reset nomination state but stay in DAY phase
-        this.nominatedPlayer = null;
-        this.nominator = null;
-        this.seconder = null;
-        this.votingOpen = false;
-        this.votes.clear();
-
-        await this.broadcastMessage({
-            embeds: [{
-                title: 'Nomination Failed',
-                description: reason
-            }]
-        });
-
-        logger.info('Nomination cleared', { reason });
     }
 
     cleanup() {
@@ -1143,69 +906,6 @@ class WerewolfGame {
     }
     // Add to the class
 
-    async processLoverSelection(cupidId, targetId) {
-        try {
-            const cupid = this.players.get(cupidId);
-            const target = this.players.get(targetId);
-        
-            if (!cupid || !target) {
-                throw new GameError('Invalid Selection', 'Selected player not found.');
-            }
-        
-            if (!target.isAlive) {
-                throw new GameError('Invalid Selection', 'Cannot select a dead player as lover.');
-            }
-        
-            if (cupid.id === target.id) {
-                throw new GameError('Invalid Selection', 'You cannot select yourself as a lover.');
-            }
-        
-            // Set up bidirectional lover relationship
-            this.lovers.set(cupid.id, target.id);
-            this.lovers.set(target.id, cupid.id);  // Add this line to make it bidirectional
-            
-            logger.info('Cupid chose lover', {
-                cupidId,
-                cupidName: cupid.username,
-                loverId: targetId,
-                loverName: target.username,
-                loversMap: Array.from(this.lovers.entries())
-            });
-        
-            // Notify both players
-            try {
-                await target.sendDM({
-                    embeds: [{
-                        color: 0xff69b4,
-                        title: '💘 You Have Been Struck By Cupid\'s Arrow!',
-                        description: `You have fallen in love with **${cupid.username}**. If either of you dies, the other will die of heartbreak.`
-                    }]
-                });
-                
-                await cupid.sendDM({
-                    embeds: [{
-                        color: 0xff69b4,
-                        title: '💘 Love Blossoms',
-                        description: `You have chosen **${target.username}** as your lover. If either of you dies, the other will die of heartbreak.`
-                    }]
-                });
-            } catch (error) {
-                logger.error('Failed to notify lovers', { error });
-                throw new GameError('Communication Error', 'Failed to notify players of their lover status.');
-            }
-
-            // Mark Cupid's action as completed
-            this.completedNightActions.add(cupidId);
-            
-            return true;
-        } catch (error) {
-            if (!(error instanceof GameError)) {
-                throw new GameError('Lover Selection Failed', 'An error occurred while processing lover selection.');
-            }
-            throw error;
-        }
-    }
-    // Start of Selection
     getPhase() {
         return this.phase;
     }

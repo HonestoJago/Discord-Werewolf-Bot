@@ -7,7 +7,6 @@ const PlayerStats = sequelize.define('PlayerStats', {
         primaryKey: true,
         allowNull: false,
         validate: {
-            // Ensure it's a valid Discord snowflake
             isDiscordId(value) {
                 if (!/^\d{17,19}$/.test(value)) {
                     throw new Error('Must be a valid Discord ID');
@@ -17,17 +16,7 @@ const PlayerStats = sequelize.define('PlayerStats', {
     },
     username: {
         type: DataTypes.STRING,
-        allowNull: false,
-        validate: {
-            // Prevent test usernames
-            notTest(value) {
-                if (value.toLowerCase().includes('test') || 
-                    ['hunter', 'lover', 'target', 'innocent', 'voter', 'werewolf', 'victim']
-                        .includes(value.toLowerCase())) {
-                    throw new Error('Invalid username format');
-                }
-            }
-        }
+        allowNull: false
     },
     gamesPlayed: {
         type: DataTypes.INTEGER,
