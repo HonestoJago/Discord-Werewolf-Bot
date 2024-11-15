@@ -482,14 +482,10 @@ class NightActionProcessor {
                 const lover = this.game.players.get(action.target);
                 
                 if (cupid && lover) {
-                    // Set up the lover relationship
+                    // Process the lover selection
                     await this.game.processLoverSelection(cupid.id, lover.id);
                     
-                    // Notify both players
-                    await cupid.sendDM(`You have chosen **${lover.username}** as your lover. If either of you dies, the other will die of heartbreak.`);
-                    await lover.sendDM(`**${cupid.username}** has chosen you as their lover. If either of you dies, the other will die of heartbreak.`);
-                    
-                    logger.info('Cupid chose lover', {
+                    logger.info('Cupid action processed', {
                         cupidId: playerId,
                         cupidName: cupid.username,
                         loverId: action.target,

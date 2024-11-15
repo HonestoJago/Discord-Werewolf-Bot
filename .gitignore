@@ -6,6 +6,7 @@ node_modules/
 
 # Data directory
 data/
+/data
 
 # Logs
 logs

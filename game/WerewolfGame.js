@@ -55,7 +55,6 @@ class WerewolfGame {
         this.players = new Map(); // Map of playerId -> Player instance
         this.phase = PHASES.LOBBY;  // This should be set to LOBBY
         this.round = 0;
-        this.votes = new Map(); // Map of playerId -> votedPlayerId
         this.nightActions = {}; // Store night actions like attacks, investigations, etc.
         this.werewolfChannel = null; // Private channel for werewolves
         this.deadChannel = null; // Channel for dead players
@@ -69,7 +68,7 @@ class WerewolfGame {
         this.nominatedPlayer = null;
         this.nominator = null;
         this.seconder = null;
-        this.votes = new Map();  // voterId -> boolean (true = guilty)
+        this.votes = new Map();   // Map of voterId -> boolean (true = guilty, false = innocent))
         this.votingOpen = false;
         this.nominationTimeout = null;
         this.NOMINATION_WAIT_TIME = 60000; // 1 minute
@@ -530,9 +529,14 @@ class WerewolfGame {
                 loversMap: Array.from(this.lovers.entries())
             });
 
-            // Find and remove lover relationship first to prevent loops
+            // Check both directions for lover relationship
             const loverId = this.lovers.get(deadPlayer.id);
-            if (!loverId) {
+            const reverseCheck = Array.from(this.lovers.entries())
+                .find(([id, targetId]) => targetId === deadPlayer.id)?.[0];
+            
+            const actualLoverId = loverId || reverseCheck;
+
+            if (!actualLoverId) {
                 logger.info('No lover found for dead player', {
                     playerId: deadPlayer.id,
                     playerName: deadPlayer.username
@@ -540,20 +544,27 @@ class WerewolfGame {
                 return;
             }
 
-            const lover = this.players.get(loverId);
+            const lover = this.players.get(actualLoverId);
             if (!lover || !lover.isAlive) {
                 return;
             }
 
             // Remove relationships before processing death
             this.lovers.delete(deadPlayer.id);
-            this.lovers.delete(loverId);
+            this.lovers.delete(actualLoverId);
 
             // Mark as dead before sending messages
             lover.isAlive = false;
 
             // Send heartbreak message
-            await this.broadcastMessage(`**${lover.username}** has died of heartbreak!`);
+            await this.broadcastMessage({
+                embeds: [{
+                    color: 0xff69b4,
+                    title: '💔 A Heart Breaks',
+                    description: `**${lover.username}** has died of heartbreak!`,
+                    footer: { text: 'Love and death are forever intertwined...' }
+                }]
+            });
             
             // Move to dead channel after death message
             await this.moveToDeadChannel(lover);
@@ -1086,23 +1097,22 @@ class WerewolfGame {
             const cupid = this.players.get(cupidId);
             const target = this.players.get(targetId);
         
-            if (!target) {
-                throw new GameError('Invalid target', 'Selected player was not found.');
+            if (!cupid || !target) {
+                throw new GameError('Invalid Selection', 'Selected player not found.');
             }
         
             if (!target.isAlive) {
-                throw new GameError('Invalid target', 'You can only choose a living player as your lover.');
+                throw new GameError('Invalid Selection', 'Cannot select a dead player as lover.');
             }
         
-            if (targetId === cupidId) {
-                throw new GameError('Invalid target', 'You cannot choose yourself as your lover.');
+            if (cupid.id === target.id) {
+                throw new GameError('Invalid Selection', 'You cannot select yourself as a lover.');
             }
         
             // Set up bidirectional lover relationship
-            this.lovers.set(cupidId, targetId);
-            this.lovers.set(targetId, cupidId);
-        
-            // Log the lover relationship
+            this.lovers.set(cupid.id, target.id);
+            this.lovers.set(target.id, cupid.id);  // Add this line to make it bidirectional
+            
             logger.info('Cupid chose lover', {
                 cupidId,
                 cupidName: cupid.username,
@@ -1113,17 +1123,31 @@ class WerewolfGame {
         
             // Notify both players
             try {
-                await target.sendDM(`You have fallen in love with **${cupid.username}** (Cupid). If one of you dies, the other will die of heartbreak.`);
-                await cupid.sendDM(`You have chosen **${target.username}** as your lover. If one of you dies, the other will die of heartbreak.`);
+                await target.sendDM({
+                    embeds: [{
+                        color: 0xff69b4,
+                        title: '💘 You Have Been Struck By Cupid\'s Arrow!',
+                        description: `You have fallen in love with **${cupid.username}**. If either of you dies, the other will die of heartbreak.`
+                    }]
+                });
+                
+                await cupid.sendDM({
+                    embeds: [{
+                        color: 0xff69b4,
+                        title: '💘 Love Blossoms',
+                        description: `You have chosen **${target.username}** as your lover. If either of you dies, the other will die of heartbreak.`
+                    }]
+                });
             } catch (error) {
-                // If notification fails, still maintain the lover relationship but log the error
                 logger.error('Failed to notify lovers', { error });
                 throw new GameError('Communication Error', 'Failed to notify players of their lover status.');
             }
-        
+
+            // Mark Cupid's action as completed
+            this.completedNightActions.add(cupidId);
+            
             return true;
         } catch (error) {
-            // Ensure any errors are wrapped in GameError
             if (!(error instanceof GameError)) {
                 throw new GameError('Lover Selection Failed', 'An error occurred while processing lover selection.');
             }
