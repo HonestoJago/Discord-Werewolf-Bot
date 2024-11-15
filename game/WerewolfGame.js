@@ -764,17 +764,17 @@ class WerewolfGame {
         // Add any other cleanup needed
     }
 
-    checkWinConditions() {
+    async checkWinConditions() {
         // Don't check win conditions during setup phases
         if (this.phase === PHASES.LOBBY || this.phase === PHASES.NIGHT_ZERO) {
             return false;
         }
-
+    
         // If game is already over, don't check again
         if (this.gameOver) {
             return true;
         }
-
+    
         // Get all living players
         const alivePlayers = this.getAlivePlayers();
         
@@ -783,10 +783,10 @@ class WerewolfGame {
         
         // Count living villager team (everyone who's not a werewolf)
         const livingVillagerTeam = alivePlayers.filter(p => p.role !== ROLES.WEREWOLF).length;
-
+    
         let winners = new Set();
         let gameOver = false;
-
+    
         // Calculate game stats
         const gameStats = {
             rounds: this.round,
@@ -795,7 +795,7 @@ class WerewolfGame {
             duration: this.getGameDuration(),
             players: Array.from(this.players.values())
         };
-
+    
         // If all werewolves are dead, villagers win
         if (livingWerewolves === 0) {
             this.phase = PHASES.GAME_OVER;
@@ -808,7 +808,7 @@ class WerewolfGame {
             });
             gameOver = true;
         }
-
+    
         // If werewolves reach parity with or outnumber villager team, werewolves win
         if (livingWerewolves >= livingVillagerTeam) {
             this.phase = PHASES.GAME_OVER;
@@ -821,18 +821,27 @@ class WerewolfGame {
             });
             gameOver = true;
         }
-
+    
         if (gameOver) {
-            // Send game end message with buttons using centralized creators
-            this.broadcastMessage({
-                embeds: [createGameEndEmbed(Array.from(winners), gameStats)],
-                components: [createGameEndButtons()]
+            // Send game end message without buttons
+            await this.broadcastMessage({
+                embeds: [createGameEndEmbed(Array.from(winners), gameStats)]
             });
-
+    
             // Update player stats
-            this.updatePlayerStats(winners);
+            await this.updatePlayerStats(winners);
+    
+            // Automatically clean up the game
+            await this.shutdownGame();
+            
+            // Remove from client's games collection
+            this.client.games.delete(this.guildId);
+            
+            // Clean up from database
+            const Game = require('../models/Game');
+            await Game.destroy({ where: { guildId: this.guildId } });
         }
-
+    
         return gameOver;
     }
 

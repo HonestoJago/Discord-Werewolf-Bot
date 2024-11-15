@@ -247,12 +247,17 @@ function createGameEndEmbed(winners, gameStats) {
                 name: '⚠️ Channel Cleanup',
                 value: 'Using the buttons below will delete the werewolf and dead chat channels.',
                 inline: false
+            },
+            {
+                name: '🎮 New Game',
+                value: 'Use `/create` to start a new game!',
+                inline: false
             }
         ],
         footer: { 
             text: isWerewolfWin ? 
-                'The howls of victory echo through the night...' : 
-                'Peace returns to the village at last...'
+                'The village lies in ruins, but another will rise...' : 
+                'Peace returns to the village, until darkness stirs again...'
         }
     };
 }

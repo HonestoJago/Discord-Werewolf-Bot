@@ -202,67 +202,10 @@ async function handleResetRoles(interaction, game) {
     }
 }
 
-async function handleNewGame(interaction, game) {
-    try {
-        // Cleanup existing game
-        await GameManager.cleanupGame(interaction.client, interaction.guildId);
-        
-        // Create new game
-        const newGame = await GameManager.createGame(
-            interaction.client,
-            interaction.guildId,
-            interaction.channelId,
-            interaction.user.id
-        );
-        
-        // Store new game
-        interaction.client.games.set(interaction.guildId, newGame);
-
-        // Update UI
-        await interaction.update({
-            embeds: [createGameWelcomeEmbed()],
-            components: createGameSetupButtons()
-        });
-
-        logger.info('New game created via button', {
-            guildId: interaction.guildId,
-            creatorId: interaction.user.id
-        });
-    } catch (error) {
-        logger.error('Error creating new game', { error });
-        await interaction.reply({
-            content: 'Failed to create new game. Please try using `/create` instead.',
-            ephemeral: true
-        });
-    }
-}
-
-async function handleEndGame(interaction, game) {
-    try {
-        const client = interaction.client;
-        await client.endGame(interaction.guildId);
-        
-        // Update message to remove buttons
-        await interaction.message.edit({
-            components: []
-        });
-        
-        await interaction.reply('Game ended and channels cleaned up.');
-    } catch (error) {
-        logger.error('Error ending game', { error });
-        await interaction.reply({
-            content: 'Failed to end game.',
-            ephemeral: true
-        });
-    }
-}
-
 module.exports = {
     handleJoinGame,
     handleToggleRole,
     handleViewRoles,
     handleStartGame,
-    handleResetRoles,
-    handleNewGame,
-    handleEndGame
+    handleResetRoles
 };
