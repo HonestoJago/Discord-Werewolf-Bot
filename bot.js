@@ -307,39 +307,51 @@ client.on('interactionCreate', async interaction => {
                 return;
             }
 
+            // Extract action from customId with special handling for game end buttons
             const action = interaction.customId === 'new_game' || interaction.customId === 'end_game' ?
+                // For game end buttons, use the full customId
                 interaction.customId :
+                // For other buttons that might have additional data (e.g., second_playerid)
                 interaction.customId.includes('_') ? 
+                    // Split on underscore and take first part (e.g., 'second' from 'second_123456')
                     interaction.customId.split('_')[0] : 
+                    // For simple buttons without underscores, use the full customId
                     interaction.customId;
-            
+
             try {
                 switch (action) {
+                    // Basic game setup buttons
                     case 'join':
                         await buttonHandler.handleJoinGame(interaction, game);
                         break;
-                    case 'toggle':
+                    case 'toggle':  // For optional role selection
                         await buttonHandler.handleToggleRole(interaction, game);
                         break;
-                    case 'view':
+                    case 'view':    // For viewing current game setup
                         await buttonHandler.handleViewRoles(interaction, game);
                         break;
-                    case 'reset':
+                    case 'reset':   // For resetting role selection
                         await buttonHandler.handleResetRoles(interaction, game);
                         break;
-                    case 'start':
+                    case 'start':   // For starting the game
                         await buttonHandler.handleStartGame(interaction, game);
                         break;
-                    case 'second':
-                    case 'vote':
+                    
+                    // Day phase voting buttons
+                    case 'second':  // For seconding nominations
+                    case 'vote':    // For voting on eliminations
                         await dayPhaseHandler.handleButton(interaction, game);
                         break;
-                    case 'new_game':
+                    
+                    // Game end buttons
+                    case 'new_game':    // Creates new game after previous game ends
                         await buttonHandler.handleNewGame(interaction, game);
                         break;
-                    case 'end_game':
+                    case 'end_game':    // Ends game and cleans up channels
                         await buttonHandler.handleEndGame(interaction, game);
                         break;
+                    
+                    // Log any unhandled button interactions
                     default:
                         logger.warn('Unhandled button interaction', { 
                             action, 
