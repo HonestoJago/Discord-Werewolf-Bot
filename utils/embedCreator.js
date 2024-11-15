@@ -196,8 +196,13 @@ function createSeerRevealEmbed(target, isWerewolf) {
 function createGameEndEmbed(winners, gameStats) {
     const isWerewolfWin = winners.some(player => player.role === 'werewolf');
     
+    // Get all players from gameStats (this will include everyone, not just winners)
+    const allPlayers = Array.from(gameStats.players || []); // Add a fallback empty array
+    const werewolves = allPlayers.filter(p => p.role === 'werewolf');
+    const others = allPlayers.filter(p => p.role !== 'werewolf');
+    
     return {
-        color: isWerewolfWin ? 0x800000 : 0x008000, // Red for werewolf win, green for village win
+        color: isWerewolfWin ? 0x800000 : 0x008000,
         title: isWerewolfWin ? 
             '🐺 The Werewolves Have Conquered the Village!' : 
             '🎉 The Village Has Triumphed!',
@@ -205,11 +210,29 @@ function createGameEndEmbed(winners, gameStats) {
             '*Darkness falls permanently as the werewolves claim their final victory...*' :
             '*The village can finally rest, knowing the threat has been eliminated...*',
         fields: [
-            {
-                name: '👑 Victorious',
-                value: winners.map(p => `${p.username} (${p.role})`).join('\n'),
-                inline: false
-            },
+            ...(isWerewolfWin ? [
+                {
+                    name: '🐺 The Werewolves',
+                    value: werewolves.map(p => p.username).join('\n') || 'None',
+                    inline: false
+                },
+                {
+                    name: '👥 Other Players',
+                    value: others.map(p => `${p.username} (${p.role})`).join('\n') || 'None',
+                    inline: false
+                }
+            ] : [
+                {
+                    name: '👑 Victorious Villagers',
+                    value: others.map(p => `${p.username} (${p.role})`).join('\n') || 'None',
+                    inline: false
+                },
+                {
+                    name: '🐺 The Werewolves Were',
+                    value: werewolves.map(p => p.username).join('\n') || 'None',
+                    inline: false
+                }
+            ]),
             {
                 name: '📊 Game Statistics',
                 value: [

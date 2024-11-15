@@ -792,7 +792,8 @@ class WerewolfGame {
             rounds: this.round,
             totalPlayers: this.players.size,
             eliminations: this.players.size - alivePlayers.length,
-            duration: this.getGameDuration()
+            duration: this.getGameDuration(),
+            players: Array.from(this.players.values())
         };
 
         // If all werewolves are dead, villagers win
