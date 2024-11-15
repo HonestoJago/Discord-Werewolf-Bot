@@ -85,6 +85,19 @@ class VoteProcessor {
                 // Send DM to Hunter before marking as dead
                 await target.sendDM('You have been eliminated! Use `/action choose_target` to choose someone to take with you.');
                 
+                // Send mysterious message to village
+                await this.game.broadcastMessage({
+                    embeds: [{
+                        color: 0x4B0082, // Deep purple for mystical effect
+                        title: '🌘 A Moment of Tension',
+                        description: 
+                            '*The air grows thick with anticipation as death\'s shadow lingers...*\n\n' +
+                            'The village holds its breath, sensing that this elimination has set something in motion.\n' +
+                            'Wait for fate to unfold before proceeding to nightfall.',
+                        footer: { text: 'Some deaths echo louder than others...' }
+                    }]
+                });
+
                 // Set timeout for Hunter's revenge
                 const hunterTimeout = setTimeout(async () => {
                     if (this.game.pendingHunterRevenge) {
