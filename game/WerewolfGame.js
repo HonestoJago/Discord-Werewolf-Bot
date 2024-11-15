@@ -6,12 +6,13 @@ const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');  // Direct import of frozen object
 const PHASES = require('../constants/phases'); // Direct import of frozen object
-const { createDayPhaseEmbed, createVoteResultsEmbed } = require('../utils/embedCreator');
+const { createDayPhaseEmbed, createVoteResultsEmbed, createGameEndEmbed } = require('../utils/embedCreator');
 const NightActionProcessor = require('./NightActionProcessor');
 const VoteProcessor = require('./VoteProcessor');
 const dayPhaseHandler = require('../handlers/dayPhaseHandler');
 const PlayerStats = require('../models/Player');
 const Game = require('../models/Game');
+const { createGameEndButtons } = require('../utils/buttonCreator');
 
 // Define roles and their properties in a configuration object
 const ROLE_CONFIG = {
@@ -976,17 +977,11 @@ class WerewolfGame {
     }
 
     checkWinConditions() {
-        // Add debug logging
-    logger.debug('Checking win conditions', {
-        livingPlayers: this.getAlivePlayers().length,
-        livingWerewolves: this.getPlayersByRole(ROLES.WEREWOLF).length,
-        phase: this.phase
-    });
+        // Don't check win conditions during setup phases
+        if (this.phase === PHASES.LOBBY || this.phase === PHASES.NIGHT_ZERO) {
+            return false;
+        }
 
-    // Don't check win conditions during setup phases
-    if (this.phase === PHASES.LOBBY || this.phase === PHASES.NIGHT_ZERO) {
-        return false;
-    }
         // If game is already over, don't check again
         if (this.gameOver) {
             return true;
@@ -1002,40 +997,71 @@ class WerewolfGame {
         const livingVillagerTeam = alivePlayers.filter(p => p.role !== ROLES.WEREWOLF).length;
 
         let winners = new Set();
+        let gameOver = false;
+
+        // Calculate game stats
+        const gameStats = {
+            rounds: this.round,
+            totalPlayers: this.players.size,
+            eliminations: this.players.size - alivePlayers.length,
+            duration: this.getGameDuration()
+        };
 
         // If all werewolves are dead, villagers win
         if (livingWerewolves === 0) {
-            this.phase = PHASES.GAME_OVER;  // Set phase first
+            this.phase = PHASES.GAME_OVER;
             this.gameOver = true;
             // Add all non-werewolf players to winners
             this.players.forEach(player => {
                 if (player.role !== ROLES.WEREWOLF) {
-                    winners.add(player.id);
+                    winners.add(player);
                 }
             });
-            this.broadcastMessage('**Villagers win!** All werewolves have been eliminated.');
-            this.updatePlayerStats(winners);
-            return true;
+            gameOver = true;
         }
 
         // If werewolves reach parity with or outnumber villager team, werewolves win
         if (livingWerewolves >= livingVillagerTeam) {
-            this.phase = PHASES.GAME_OVER;  // Set phase first
+            this.phase = PHASES.GAME_OVER;
             this.gameOver = true;
             // Add all werewolf players to winners
             this.players.forEach(player => {
                 if (player.role === ROLES.WEREWOLF) {
-                    winners.add(player.id);
+                    winners.add(player);
                 }
             });
-            this.broadcastMessage('**Werewolves win!** They have reached parity with the villagers.');
-            this.updatePlayerStats(winners);
-            return true;
+            gameOver = true;
         }
 
-        return false;
+        if (gameOver) {
+            // Send game end message with buttons using centralized creators
+            this.broadcastMessage({
+                embeds: [createGameEndEmbed(Array.from(winners), gameStats)],
+                components: [createGameEndButtons()]
+            });
+
+            // Update player stats
+            this.updatePlayerStats(winners);
+        }
+
+        return gameOver;
     }
-    
+
+    // Add this helper method to calculate game duration
+    getGameDuration() {
+        const now = Date.now();
+        const gameStart = this.gameStartTime || now; // Add gameStartTime property in constructor
+        const duration = now - gameStart;
+        
+        const hours = Math.floor(duration / (1000 * 60 * 60));
+        const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60));
+        
+        if (hours > 0) {
+            return `${hours}h ${minutes}m`;
+        }
+        return `${minutes}m`;
+    }
+
     async updatePlayerStats(winners) {
         try {
             logger.info('Starting to update player stats', { 

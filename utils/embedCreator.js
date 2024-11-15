@@ -193,6 +193,47 @@ function createSeerRevealEmbed(target, isWerewolf) {
         .setFooter({ text: 'Use this knowledge wisely to help the village...' });
 }
 
+function createGameEndEmbed(winners, gameStats) {
+    const isWerewolfWin = winners.some(player => player.role === 'werewolf');
+    
+    return {
+        color: isWerewolfWin ? 0x800000 : 0x008000, // Red for werewolf win, green for village win
+        title: isWerewolfWin ? 
+            '🐺 The Werewolves Have Conquered the Village!' : 
+            '🎉 The Village Has Triumphed!',
+        description: isWerewolfWin ?
+            '*Darkness falls permanently as the werewolves claim their final victory...*' :
+            '*The village can finally rest, knowing the threat has been eliminated...*',
+        fields: [
+            {
+                name: '👑 Victorious',
+                value: winners.map(p => `${p.username} (${p.role})`).join('\n'),
+                inline: false
+            },
+            {
+                name: '📊 Game Statistics',
+                value: [
+                    `Total Rounds: ${gameStats.rounds}`,
+                    `Players: ${gameStats.totalPlayers}`,
+                    `Eliminations: ${gameStats.eliminations}`,
+                    `Game Duration: ${gameStats.duration}`
+                ].join('\n'),
+                inline: false
+            },
+            {
+                name: '⚠️ Channel Cleanup',
+                value: 'Using the buttons below will delete the werewolf and dead chat channels.',
+                inline: false
+            }
+        ],
+        footer: { 
+            text: isWerewolfWin ? 
+                'The howls of victory echo through the night...' : 
+                'Peace returns to the village at last...'
+        }
+    };
+}
+
 module.exports = { 
     createPlayerListEmbed,
     createNominationEmbed,
@@ -202,4 +243,5 @@ module.exports = {
     createNominationSelectEmbed,
     createRoleCard,
     createSeerRevealEmbed,
+    createGameEndEmbed,
 };

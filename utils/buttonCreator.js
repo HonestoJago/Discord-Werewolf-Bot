@@ -35,6 +35,20 @@ const createStartButton = () => new ButtonBuilder()
     .setLabel('🌕 Begin the Hunt')
     .setStyle(ButtonStyle.Danger);
 
+const createGameEndButtons = () => {
+    return new ActionRowBuilder()
+        .addComponents(
+            new ButtonBuilder()
+                .setCustomId('new_game')
+                .setLabel('🎮 Create New Game')
+                .setStyle(ButtonStyle.Success),
+            new ButtonBuilder()
+                .setCustomId('end_game')
+                .setLabel('🚫 End Game')
+                .setStyle(ButtonStyle.Danger)
+        );
+};
+
 function createGameSetupButtons() {
     // Create all rows
     const joinRow = new ActionRowBuilder()
@@ -64,5 +78,6 @@ module.exports = {
     createRoleButton,
     createViewButton,
     createResetButton,
-    createStartButton
+    createStartButton,
+    createGameEndButtons
 };

@@ -307,7 +307,11 @@ client.on('interactionCreate', async interaction => {
                 return;
             }
 
-            const action = interaction.customId.split('_')[0];
+            const action = interaction.customId === 'new_game' || interaction.customId === 'end_game' ?
+                interaction.customId :
+                interaction.customId.includes('_') ? 
+                    interaction.customId.split('_')[0] : 
+                    interaction.customId;
             
             try {
                 switch (action) {
@@ -329,6 +333,12 @@ client.on('interactionCreate', async interaction => {
                     case 'second':
                     case 'vote':
                         await dayPhaseHandler.handleButton(interaction, game);
+                        break;
+                    case 'new_game':
+                        await buttonHandler.handleNewGame(interaction, game);
+                        break;
+                    case 'end_game':
+                        await buttonHandler.handleEndGame(interaction, game);
                         break;
                     default:
                         logger.warn('Unhandled button interaction', { 

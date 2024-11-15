@@ -190,10 +190,61 @@ async function handleResetRoles(interaction, game) {
     }
 }
 
+async function handleNewGame(interaction, game) {
+    try {
+        const client = interaction.client;
+        
+        // End current game
+        await client.endGame(interaction.guildId);
+        
+        // Create new game
+        const newGame = await client.createGame(
+            interaction.guildId,
+            interaction.channelId,
+            interaction.user.id
+        );
+        
+        // Update message to remove buttons
+        await interaction.message.edit({
+            components: []
+        });
+        
+        await interaction.reply('New game created! Use `/join` to join the game.');
+    } catch (error) {
+        logger.error('Error creating new game', { error });
+        await interaction.reply({
+            content: 'Failed to create new game.',
+            ephemeral: true
+        });
+    }
+}
+
+async function handleEndGame(interaction, game) {
+    try {
+        const client = interaction.client;
+        await client.endGame(interaction.guildId);
+        
+        // Update message to remove buttons
+        await interaction.message.edit({
+            components: []
+        });
+        
+        await interaction.reply('Game ended and channels cleaned up.');
+    } catch (error) {
+        logger.error('Error ending game', { error });
+        await interaction.reply({
+            content: 'Failed to end game.',
+            ephemeral: true
+        });
+    }
+}
+
 module.exports = {
     handleJoinGame,
     handleToggleRole,
     handleViewRoles,
     handleStartGame,
-    handleResetRoles
+    handleResetRoles,
+    handleNewGame,
+    handleEndGame
 };
