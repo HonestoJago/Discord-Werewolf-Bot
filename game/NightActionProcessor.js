@@ -104,8 +104,18 @@ class NightActionProcessor {
 
             logger.info('Night action collected', { playerId, action, targetId });
 
-            // Check if all actions are complete and process if they are
-            if (this.areAllNightActionsComplete()) {
+            // Check if all actions are complete
+            const allActionsComplete = Array.from(this.game.expectedNightActions).every(
+                id => this.game.completedNightActions.has(id)
+            );
+
+            if (allActionsComplete) {
+                logger.info('All night actions received, processing night phase', {
+                    expectedActions: Array.from(this.game.expectedNightActions),
+                    completedActions: Array.from(this.game.completedNightActions)
+                });
+
+                // Process all night actions and advance to day
                 await this.processNightActions();
             }
 
@@ -187,12 +197,28 @@ class NightActionProcessor {
             this.game.completedNightActions.clear();
             this.game.expectedNightActions.clear();
 
-            // Check win conditions after all deaths
+            // Add logging before phase transition
+            logger.info('Night actions processed, attempting phase transition', {
+                currentPhase: this.game.phase,
+                round: this.game.round
+            });
+
+            // Check win conditions and advance phase
             if (!this.game.checkWinConditions()) {
+                // Direct call to advance phase, exactly like advance.js does
                 await this.game.advanceToDay();
+                
+                logger.info('Advanced to day after night actions', {
+                    currentPhase: this.game.phase,
+                    round: this.game.round
+                });
             }
         } catch (error) {
             logger.error('Error processing night actions', { error });
+            // Even if there's an error, try to advance the phase
+            if (!this.game.checkWinConditions()) {
+                await this.game.advanceToDay();
+            }
         }
     }
 
@@ -373,11 +399,11 @@ class NightActionProcessor {
             const bodyguard = this.game.getPlayerByRole(ROLES.BODYGUARD);
 
             // Add living players to expected actions
-            werewolves.forEach(wolf => {
+            for (const wolf of werewolves) {
                 if (wolf.isAlive) {
                     this.game.expectedNightActions.add(wolf.id);
                 }
-            });
+            }
 
             if (seer?.isAlive) {
                 this.game.expectedNightActions.add(seer.id);
@@ -403,7 +429,7 @@ class NightActionProcessor {
                 await seer.sendDM('Use `/action investigate` to investigate a player tonight.');
             }
 
-            werewolves.forEach(async wolf => {
+            for (const wolf of werewolves) {
                 if (wolf.isAlive) {
                     await wolf.sendDM({
                         embeds: [{
@@ -416,7 +442,7 @@ class NightActionProcessor {
                         }]
                     });
                 }
-            });
+            }
 
             logger.info('Night actions initialized', {
                 expectedActions: Array.from(this.game.expectedNightActions)
@@ -628,7 +654,10 @@ class NightActionProcessor {
             }
         } catch (error) {
             logger.error('Error processing werewolf attacks', { error });
-            // Log error but don't throw - allow phase to continue
+            // Don't throw - allow phase to continue
+        } finally {
+            // Reset protection message flag
+            this.protectionMessageSent = false;
         }
     }
 

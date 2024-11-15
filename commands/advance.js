@@ -31,7 +31,7 @@ module.exports = {
             
             switch (currentPhase) {
                 case PHASES.DAY:
-                    // Use the existing voteProcessor.clearVotingState
+                    // Clear voting state first
                     if (currentGame.voteProcessor) {
                         await currentGame.voteProcessor.clearVotingState();
                     }

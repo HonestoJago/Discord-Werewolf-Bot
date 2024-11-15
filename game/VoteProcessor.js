@@ -136,135 +136,144 @@ class VoteProcessor {
         const eligibleVoters = Array.from(this.game.players.values())
             .filter(p => p.isAlive && p.id !== this.game.nominatedPlayer);
         
-        // Calculate votes
-        for (const [voterId, vote] of this.game.votes.entries()) {
-            const voter = this.game.players.get(voterId);
-            if (voter && voter.isAlive && voterId !== this.game.nominatedPlayer) {
-                voteCounts[vote ? 'guilty' : 'innocent']++;
-                playerVotes[voter.username] = vote;
+        try {
+            // Calculate votes
+            for (const [voterId, vote] of this.game.votes.entries()) {
+                const voter = this.game.players.get(voterId);
+                if (voter && voter.isAlive && voterId !== this.game.nominatedPlayer) {
+                    voteCounts[vote ? 'guilty' : 'innocent']++;
+                    playerVotes[voter.username] = vote;
+                }
             }
-        }
     
-        // Check if we have all eligible votes
-        const totalVotes = voteCounts.guilty + voteCounts.innocent;
-        const expectedVotes = eligibleVoters.length;
-        
-        // If we don't have all votes yet, don't process the result
-        if (totalVotes < expectedVotes) {
-            return null;
-        }
+            // Check if we have all eligible votes
+            const totalVotes = voteCounts.guilty + voteCounts.innocent;
+            const expectedVotes = eligibleVoters.length;
+            
+            // If we don't have all votes yet, don't process the result
+            if (totalVotes < expectedVotes) {
+                return null;
+            }
     
-        if (voteCounts.guilty === voteCounts.innocent) {
-            await this.clearNomination('The vote was tied. No player was eliminated.');
-            return {
-                eliminated: null,
-                votesFor: voteCounts.guilty,
-                votesAgainst: voteCounts.innocent,
-                stayInDay: true
-            };
-        }
+            if (voteCounts.guilty === voteCounts.innocent) {
+                await this.clearNomination('The vote was tied. No player was eliminated.');
+                return {
+                    eliminated: null,
+                    votesFor: voteCounts.guilty,
+                    votesAgainst: voteCounts.innocent,
+                    stayInDay: true
+                };
+            }
     
-        const eliminated = voteCounts.guilty > voteCounts.innocent;
+            const eliminated = voteCounts.guilty > voteCounts.innocent;
     
-        // Create and send results embed
-        const resultsEmbed = createVoteResultsEmbed(
-            target,
-            voteCounts,
-            eliminated,
-            playerVotes
-        );
+            // Create and send results embed
+            const resultsEmbed = createVoteResultsEmbed(
+                target,
+                voteCounts,
+                eliminated,
+                playerVotes
+            );
     
-        const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
-        await channel.send({ embeds: [resultsEmbed] });
+            const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
+            await channel.send({ embeds: [resultsEmbed] });
     
-        if (eliminated) {
-            // Announce whether the eliminated player was a werewolf
-            const isWerewolf = target.role === ROLES.WEREWOLF;
-            await this.game.broadcastMessage({
-                embeds: [{
-                    color: isWerewolf ? 0x008000 : 0x800000, // Green for werewolf, red for non-werewolf
-                    title: isWerewolf ? '🐺 A Wolf Among Us!' : '❌ An Innocent Soul',
-                    description: isWerewolf ?
-                        `*The village's suspicions were correct! **${target.username}** was indeed a Werewolf!*` :
-                        `*Alas, **${target.username}** was not a Werewolf. The real beasts still lurk among you...*`,
-                    footer: { text: isWerewolf ? 'But are there more?' : 'Choose more carefully next time...' }
-                }]
-            });
-
-            // Handle Hunter's revenge BEFORE marking as dead
-            if (target.role === ROLES.HUNTER) {
-                logger.info('Hunter was voted out', {
-                    hunterId: target.id,
-                    hunterName: target.username
-                });
-
-                // Set up Hunter's revenge state
-                this.game.pendingHunterRevenge = target.id;
-                
-                // Send DM to Hunter before marking as dead
-                await target.sendDM('You have been eliminated! Use `/action choose_target` to choose someone to take with you.');
-                
-                // Send mysterious message to village
+            if (eliminated) {
+                // Announce whether the eliminated player was a werewolf
+                const isWerewolf = target.role === ROLES.WEREWOLF;
                 await this.game.broadcastMessage({
                     embeds: [{
-                        color: 0x4B0082, // Deep purple for mystical effect
-                        title: '🌘 A Moment of Tension',
-                        description: 
-                            '*The air grows thick with anticipation as death\'s shadow lingers...*\n\n' +
-                            'The village holds its breath, sensing that this elimination has set something in motion.\n' +
-                            'Wait for fate to unfold before proceeding to nightfall.',
-                        footer: { text: 'Some deaths echo louder than others...' }
+                        color: isWerewolf ? 0x008000 : 0x800000, // Green for werewolf, red for non-werewolf
+                        title: isWerewolf ? '🐺 A Wolf Among Us!' : '❌ An Innocent Soul',
+                        description: isWerewolf ?
+                            `*The village's suspicions were correct! **${target.username}** was indeed a Werewolf!*` :
+                            `*Alas, **${target.username}** was not a Werewolf. The real beasts still lurk among you...*`,
+                        footer: { text: isWerewolf ? 'But are there more?' : 'Choose more carefully next time...' }
                     }]
                 });
 
-                // Set timeout for Hunter's revenge
-                const hunterTimeout = setTimeout(async () => {
-                    if (this.game.pendingHunterRevenge) {
-                        target.isAlive = false;
-                        await this.game.broadcastMessage(`**${target.username}** has been eliminated!`);
-                        await this.game.moveToDeadChannel(target);
-                        await this.game.nightActionProcessor.handleLoversDeath(target);
-                        this.game.pendingHunterRevenge = null;
-                        
-                        if (!this.game.checkWinConditions()) {
-                            await this.game.advanceToNight();
+                // Handle Hunter's revenge BEFORE marking as dead
+                if (target.role === ROLES.HUNTER) {
+                    logger.info('Hunter was voted out', {
+                        hunterId: target.id,
+                        hunterName: target.username
+                    });
+
+                    // Set up Hunter's revenge state
+                    this.game.pendingHunterRevenge = target.id;
+                    
+                    // Send DM to Hunter before marking as dead
+                    await target.sendDM('You have been eliminated! Use `/action choose_target` to choose someone to take with you.');
+                    
+                    // Send mysterious message to village
+                    await this.game.broadcastMessage({
+                        embeds: [{
+                            color: 0x4B0082, // Deep purple for mystical effect
+                            title: '🌘 A Moment of Tension',
+                            description: 
+                                '*The air grows thick with anticipation as death\'s shadow lingers...*\n\n' +
+                                'The village holds its breath, sensing that this elimination has set something in motion.\n' +
+                                'Wait for fate to unfold before proceeding to nightfall.',
+                            footer: { text: 'Some deaths echo louder than others...' }
+                        }]
+                    });
+
+                    // Set timeout for Hunter's revenge
+                    const hunterTimeout = setTimeout(async () => {
+                        if (this.game.pendingHunterRevenge) {
+                            target.isAlive = false;
+                            await this.game.broadcastMessage(`**${target.username}** has been eliminated!`);
+                            await this.game.moveToDeadChannel(target);
+                            await this.game.nightActionProcessor.handleLoversDeath(target);
+                            this.game.pendingHunterRevenge = null;
+                            
+                            if (!this.game.checkWinConditions()) {
+                                await this.game.advanceToNight();
+                            }
                         }
-                    }
-                }, 300000); // 5 minutes
+                    }, 300000); // 5 minutes
 
-                // Clear voting state but stay in day phase
+                    // Clear voting state but stay in day phase
+                    this.clearVotingState();
+                    return;
+                }
+
+                // For non-Hunter players, mark as dead first, then handle effects
+                target.isAlive = false;
+                await this.game.broadcastMessage(`**${target.username}** has been eliminated!`);
+                await this.game.moveToDeadChannel(target);
+                await this.game.nightActionProcessor.handleLoversDeath(target);
+
+                // Reset voting state before phase advancement
                 this.clearVotingState();
-                return;
-            }
 
-            // For non-Hunter players, mark as dead first, then handle effects
-            target.isAlive = false;
-            await this.game.broadcastMessage(`**${target.username}** has been eliminated!`);
-            await this.game.moveToDeadChannel(target);
-            await this.game.nightActionProcessor.handleLoversDeath(target);
-
-            // Check win conditions before advancing
-            if (!this.game.checkWinConditions()) {
-                await this.game.advanceToNight();
+                // Add logging and proper phase transition
+                const gameOver = await this.game.checkWinConditions();
+                if (!gameOver) {
+                    await this.game.advanceToNight();
+                }
+            } else {
+                // If no elimination (tie or majority innocent), stay in day phase
+                await this.game.broadcastMessage('No player was eliminated. The voting continues...');
+                
+                // Refresh the day phase UI
+                const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
+                await dayPhaseHandler.createDayPhaseUI(channel, this.game.players);
             }
-        } else {
-            // If no elimination (tie or majority innocent), stay in day phase
-            await this.game.broadcastMessage('No player was eliminated. The voting continues...');
-            
-            // Refresh the day phase UI
-            const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
-            await dayPhaseHandler.createDayPhaseUI(channel, this.game.players);
+    
+            // Reset voting state
+            this.clearVotingState();
+    
+            return {
+                eliminated: eliminated ? target.id : null,
+                votesFor: voteCounts.guilty,
+                votesAgainst: voteCounts.innocent,
+                stayInDay: !eliminated
+            };
+        } catch (error) {
+            logger.error('Error processing votes', { error });
+            throw error;
         }
-    
-        // Reset voting state
-        this.clearVotingState();
-    
-        return {
-            eliminated: eliminated ? target.id : null,
-            votesFor: voteCounts.guilty,
-            votesAgainst: voteCounts.innocent,
-            stayInDay: !eliminated
-        };
     }
 
     // Add method to handle Hunter's revenge during day

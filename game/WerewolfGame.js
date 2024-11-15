@@ -465,11 +465,19 @@ class WerewolfGame {
      * Advances the game to the Night phase.
      */
     async advanceToNight() {
-        // Clear any existing nomination before advancing to night
-        if (this.nominatedPlayer) {
-            await this.voteProcessor.clearNomination('Day phase is ending.');
-        }
         try {
+            // Guard against multiple transitions
+            if (this.phase === PHASES.NIGHT) {
+                logger.warn('Already in Night phase, skipping transition');
+                return;
+            }
+    
+            // Clear any existing nomination before advancing to night
+            if (this.nominatedPlayer) {
+                await this.voteProcessor.clearNomination('Day phase is ending.');
+            }
+    
+            // Set phase AFTER clearing nominations
             this.phase = PHASES.NIGHT;
             this.round += 1;
             
@@ -484,33 +492,30 @@ class WerewolfGame {
                     footer: { text: 'Remain silent until morning comes...' }
                 }]
             });
-
+    
             // Reset night action tracking
             this.completedNightActions.clear();
             this.expectedNightActions.clear();
             this.nightActions = {};
-
-            // Delegate all night action handling to NightActionProcessor
-            await this.nightActionProcessor.handleNightActions();
-
-            logger.info(`Game advanced to Night ${this.round}`, {
-                expectedActions: Array.from(this.expectedNightActions)
-            });
-
+    
+            // Save state AFTER all changes
             await this.saveGameState();
+    
+            // Delegate night action handling to NightActionProcessor
+            await this.nightActionProcessor.handleNightActions();
+    
+            logger.info(`Game advanced to Night ${this.round}`, {
+                phase: this.phase,
+                round: this.round,
+                stateAfterSave: await Game.findByPk(this.guildId) // Add this to verify state
+            });
+    
         } catch (error) {
-            logger.error('Error advancing to Night phase', { error });
+            logger.error('Error advancing to Night phase', { error, stack: error.stack });
             throw error;
         }
     }
-
-    /**
-     * Processes all collected night actions.
-     */
-    async processNightActions() {
-        return await this.nightActionProcessor.processNightActions();
-    }
-
+      
     /**
      * Moves a player to the Dead channel.
      * @param {Player} player - The player to move.
@@ -623,6 +628,7 @@ class WerewolfGame {
                 return;
             }
     
+            // Set phase first
             this.phase = PHASES.DAY;
             
             // Clear any night state
@@ -642,12 +648,20 @@ class WerewolfGame {
                 }]
             });
     
+            // Save state AFTER all changes
+            await this.saveGameState();
+    
             const channel = await this.client.channels.fetch(this.gameChannelId);
             await dayPhaseHandler.createDayPhaseUI(channel, this.players);
     
-            logger.info(`Advanced to Day ${this.round}`);
+            logger.info(`Advanced to Day ${this.round}`, {
+                phase: this.phase,
+                round: this.round,
+                stateAfterSave: await Game.findByPk(this.guildId) // Add this to verify state
+            });
+    
         } catch (error) {
-            logger.error('Error advancing to Day phase', { error });
+            logger.error('Error advancing to Day phase', { error, stack: error.stack });
             throw error;
         }
     }
@@ -746,14 +760,6 @@ class WerewolfGame {
             this.selectedRoles.delete(role);
         }
         logger.info(`Removed ${role} role`, { currentCount: currentCount - 1 });
-    }
-
-    // New method in WerewolfGame.js
-    async processNightAction(playerId, action, target) {
-        await this.nightActionProcessor.processNightAction(playerId, action, target);
-        
-        // After processing the action, check if all actions are complete
-        await this.checkAndProcessNightActions();
     }
 
     cleanup() {
@@ -929,23 +935,7 @@ class WerewolfGame {
         return userId === this.gameCreatorId || this.authorizedIds.includes(userId);
     }
 
-    async checkAndProcessNightActions() {
-        // Check if all expected actions are completed
-        const allActionsComplete = Array.from(this.expectedNightActions).every(
-            playerId => this.completedNightActions.has(playerId)
-        );
-
-        if (allActionsComplete) {
-            logger.info('All night actions completed, processing actions', {
-                expectedActions: Array.from(this.expectedNightActions),
-                completedActions: Array.from(this.completedNightActions)
-            });
-            await this.nightActionProcessor.processNightActions();
-        }
-        return allActionsComplete;
-    }
-
-    /**
+        /**
      * Serializes the game state for database storage
      */
     serializeGame() {
