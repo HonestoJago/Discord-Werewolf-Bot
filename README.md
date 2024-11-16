@@ -61,7 +61,7 @@ Ready to play? Follow these simple steps to set up the Discord Werewolf Bot on y
 
 1. **Clone the Repository**
    ```bash
-   git clone https://github.com/jfrodella/discord-werewolf-bot.git
+   git clone https://github.com/HonestoJago/Discord-Werewolf-Bot.git
    ```
 2. **Navigate to the Project Directory**
    ```bash
@@ -177,9 +177,9 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 Join our thriving community and get the support you need:
 
-- **Issues**: Report bugs via the [Issue Tracker](https://github.com/jfrodella/discord-werewolf-bot/issues).
-- **Discussion**: Engage with other players and developers in [Discussions](https://github.com/jfrodella/discord-werewolf-bot/discussions).
-- **Discord Server**: Connect with us directly on our [Discord Server](https://discord.gg/yourserver).
+- **Issues**: Report bugs via the [Issue Tracker](https://github.com/HonestoJago/Discord-Werewolf-Bot/issues).
+- **Discussion**: Engage with other players and developers in [Discussions](https://github.com/HonestoJago/Discord-Werewolf-Bot/discussions).
+- **Discord Server**: Connect me for a private invite to the Discord server.
 
 ## 🌟 Acknowledgments
 
