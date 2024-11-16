@@ -1,217 +1,212 @@
 # Discord Werewolf Bot 🐺 (Early Development)
 
-A Discord bot that brings the classic social deduction game Werewolf (Mafia) to life with video and voice chat integration. This project is currently in early development, with plans to add more roles, features, and gameplay mechanics in future updates.
+Welcome to the **Discord Werewolf Bot** 🐺—your gateway to the thrilling social deduction game of Werewolf (also known as Mafia) right within your Discord server! With seamless video and voice chat integration, gather your friends, form alliances, and unveil the hidden werewolves among you.
 
-## 🚧 Development Status
+## 🌟 Why Choose Discord Werewolf Bot?
 
-This bot is currently in active development. While core gameplay mechanics are functional, you may encounter bugs or incomplete features. We welcome contributions and feedback to help improve the project.
+Embark on an immersive gaming experience where strategy, deception, and deduction come alive. Whether you're a seasoned Werewolf veteran or new to the game, our bot offers an intuitive and engaging platform to enjoy endless rounds of intrigue and fun.
 
-### Planned Features
-- Additional roles (Witch, Mason, Fool, etc.)
-- Custom game settings (day/night duration, role combinations)
-- Game statistics and player rankings
-- Multiple language support
-- Web dashboard for server configuration
-- Advanced moderation tools
+## 🎮 Gameplay Overview
 
-## ✨ Current Features
+Dive into the classic game of Werewolf with enhanced features that make each session unique and exciting:
 
-### 🎮 Gameplay Integration
-- **Video/Voice Management**: Automated control of player video/audio based on game phase
-- **Private Channels**: Secure communication for special roles and spectators
-- **Direct Messaging**: Private role assignments and night action coordination
-- **Interactive UI**: Button-based controls and rich embeds for intuitive gameplay
+### 🔄 **Game Flow**
 
-### 🎭 Current Role System
+1. **Setup Phase**
+   - **Start a Game**: Server admin uses `/create` to initiate a new game session.
+   - **Join the Game**: Players join using the **Join** button or the `/join` command.
+   - **Configure Roles**: Toggle optional roles like Bodyguard, Cupid, and Hunter to customize your game.
+   - **Begin the Hunt**: Once ready, start the game with a minimum of 4 players.
 
-#### Core Roles
-- 🐺 **Werewolves** (1 per 4 players)
-  - Form a minority team trying to eliminate villagers
-  - Vote each night to eliminate one player
-  - Win when they equal or outnumber villagers
+2. **Night Phase**
+   - **Silence is Gold**: All players turn off cameras and microphones.
+   - **Secret Actions**:
+     - **Werewolves** communicate in a private text channel to identify and attack a villager.
+     - **Seer** investigates a player's role.
+     - **Bodyguard** protects a player from attacks.
+     - **Cupid** pairs two players as lovers.
+     - **Hunter** preps for a final revenge shot.
+   - **Action Commands**: Players submit their actions via DMs to the bot, which prompts them through private messages when actions are required.
 
-- 👁️ **Seer** (Always 1)
-  - Investigates one player each night
-  - Learns if the investigated player is a werewolf
-  - Must balance sharing information with staying alive
+3. **Day Phase**
+   - **Reveal and React**: Cameras and microphones are turned back on.
+   - **Discussion and Debate**: Players discuss, accuse, and defend.
+   - **Voting Time**: Nominate and vote to eliminate a suspected werewolf.
 
-- 👥 **Villagers** (Remaining players)
-  - Must deduce and eliminate werewolves through discussion
-  - Vote during the day to eliminate suspicious players
-  - Win when all werewolves are eliminated
+4. **Winning the Game**
+   - **Villagers Win**: All werewolves are eliminated.
+   - **Werewolves Win**: Werewolves equal or outnumber the villagers.
 
-#### Optional Roles
-- 🛡️ **Bodyguard**
-  - Protects one player each night from werewolf attacks
-  - Cannot protect the same player twice in a row
-  - Must strategically choose protection targets
+### 🧑‍🤝‍🧑 **Roles Explained**
 
-- 💘 **Cupid**
-  - Chooses two players to be lovers at the start
-  - If one lover dies, the other dies of heartbreak
-  - Creates interesting strategic dynamics
+- **🐺 Werewolves**: Covertly eliminate villagers at night. They communicate with each other in a private text channel within the Discord server to strategize and plan their attacks.
+- **👁️ Seer**: Discover the true identity of players.
+- **🛡️ Bodyguard**: Shield players from werewolf attacks.
+- **💘 Cupid**: Create bonds that affect the game's outcome.
+- **🏹 Hunter**: Execute a final revenge upon elimination.
+- **👥 Villagers**: Work together to root out werewolves.
 
-- 🏹 **Hunter**
-  - When eliminated, can take one other player with them
-  - Powerful revenge ability that can turn the tide
-  - Must choose target carefully
+## 🚀 Getting Started
 
-## 🎮 Detailed Game Flow
+Ready to play? Follow these simple steps to set up the Discord Werewolf Bot on your server!
 
-### Setup Phase
-1. Server admin uses `/create` to start a new game session
-2. Players join using the Join button or `/join` command
-3. Game creator can:
-   - Toggle optional roles (Bodyguard, Cupid, Hunter)
-   - View current player list and role distribution
-   - Start the game when ready (minimum 4 players)
+### 📋 Prerequisites
 
-### Night Zero (First Night)
-1. All players receive their roles via DM
-2. Special role actions occur:
-   - Werewolves learn their teammates
-   - Seer receives first investigation
-   - Cupid (if present) chooses lovers
-3. Players should disable cameras/mics
+- **Node.js**: Version 16.9.0 or higher.
+- **Discord Bot Token**: Obtain from the [Discord Developer Portal](https://discord.com/developers/applications).
+- **Discord Server**: With administrator privileges to manage bot permissions.
+- **Git**: For cloning the repository.
 
-### Day Phase
-1. All players enable cameras and microphones
-2. Discussion period begins
-3. Players can:
-   - Nominate suspects for elimination
-   - Second others' nominations
-   - Vote on eliminations
-4. Voting System:
-   - Nominations need a second to proceed to voting
-   - All living players except the accused can vote
-   - Majority needed for elimination
+### 💻 Installation
 
-### Night Phase
-1. All players disable cameras and microphones
-2. Role-specific actions occur in order:
-   - Seer investigates a player
-   - Bodyguard protects a player
-   - Werewolves vote to eliminate a player
-3. Results are revealed at dawn
+1. **Clone the Repository**
+   ```bash
+   git clone https://github.com/jfrodella/discord-werewolf-bot.git
+   ```
+2. **Navigate to the Project Directory**
+   ```bash
+   cd discord-werewolf-bot
+   ```
+3. **Install Dependencies**
+   ```bash
+   npm install
+   ```
+4. **Configure Environment Variables**
+   - Create a `.env` file in the root directory:
+     ```env
+     BOT_TOKEN=your_discord_bot_token
+     CLIENT_ID=your_client_id
+     ALLOWED_CHANNEL_IDS=comma,separated,channel,ids
+     WEREWOLF_CATEGORY_ID=category_for_private_channels
+     ```
+   - **Parameters**:
+     - `BOT_TOKEN`: Your Discord bot token.
+     - `CLIENT_ID`: The client ID from the Discord Developer Portal.
+     - `ALLOWED_CHANNEL_IDS`: (Optional) Channels where the bot can operate.
+     - `WEREWOLF_CATEGORY_ID`: The category ID for private channels like Werewolf and Dead Players.
 
-## 🚀 Detailed Installation Guide
+5. **Start the Bot**
+   ```bash
+   node bot.js
+   ```
 
-### Prerequisites
-- Node.js 16.9.0 or higher
-- Discord Bot Token (from Discord Developer Portal)
-- Discord Server with admin privileges
-- Git (for cloning repository)
+### 📑 Setting Up Discord Permissions
 
-### Environment Variables
-Create a `.env` file in the root directory with the following:
+To ensure the bot functions correctly, assign it the following permissions when adding it to your server:
 
-BOT_TOKEN=your_discord_bot_token
-CLIENT_ID=your_client_id
-ALLOWED_CHANNEL_IDS=comma,separated,channel,ids
-WEREWOLF_CATEGORY_ID=category_for_private_channels
+- **Manage Channels**: To create and delete private channels.
+- **Send Messages**: To communicate game updates and prompts.
+- **Manage Messages**: To handle user interactions effectively.
+- **Embed Links**: For rich and interactive game messages.
+- **Read Message History**: To keep track of game progress.
+- **Use External Emojis**: To enhance the game's visual appeal.
 
-### Installation Steps
+You can generate an invite link with these permissions using the OAuth2 URL generator in the Discord Developer Portal.
 
-# Clone repository
-git clone https://github.com/jfrodella/discord-werewolf-bot.git
+## ⚙️ Available Commands
 
-# Install dependencies
-npm install
+Enhance your gaming experience with a variety of commands:
 
-# Start the bot
-node bot.js
+### 🎲 Game Management
+- `/create` - Start a new game session.
+- `/join` - Enter an active game.
+- `/end-game` - Terminate the current game.
+- `/game-status` - View the current game state.
 
-## 🎯 Commands
-
-### Game Management
-- `/create` - Start new game session
-- `/join` - Enter active game
-- `/end-game` - End current game
-- `/game-status` - View game state
-
-### Player Actions
-- `/action` - Submit night actions (DM only)
+### 🎭 Player Actions
+- `/action` - Submit your night actions (use in DMs).
   - `attack` (Werewolf)
   - `investigate` (Seer)
   - `protect` (Bodyguard)
   - `choose_lovers` (Cupid)
   - `choose_target` (Hunter)
 
+### 📊 Player Statistics
+- `/stats` - View your game statistics.
+
+### 📜 Role Information
+- `/role-info` - Get detailed information about each role.
+
 ## 🛠 Technical Architecture
 
-### Core Components
-- `WerewolfGame.js` - Game state & logic
-- `NightActionProcessor.js` - Night phase handling
-- `Player.js` - Player state management
-- `VoteProcessor.js` - Voting system
-- `buttonHandler.js` - UI interactions
-- `embedCreator.js` - Message formatting
+Our bot is built with scalability and maintainability in mind. Here's a peek under the hood:
 
-### Features
-- Comprehensive error handling with `GameError` class
-- Extensive logging system
-- State persistence
-- Modular design
+### 🔧 Core Components
+- **WerewolfGame.js**: Manages game state and logic.
+- **NightActionProcessor.js**: Handles night-phase actions.
+- **Player.js**: Manages individual player states.
+- **VoteProcessor.js**: Oversees the voting system.
+- **Handlers**:
+  - `dayPhaseHandler.js`: Manages day-phase activities.
+  - `buttonHandler.js`: Handles interactive button events.
+- **Utilities**:
+  - `embedCreator.js`: Crafts rich embed messages.
+  - `buttonCreator.js`: Generates interactive buttons.
 
-## 🧪 Development
+### 📈 Features
+- **Dynamic Role Assignment**: Customize roles for varied gameplay.
+- **Private Channels**: Secure discussions for werewolves and dead players.
+- **State Persistence**: Ensure game continuity even after interruptions.
+- **Comprehensive Logging**: Keep track of game events and errors.
+- **Modular Design**: Easily extendable for future features.
 
-### Contributing
-1. Fork repository
-2. Create feature branch (`git checkout -b feature/NewFeature`)
-3. Commit changes (`git commit -m 'Add NewFeature'`)
-4. Push to branch (`git push origin feature/NewFeature`)
-5. Open Pull Request
+## 🤝 Contributing
+
+We love community contributions! Follow these steps to become a part of the Werewolf Bot development:
+
+1. **Fork the Repository**
+2. **Create a Feature Branch**
+   ```bash
+   git checkout -b feature/NewFeature
+   ```
+3. **Commit Your Changes**
+   ```bash
+   git commit -m 'Add NewFeature'
+   ```
+4. **Push to Your Branch**
+   ```bash
+   git push origin feature/NewFeature
+   ```
+5. **Open a Pull Request**
 
 ## 📜 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
-## 🤝 Support & Community
+## 🌐 Support & Community
 
-- **Issues**: Report bugs via [Issue Tracker](https://github.com/jfrodella/discord-werewolf-bot/issues)
-- **Questions**: Ask in [Discussions](https://github.com/jfrodella/discord-werewolf-bot/discussions)
-- **Discord**: Reach out for information regarding our Discord server
+Join our thriving community and get the support you need:
+
+- **Issues**: Report bugs via the [Issue Tracker](https://github.com/jfrodella/discord-werewolf-bot/issues).
+- **Discussion**: Engage with other players and developers in [Discussions](https://github.com/jfrodella/discord-werewolf-bot/discussions).
+- **Discord Server**: Connect with us directly on our [Discord Server](https://discord.gg/yourserver).
 
 ## 🌟 Acknowledgments
 
-- Built with [Discord.js](https://discord.js.org/)
-- Inspired by the classic Werewolf/Mafia party game
-- Documentation crafted with assistance from Claude AI
-- Thanks to all contributors
+- Built with [Discord.js](https://discord.js.org/).
+- Inspired by the timeless Werewolf/Mafia party game.
+- Special thanks to Claude 3.5 Sonnet and o1-mini for assisting with this project!
 
 ## 📸 Screenshots
 
-### Game Setup
+*Note: The images are a bit dated, and the GUI and embedded messages are continually improving to enhance your gaming experience.*
+
+### 🎉 Game Setup
 ![Game Loading Interface](assets/images/loading_GUI.png)
-*Initial game setup and role configuration interface*
+*Initial game setup and role configuration interface.*
 
-### Day Phase
+### ☀️ Day Phase
 ![Day Phase Discussion](assets/images/day_phase.png)
-*Players discussing during the day phase*
+*Players discussing strategies during the day.*
 
-![Day Phase Attacks](assets/images/day_attacks.png)
-*Results of night actions revealed during day*
-
-### Night Actions
+### 🌙 Night Actions
 ![Werewolf DM](assets/images/werewolf_DM.png)
-*Werewolves receive their role and instructions*
+*Werewolves coordinate their sinister plans in DMs.*
 
-![Seer DM](assets/images/seer_DM.png)
-*Seer receiving their investigation results*
+## 🎉 Game End
 
-### Voting System
-![Second Nomination](assets/images/second_nomination.png)
-*Players seconding nominations for elimination*
-
-![Voting Interface](assets/images/voting.png)
-*Final voting interface for player elimination*
-
-### Private Channels
-![Werewolf Channel](assets/images/private_werewolf_channel.png)
-*Private channel for werewolves to coordinate*
-
-![Dead Chat](assets/images/dead_chat.png)
-*Spectator channel for eliminated players*
+At the conclusion of each game, all private channels (e.g., Werewolf and Dead Players channels) are automatically cleaned up and deleted to maintain server organization. This process is managed using the `WEREWOLF_CATEGORY_ID` specified in the environment variables.
 
 ---
+
 Made with ❤️ by Jonathan Frodella
