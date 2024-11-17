@@ -1,4 +1,5 @@
 const { EmbedBuilder } = require('discord.js');
+const ROLES = require('../constants/roles');
 
 // First, we'd need to add these role-specific constants
 const ROLE_ABILITIES = {
@@ -342,6 +343,47 @@ function createNominationResetEmbed() {
     };
 }
 
+// Add these new functions
+function createNightActionEmbed(role, description) {
+    const colors = {
+        [ROLES.WEREWOLF]: 0x800000,
+        [ROLES.SEER]: 0x4B0082,
+        [ROLES.BODYGUARD]: 0x4B0082,
+        [ROLES.HUNTER]: 0x800000
+    };
+
+    const titles = {
+        [ROLES.WEREWOLF]: '🐺 The Hunt Begins',
+        [ROLES.SEER]: '🔮 Vision Quest',
+        [ROLES.BODYGUARD]: '🛡️ Vigilant Protection',
+        [ROLES.HUNTER]: '🏹 Hunter\'s Last Stand'
+    };
+
+    const footers = {
+        [ROLES.WEREWOLF]: 'Choose wisely, for the village grows suspicious...',
+        [ROLES.SEER]: 'The truth lies within your sight...',
+        [ROLES.BODYGUARD]: 'Your shield may mean the difference between life and death...',
+        [ROLES.HUNTER]: 'Your final shot will not go to waste...'
+    };
+
+    return {
+        color: colors[role],
+        title: titles[role],
+        description: description || getDefaultDescription(role),
+        footer: { text: footers[role] }
+    };
+}
+
+function getDefaultDescription(role) {
+    const descriptions = {
+        [ROLES.WEREWOLF]: '*Your fangs gleam in the moonlight as you stalk your prey...*\n\nSelect your victim from the dropdown menu below.',
+        [ROLES.SEER]: '*Your mystical powers awaken with the night...*\n\nSelect a player to investigate from the dropdown menu below.',
+        [ROLES.BODYGUARD]: '*Your watchful eyes scan the village, ready to shield the innocent...*\n\nSelect a player to protect from the dropdown menu below.',
+        [ROLES.HUNTER]: '*With your dying breath, you reach for your bow...*\n\nSelect a player to take with you from the dropdown menu below.'
+    };
+    return descriptions[role];
+}
+
 module.exports = { 
     createPlayerListEmbed,
     createNominationEmbed,
@@ -356,5 +398,6 @@ module.exports = {
     createNightZeroEmbed,
     createCupidActionConfirmationEmbed,
     createGameStartNightZeroEmbed,
-    createNominationResetEmbed
+    createNominationResetEmbed,
+    createNightActionEmbed
 };

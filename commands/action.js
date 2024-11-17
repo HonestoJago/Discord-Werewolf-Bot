@@ -9,7 +9,7 @@ const ROLES = require('../constants/roles');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('action')
-        .setDescription('Submit your night action. Use this command in DMs only.')
+        .setDescription('Submit your night action. This is a fallback for the dropdown menu in your DMs.')
         .addStringOption(option =>
             option.setName('action')
                 .setDescription('Your night action')

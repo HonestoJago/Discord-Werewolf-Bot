@@ -23,7 +23,6 @@ class Player {
         this.role = null;
         this.isAlive = true;
         this.isProtected = false;
-        this.channel = null; // DM channel
     }
 
     /**
@@ -86,29 +85,31 @@ class Player {
      * @param {string} message - The message to send.
      */
     async sendDM(message) {
-        if (!message) {
-            throw new GameError('Cannot send empty message.', 'Cannot send empty message.');
-        }
-
-        if (!this.isAlive) {
-            logger.info(`Skipping DM to dead player ${this.username}`);
-            return;
-        }
-
         try {
-            if (!this.channel) {
-                const user = await this.client.users.fetch(this.id);
-                if (!user) {
-                    throw new GameError('User not found', 'Could not find Discord user.');
-                }
-                this.channel = await user.createDM();
+            const user = await this.client.users.fetch(this.id);
+            if (!user) {
+                logger.error('Could not find user to send DM', { 
+                    userId: this.id, 
+                    username: this.username 
+                });
+                return;
             }
 
-            await this.channel.send(message);
-            logger.info(`DM sent to ${this.username}`);
+            const dmChannel = await user.createDM();
+            await dmChannel.send(message);
+            logger.info('DM sent to player', { 
+                username: this.username,
+                hasEmbed: !!message.embeds,
+                hasComponents: !!message.components
+            });
         } catch (error) {
-            logger.error(`Error sending DM to ${this.username}:`, { error });
-            throw new GameError('DM Failed', 'Failed to send direct message to player.');
+            logger.error('Error sending DM to player', { 
+                error,
+                userId: this.id,
+                username: this.username
+            });
+            // Don't throw - just log the error
+            // This prevents a failed DM from breaking game flow
         }
     }
 

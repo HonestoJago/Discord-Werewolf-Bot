@@ -1,13 +1,14 @@
+const { ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
 const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');
 const PHASES = require('../constants/phases');
-const { createSeerRevealEmbed } = require('../utils/embedCreator');
+const { createNightActionEmbed } = require('../utils/embedCreator');
 
 class NightActionProcessor {
     constructor(game) {
         this.game = game;
-        this.investigationProcessed = false;
+        this.protectionMessageSent = false;
     }
 
     async processNightAction(playerId, action, targetId) {
@@ -405,64 +406,58 @@ class NightActionProcessor {
                 this.game.expectedNightActions.add(player.id);
             });
 
-            logger.info('Added night action players to expectedNightActions', { 
-                expectedPlayers: Array.from(this.game.expectedNightActions) 
-            });
-
-            // Send DM prompts to night action players
+            // Send DM prompts with dropdown menus to night action players
             for (const player of nightPlayers) {
-                switch(player.role) {
-                    case ROLES.WEREWOLF:
-                        await player.sendDM({
-                            embeds: [{
-                                color: 0x800000,
-                                title: '🐺 The Hunt Begins',
-                                description: 
-                                    '*Your fangs gleam in the moonlight as you stalk your prey...*\n\n' +
-                                    'Use `/action attack` to choose your victim tonight.',
-                                footer: { text: 'Choose wisely, for the village grows suspicious...' }
-                            }]
-                        });
-                        logger.info('Sent attack prompt to Werewolf', { username: player.username });
-                        break;
-                    case ROLES.SEER:
-                        await player.sendDM({
-                            embeds: [{
-                                color: 0x4B0082,
-                                title: '🔮 Vision Quest',
-                                description: 
-                                    '*Your mystical powers awaken with the night...*\n\n' +
-                                    'Use `/action investigate` to investigate a player tonight.',
-                                footer: { text: 'The truth lies within your sight...' }
-                            }]
-                        });
-                        logger.info('Sent investigate prompt to Seer', { username: player.username });
-                        break;
-                    case ROLES.BODYGUARD:
-                        await player.sendDM({
-                            embeds: [{
-                                color: 0x4B0082,
-                                title: '🛡️ Vigilant Protection',
-                                description: 
-                                    '*Your watchful eyes scan the village, ready to shield the innocent...*\n\n' +
-                                    'Use `/action protect` to choose a player to protect tonight.',
-                                footer: { text: 'Your shield may mean the difference between life and death...' }
-                            }]
-                        });
-                        logger.info('Sent protect prompt to Bodyguard', { username: player.username });
-                        break;
-                }
+                const validTargets = this.getValidTargetsForRole(player);
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId(`night_action_${player.role.toLowerCase()}`)
+                    .setPlaceholder('Select your target')
+                    .addOptions(
+                        validTargets.map(target => ({
+                            label: target.username,
+                            value: target.id,
+                            description: `Target ${target.username}`
+                        }))
+                    );
+
+                const row = new ActionRowBuilder().addComponents(selectMenu);
+                const embed = createNightActionEmbed(player.role);
+
+                await player.sendDM({ 
+                    embeds: [embed], 
+                    components: [row] 
+                });
+
+                logger.info(`Sent ${player.role} action prompt`, { 
+                    username: player.username 
+                });
             }
 
             logger.info('Night action prompts sent, waiting for actions', {
                 expectedActions: Array.from(this.game.expectedNightActions)
             });
 
-            // Actions will be processed by processNightAction when they come in
-
         } catch (error) {
             logger.error('Error handling night actions', { error });
             throw error;
+        }
+    }
+
+    getValidTargetsForRole(player) {
+        const allPlayers = Array.from(this.game.players.values())
+            .filter(p => p.isAlive && p.id !== player.id);
+
+        switch(player.role) {
+            case ROLES.WEREWOLF:
+                return allPlayers.filter(p => p.role !== ROLES.WEREWOLF);
+            case ROLES.BODYGUARD:
+                return allPlayers.filter(p => 
+                    p.id !== this.game.lastProtectedPlayer
+                );
+            case ROLES.SEER:
+                return allPlayers;
+            default:
+                return [];
         }
     }
 

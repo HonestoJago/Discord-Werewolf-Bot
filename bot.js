@@ -14,6 +14,7 @@ const sequelize = require('./utils/database');
 const PlayerStats = require('./models/Player');
 const Game = require('./models/Game');
 const GameManager = require('./utils/gameManager');
+const ROLES = require('./constants/roles');
 
 // Create a new Discord client with necessary intents
 const client = new Client({ 
@@ -346,27 +347,82 @@ client.on('interactionCreate', async interaction => {
             }
         }
         else if (interaction.isStringSelectMenu()) {
-            const [handlerId] = interaction.customId.split('_');
-            
-            const handlers = {
-                'day': dayPhaseHandler,
-                // Add other handlers here as needed
-            };
-
-            const handler = handlers[handlerId];
-            if (!handler?.handleSelect) {
-                logger.warn('No select menu handler found', { handlerId });
-                return;
-            }
-
             try {
-                const game = interaction.guild ? client.games.get(interaction.guildId) : null;
-                await handler.handleSelect(interaction, game);
+                const [handlerId, actionType] = interaction.customId.split('_');
+                
+                // Find the game for this player (could be in DMs)
+                const game = interaction.guild ? 
+                    client.games.get(interaction.guildId) : 
+                    Array.from(client.games.values())
+                        .find(g => g.players.has(interaction.user.id));
+
+                if (!game) {
+                    await interaction.reply({
+                        content: 'No active game found.',
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                switch(handlerId) {
+                    case 'day':
+                        await dayPhaseHandler.handleSelect(interaction, game);
+                        break;
+                    case 'night':
+                        const player = game.players.get(interaction.user.id);
+                        if (!player?.isAlive) {
+                            await interaction.reply({
+                                content: 'You cannot perform actions.',
+                                ephemeral: true
+                            });
+                            return;
+                        }
+
+                        // Map role to action type
+                        const actionMap = {
+                            [ROLES.WEREWOLF]: 'attack',
+                            [ROLES.SEER]: 'investigate',
+                            [ROLES.BODYGUARD]: 'protect'
+                        };
+
+                        await game.processNightAction(
+                            player.id,
+                            actionMap[player.role],
+                            interaction.values[0]
+                        );
+                        
+                        await interaction.reply({
+                            content: 'Your action has been recorded.',
+                            ephemeral: true
+                        });
+                        break;
+                    case 'hunter':
+                        if (game.pendingHunterRevenge !== interaction.user.id) {
+                            await interaction.reply({
+                                content: 'You cannot perform this action.',
+                                ephemeral: true
+                            });
+                            return;
+                        }
+
+                        await game.voteProcessor.processHunterRevenge(
+                            interaction.user.id,
+                            interaction.values[0]
+                        );
+                        
+                        await interaction.reply({
+                            content: 'Your revenge has been executed.',
+                            ephemeral: true
+                        });
+                        break;
+                    default:
+                        logger.warn('Unknown select menu interaction', { 
+                            handlerId, 
+                            customId: interaction.customId 
+                        });
+                }
             } catch (error) {
-                logger.error('Error handling select menu', { 
-                    error,
-                    menuId: interaction.customId 
-                });
+                logger.error('Error handling select menu interaction', { error });
                 await handleCommandError(interaction, error);
             }
         }
