@@ -710,7 +710,7 @@ class NightActionProcessor {
                             });
                             this.protectionMessageSent = true;
                         }
-                        continue;
+                        continue;  // Skip to next action after protection
                     }
 
                     // Handle Hunter case
@@ -735,9 +735,19 @@ class NightActionProcessor {
                     await this.game.handleLoversDeath(target);
                 }
             }
+
+            // After processing all attacks, advance to day if no win condition is met
+            const gameOver = await this.game.checkWinConditions();
+            if (!gameOver) {
+                await this.game.advanceToDay();
+            }
+
         } catch (error) {
             logger.error('Error processing werewolf attacks', { error });
-            // Don't throw - allow phase to continue
+            // Even if there's an error, try to advance the phase
+            if (!this.game.checkWinConditions()) {
+                await this.game.advanceToDay();
+            }
         } finally {
             // Reset protection message flag
             this.protectionMessageSent = false;
