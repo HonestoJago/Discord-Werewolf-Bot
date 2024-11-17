@@ -3,8 +3,12 @@ const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');
 const PHASES = require('../constants/phases');
-const { createNightActionEmbed, createSeerRevealEmbed } = require('../utils/embedCreator');
-const { createProtectionEmbed } = require('../utils/embedCreator');
+const { 
+    createNightActionEmbed, 
+    createSeerRevealEmbed, 
+    createProtectionEmbed,
+    createNightTransitionEmbed 
+} = require('../utils/embedCreator');
 
 class NightActionProcessor {
     constructor(game) {
@@ -394,6 +398,12 @@ class NightActionProcessor {
         try {
             logger.info('Handling night actions', { phase: this.game.phase });
 
+            // Send night transition embed FIRST
+            const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
+            await channel.send({
+                embeds: [createNightTransitionEmbed(this.game.players)]
+            });
+
             // Identify all players with night actions
             const nightRoles = [ROLES.WEREWOLF, ROLES.SEER, ROLES.BODYGUARD];
             const nightPlayers = Array.from(this.game.players.values()).filter(player => 
@@ -745,11 +755,6 @@ class NightActionProcessor {
                 }
             }
 
-            // After processing all attacks, send night transition embed
-            await this.game.broadcastMessage({
-                embeds: [createNightTransitionEmbed(this.game.players)]
-            });
-
             // Check win conditions and advance phase
             const gameOver = await this.game.checkWinConditions();
             if (!gameOver) {
@@ -761,7 +766,6 @@ class NightActionProcessor {
                 error: error.message,
                 stack: error.stack 
             });
-            // Even if there's an error, try to advance the phase
             if (!this.game.checkWinConditions()) {
                 await this.game.advanceToDay();
             }

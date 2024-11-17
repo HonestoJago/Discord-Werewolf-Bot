@@ -33,17 +33,9 @@ module.exports = {
             
             switch (currentPhase) {
                 case PHASES.DAY:
-                    // Send night transition before advancing
-                    await channel.send({
-                        embeds: [createNightTransitionEmbed(currentGame.players)]
-                    });
                     await currentGame.advanceToNight();
                     break;
                 case PHASES.NIGHT:
-                    // Send day transition before advancing
-                    await channel.send({
-                        embeds: [createDayTransitionEmbed()]
-                    });
                     await currentGame.advanceToDay();
                     break;
                 case PHASES.NIGHT_ZERO:

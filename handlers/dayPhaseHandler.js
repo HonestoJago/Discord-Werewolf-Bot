@@ -7,12 +7,7 @@ const PHASES = require('../constants/phases');
 module.exports = {
     async createDayPhaseUI(channel, players) {
         try {
-            // First send the transition message
-            await channel.send({
-                embeds: [createDayTransitionEmbed()]
-            });
-
-            // Then create the day phase UI with player status
+            // Create the day phase UI with player status
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId('day_select_target')
                 .setPlaceholder('Select a player to nominate')

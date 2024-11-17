@@ -458,17 +458,6 @@ class WerewolfGame {
             this.phase = PHASES.DAY;
             this.round = 1; // Start first day
 
-            await this.broadcastMessage({
-                embeds: [{
-                    color: 0xFFA500,
-                    title: '☀️ Dawn Breaks Over the Village',
-                    description: 
-                        '*The morning sun reveals the events of the Night Zero...*\n\n' +
-                        'The game progresses to the Day phase. Discuss and find the werewolves!',
-                    footer: { text: 'Debate wisely, for a wrong accusation could doom the village.' }
-                }]
-            });
-
             // Create Day phase UI
             const channel = await this.client.channels.fetch(this.gameChannelId);
             await dayPhaseHandler.createDayPhaseUI(channel, this.players);
@@ -512,18 +501,6 @@ class WerewolfGame {
             this.phase = PHASES.NIGHT;
             this.round += 1;
             
-            await this.broadcastMessage({
-                embeds: [{
-                    color: 0x2C3E50,
-                    title: '🌙 Night Falls Once More',
-                    description: 
-                        '*As darkness envelops the village, danger lurks in the shadows...*\n\n' +
-                        '**All players:** Please turn off your cameras and microphones now.\n' +
-                        'The night phase begins, and with it, dark deeds will be done...',
-                    footer: { text: 'Remain silent until morning comes...' }
-                }]
-            });
-
             // Reset night action tracking
             this.completedNightActions.clear();
             this.expectedNightActions.clear();

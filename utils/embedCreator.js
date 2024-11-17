@@ -88,22 +88,23 @@ function createTimedEmbed(title, description, endTime) {
 function createVotingEmbed(target, seconder, game) {
     return {
         color: 0x800000, // Deep red for dramatic effect
-        title: '⚖️ Time to Vote!',
+        title: '⚖️ The Village Must Decide',
         description: 
-            '*The village gathers to decide the fate of:*\n\n' +
+            '```diff\n- A PLAYER STANDS ACCUSED\n```\n' +
             `# **${target.username}**\n\n` +
-            `*Nominated by **${game.players.get(game.nominator).username}**\n` +
-            `Seconded by **${seconder.username}***\n\n` +
-            '```\nThe accused stands before you. Will justice be served, or will an innocent soul be lost?```',
+            '*The tension rises as judgment looms...*\n\n' +
+            `• Nominated by: **${game.players.get(game.nominator).username}**\n` +
+            `• Seconded by: **${seconder.username}**\n\n` +
+            '```\nThe fate of the accused now rests in your hands.```',
         fields: [
             { 
-                name: '📜 Instructions', 
-                value: '• Click `Lynch` to eliminate the player\n• Click `Let Live` to spare them',
+                name: '📜 Cast Your Vote', 
+                value: '`Lynch` - Condemn the accused to death\n`Let Live` - Show mercy and spare their life',
                 inline: false
             }
         ],
         footer: { 
-            text: 'Choose wisely, for your vote may seal their fate...' 
+            text: 'Your choice could mean the difference between justice and tragedy...' 
         }
     };
 }
