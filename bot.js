@@ -15,6 +15,7 @@ const PlayerStats = require('./models/Player');
 const Game = require('./models/Game');
 const GameManager = require('./utils/gameManager');
 const ROLES = require('./constants/roles');
+const PHASES = require('./constants/phases');
 
 // Create a new Discord client with necessary intents
 const client = new Client({ 
@@ -365,6 +366,15 @@ client.on('interactionCreate', async interaction => {
                     return;
                 }
 
+                // Check if game is over BEFORE processing any actions
+                if (game.gameOver || game.phase === PHASES.GAME_OVER) {
+                    await interaction.reply({
+                        content: 'This game has ended.',
+                        ephemeral: true
+                    });
+                    return;
+                }
+
                 switch(handlerId) {
                     case 'day':
                         await dayPhaseHandler.handleSelect(interaction, game);
@@ -387,16 +397,25 @@ client.on('interactionCreate', async interaction => {
                             [ROLES.CUPID]: 'choose_lovers'
                         };
 
-                        await game.processNightAction(
-                            player.id,
-                            actionMap[player.role],
-                            interaction.values[0]
-                        );
-                        
-                        await interaction.reply({
-                            content: 'Your action has been recorded.',
-                            ephemeral: true
-                        });
+                        try {
+                            await game.processNightAction(
+                                player.id,
+                                actionMap[player.role],
+                                interaction.values[0]
+                            );
+                            
+                            // Only reply if game isn't over
+                            if (!game.gameOver && game.phase !== PHASES.GAME_OVER) {
+                                await interaction.reply({
+                                    content: 'Your action has been recorded.',
+                                    ephemeral: true
+                                });
+                            }
+                        } catch (error) {
+                            if (!game.gameOver && game.phase !== PHASES.GAME_OVER) {
+                                await handleCommandError(interaction, error);
+                            }
+                        }
                         break;
                     case 'hunter':
                         if (game.pendingHunterRevenge !== interaction.user.id) {
@@ -425,7 +444,14 @@ client.on('interactionCreate', async interaction => {
                 }
             } catch (error) {
                 logger.error('Error handling select menu interaction', { error });
-                await handleCommandError(interaction, error);
+                // Only try to handle the error if the game isn't over
+                const game = interaction.guild ? 
+                    client.games.get(interaction.guildId) : 
+                    Array.from(client.games.values())
+                        .find(g => g.players.has(interaction.user.id));
+                if (!game?.gameOver && game?.phase !== PHASES.GAME_OVER) {
+                    await handleCommandError(interaction, error);
+                }
             }
         }
     } catch (error) {
