@@ -896,45 +896,66 @@ class WerewolfGame {
         if (livingWerewolves === 0) {
             this.phase = PHASES.GAME_OVER;
             this.gameOver = true;
-            // Add all non-werewolf players to winners
+            // Add all non-werewolf players (including dead ones) to winners
             this.players.forEach(player => {
                 if (player.role !== ROLES.WEREWOLF) {
                     winners.add(player);
                 }
             });
             gameOver = true;
+    
+            // Log victory condition
+            logger.info('Village victory achieved', {
+                livingVillagers: livingVillagerTeam,
+                totalWinners: winners.size
+            });
         }
     
         // If werewolves reach parity with or outnumber villager team, werewolves win
         if (livingWerewolves >= livingVillagerTeam) {
             this.phase = PHASES.GAME_OVER;
             this.gameOver = true;
-            // Add all werewolf players to winners
+            // Add all werewolf players (including dead ones) to winners
             this.players.forEach(player => {
                 if (player.role === ROLES.WEREWOLF) {
                     winners.add(player);
                 }
             });
             gameOver = true;
+    
+            // Log victory condition
+            logger.info('Werewolf victory achieved', {
+                livingWerewolves,
+                livingVillagers: livingVillagerTeam,
+                totalWinners: winners.size
+            });
         }
     
         if (gameOver) {
-            // Send game end message without buttons
+            try {
+                // Try to find and disable any active voting messages
+                const channel = await this.client.channels.fetch(this.gameChannelId);
+                const messages = await channel.messages.fetch({ limit: 10 });
+                for (const message of messages.values()) {
+                    if (message.components?.length > 0) {
+                        await message.edit({ components: [] });
+                    }
+                }
+            } catch (error) {
+                logger.warn('Could not disable voting buttons', { error });
+            }
+
+            // Send game end message
             await this.broadcastMessage({
                 embeds: [createGameEndEmbed(Array.from(winners), gameStats)]
             });
     
-            // Update player stats
+            // Update player stats with correct winners
             await this.updatePlayerStats(winners);
     
-            // Automatically clean up the game
+            // Clean up the game
             await this.shutdownGame();
-            
-            // Remove from client's games collection
             this.client.games.delete(this.guildId);
-            
-            // Clean up from database
-            const Game = require('../models/Game');
             await Game.destroy({ where: { guildId: this.guildId } });
         }
     
@@ -960,29 +981,30 @@ class WerewolfGame {
         try {
             logger.info('Starting to update player stats', { 
                 playerCount: this.players.size,
-                winnerCount: winners.size 
+                winnerCount: winners.size,
+                winners: Array.from(winners).map(p => ({
+                    username: p.username,
+                    role: p.role
+                }))
             });
     
             for (const [playerId, player] of this.players) {
                 try {
-                    // Convert ID to string to match database format
                     const discordId = playerId.toString();
-                    
                     let stats = await PlayerStats.findByPk(discordId);
                     if (!stats) {
-                        logger.info('Creating new player stats record', { 
-                            discordId, 
-                            username: player.username 
-                        });
                         stats = await PlayerStats.create({
                             discordId,
                             username: player.username
                         });
                     }
     
-                    // Update stats
+                    // Update games played
                     await stats.increment('gamesPlayed');
-                    if (winners.has(playerId)) {
+                    
+                    // Check if this player is in the winners Set
+                    const isWinner = Array.from(winners).some(w => w.id === player.id);
+                    if (isWinner) {
                         await stats.increment('gamesWon');
                     }
     
@@ -994,7 +1016,7 @@ class WerewolfGame {
                         discordId,
                         username: player.username,
                         role: player.role,
-                        won: winners.has(playerId)
+                        won: isWinner
                     });
                 } catch (error) {
                     logger.error('Error updating individual player stats', {
@@ -1360,7 +1382,20 @@ class WerewolfGame {
         }
     
         if (gameOver) {
-            // Send game end message without buttons
+            try {
+                // Try to find and disable any active voting messages
+                const channel = await this.client.channels.fetch(this.gameChannelId);
+                const messages = await channel.messages.fetch({ limit: 10 });
+                for (const message of messages.values()) {
+                    if (message.components?.length > 0) {
+                        await message.edit({ components: [] });
+                    }
+                }
+            } catch (error) {
+                logger.warn('Could not disable voting buttons', { error });
+            }
+
+            // Send game end message
             await this.broadcastMessage({
                 embeds: [createGameEndEmbed(Array.from(winners), gameStats)]
             });

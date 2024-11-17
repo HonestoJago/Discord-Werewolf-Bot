@@ -2,6 +2,7 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } 
 const logger = require('../utils/logger');
 const { handleCommandError, GameError } = require('../utils/error-handler');
 const { createDayPhaseEmbed, createNominationEmbed, createVotingEmbed } = require('../utils/embedCreator');
+const PHASES = require('../constants/phases');
 
 module.exports = {
     async createDayPhaseUI(channel, players) {
@@ -68,11 +69,28 @@ module.exports = {
             const [action, targetId, vote] = interaction.customId.split('_');
             
             // Check if game still exists and is valid
-            if (!currentGame || currentGame.gameOver) {
+            if (!currentGame) {
                 await interaction.reply({
-                    content: 'This game has ended.',
+                    content: 'No active game found.',
                     ephemeral: true
                 });
+                return;
+            }
+
+            // Check if game is over BEFORE any other processing
+            if (currentGame.gameOver || currentGame.phase === PHASES.GAME_OVER) {
+                try {
+                    await interaction.reply({
+                        content: 'This game has ended.',
+                        ephemeral: true
+                    });
+                } catch (error) {
+                    // If we can't reply, just log it - the game is over anyway
+                    logger.warn('Could not reply to interaction in ended game', {
+                        error: error.message,
+                        interactionId: interaction.id
+                    });
+                }
                 return;
             }
 
@@ -162,7 +180,7 @@ module.exports = {
                     logger.error('Error processing second', { error });
                     if (!interaction.replied) {
                         await interaction.reply({
-                            content: 'Failed to process your action.',
+                            content: error instanceof GameError ? error.userMessage : 'Failed to process your action.',
                             ephemeral: true
                         });
                     }
