@@ -160,54 +160,36 @@ class WerewolfGame {
             if (this.players.size < 4) {
                 throw new GameError('Not enough players', 'Not enough players to start the game. Minimum 4 players required.');
             }
-
+    
             // Initialize selectedRoles if not exists
             if (!this.selectedRoles) {
                 this.selectedRoles = new Map();
             }
-
-            // Automatically add basic roles (no need for manual configuration)
-            const playerCount = this.players.size;
-            const werewolfCount = Math.max(1, Math.floor(playerCount / 4));
-            
-            // Always include 1 Seer and calculated number of Werewolves
-            this.selectedRoles.set(ROLES.WEREWOLF, werewolfCount);
-            this.selectedRoles.set(ROLES.SEER, 1);
-
-            // Add optional roles if they were selected
-            if (this.selectedRoles.get(ROLES.BODYGUARD)) {
-                this.selectedRoles.set(ROLES.BODYGUARD, this.selectedRoles.get(ROLES.BODYGUARD));
-            }
-            if (this.selectedRoles.get(ROLES.CUPID)) {
-                this.selectedRoles.set(ROLES.CUPID, this.selectedRoles.get(ROLES.CUPID));
-            }
-            if (this.selectedRoles.get(ROLES.HUNTER)) {
-                this.selectedRoles.set(ROLES.HUNTER, this.selectedRoles.get(ROLES.HUNTER));
-            }
-            
-            // Set phase before other operations
+    
+            // Set phase BEFORE role assignment
             this.phase = PHASES.NIGHT_ZERO;
             this.round = 0;
-            this.gameStartTime = Date.now(); // Record the game start time
-
+            this.gameStartTime = Date.now();
+    
+            // Assign roles and create channels
             await this.assignRoles();
             await this.createPrivateChannels();
+    
+            // Send initial game message
             await this.broadcastMessage({
                 embeds: [{
                     color: 0x800000,
-                    title: '🌕 Night Zero Descends 🐺',
+                    title: '🌕 Night Zero Begins 🐺',
                     description: 
-                        '*As the first night falls, special roles prepare their actions...*\n\n' +
-                        '**Seer Action:** You will receive the name of a random non-werewolf player.\n' +
-                        '**Cupid Action:** If Cupid is active, they will choose two players to become lovers.\n\n' +
-                        'Please wait for all necessary actions to complete. The game will automatically proceed to the Day phase once done.',
-                    footer: { text: 'The hunt begins quietly...' }
+                        '*The first night has begun. Special roles will receive their instructions via DM...*\n\n' +
+                        'Night Zero will progress automatically once all actions are completed.',
+                    footer: { text: 'May wisdom and strategy guide you...' }
                 }]
             });
-
-            // Initialize night zero
-            await this.nightZero();
-
+    
+            // Initialize Night Zero - this will handle Seer's vision and Cupid's action
+            await this.nightActionProcessor.handleNightZero();
+    
             logger.info('Game started successfully');
         } catch (error) {
             // Reset phase if anything fails

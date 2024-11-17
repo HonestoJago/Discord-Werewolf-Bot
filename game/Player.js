@@ -37,37 +37,13 @@ class Player {
         this.role = role;
 
         try {
-            // Create and send role card
+            // Create and send role card only
             const roleCard = createRoleCard(role);
             
-            // Add game-specific information based on role
-            let additionalInfo = '';
-            switch (role) {
-                case ROLES.WEREWOLF:
-                    additionalInfo = '\n\nUse `/action attack` during night phases to eliminate players.';
-                    break;
-                case ROLES.SEER:
-                    additionalInfo = '\n\nUse `/action investigate` during night phases to learn about other players.';
-                    break;
-                case ROLES.BODYGUARD:
-                    additionalInfo = '\n\nUse `/action protect` during night phases to guard players.';
-                    break;
-                case ROLES.CUPID:
-                    additionalInfo = '\n\nUse `/action choose_lovers` during Night Zero to select your lover.';
-                    break;
-                case ROLES.HUNTER:
-                    additionalInfo = '\n\nWhen eliminated, use `/action choose_target` to take revenge.';
-                    break;
-                case ROLES.VILLAGER:
-                    additionalInfo = '\n\nStay vigilant and vote wisely during day phases!';
-                    break;
-            }
-
-            // Send the role card and additional information
-            await this.sendDM({ 
-                embeds: [roleCard],
-                content: `You have been assigned a role!${additionalInfo}`
-            });
+            // Send just the role card without any additional messages
+            const user = await this.client.users.fetch(this.id);
+            const dmChannel = await user.createDM();
+            await dmChannel.send({ embeds: [roleCard] });
 
             logger.info('Role assigned and DM sent', {
                 playerId: this.id,
@@ -153,6 +129,13 @@ class Player {
         this.role = null;
         this.isAlive = true;
         this.isProtected = false;
+    }
+
+    async moveToDeadChannel(player) {
+        // Only send the death message if the player wasn't already dead
+        if (player.isAlive) {
+            await player.sendDM('You have died! You can now speak with other dead players in the #dead-players channel.');
+        }
     }
 }
 

@@ -382,7 +382,8 @@ client.on('interactionCreate', async interaction => {
                         const actionMap = {
                             [ROLES.WEREWOLF]: 'attack',
                             [ROLES.SEER]: 'investigate',
-                            [ROLES.BODYGUARD]: 'protect'
+                            [ROLES.BODYGUARD]: 'protect',
+                            [ROLES.CUPID]: 'choose_lovers'
                         };
 
                         await game.processNightAction(

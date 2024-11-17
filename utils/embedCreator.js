@@ -349,21 +349,24 @@ function createNightActionEmbed(role, description) {
         [ROLES.WEREWOLF]: 0x800000,
         [ROLES.SEER]: 0x4B0082,
         [ROLES.BODYGUARD]: 0x4B0082,
-        [ROLES.HUNTER]: 0x800000
+        [ROLES.HUNTER]: 0x800000,
+        [ROLES.CUPID]: 0xff69b4
     };
 
     const titles = {
         [ROLES.WEREWOLF]: '🐺 The Hunt Begins',
         [ROLES.SEER]: '🔮 Vision Quest',
         [ROLES.BODYGUARD]: '🛡️ Vigilant Protection',
-        [ROLES.HUNTER]: '🏹 Hunter\'s Last Stand'
+        [ROLES.HUNTER]: '🏹 Hunter\'s Last Stand',
+        [ROLES.CUPID]: '💘 Choose Your Lover'
     };
 
     const footers = {
         [ROLES.WEREWOLF]: 'Choose wisely, for the village grows suspicious...',
         [ROLES.SEER]: 'The truth lies within your sight...',
         [ROLES.BODYGUARD]: 'Your shield may mean the difference between life and death...',
-        [ROLES.HUNTER]: 'Your final shot will not go to waste...'
+        [ROLES.HUNTER]: 'Your final shot will not go to waste...',
+        [ROLES.CUPID]: 'Love and death are forever intertwined...'
     };
 
     return {
@@ -379,7 +382,8 @@ function getDefaultDescription(role) {
         [ROLES.WEREWOLF]: '*Your fangs gleam in the moonlight as you stalk your prey...*\n\nSelect your victim from the dropdown menu below.',
         [ROLES.SEER]: '*Your mystical powers awaken with the night...*\n\nSelect a player to investigate from the dropdown menu below.',
         [ROLES.BODYGUARD]: '*Your watchful eyes scan the village, ready to shield the innocent...*\n\nSelect a player to protect from the dropdown menu below.',
-        [ROLES.HUNTER]: '*With your dying breath, you reach for your bow...*\n\nSelect a player to take with you from the dropdown menu below.'
+        [ROLES.HUNTER]: '*With your dying breath, you reach for your bow...*\n\nSelect a player to take with you from the dropdown menu below.',
+        [ROLES.CUPID]: '*Your arrows of love are ready to fly...*\n\nSelect a player to be your lover from the dropdown menu below.'
     };
     return descriptions[role];
 }

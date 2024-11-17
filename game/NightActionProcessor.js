@@ -3,7 +3,7 @@ const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');
 const PHASES = require('../constants/phases');
-const { createNightActionEmbed } = require('../utils/embedCreator');
+const { createNightActionEmbed, createSeerRevealEmbed } = require('../utils/embedCreator');
 
 class NightActionProcessor {
     constructor(game) {
@@ -685,7 +685,8 @@ class NightActionProcessor {
                         targetId: action.target,
                         targetRole: target?.role,
                         targetIsAlive: target?.isAlive,
-                        targetIsProtected: target?.isProtected
+                        targetIsProtected: target?.isProtected,
+                        hasLovers: !!this.game.lovers.get(action.target)
                     });
 
                     if (!target?.isAlive) {
@@ -693,7 +694,6 @@ class NightActionProcessor {
                     }
 
                     if (target.isProtected) {
-                        // Only send protection message once
                         if (!this.protectionMessageSent) {
                             await this.game.broadcastMessage({
                                 embeds: [{
@@ -705,7 +705,7 @@ class NightActionProcessor {
                             });
                             this.protectionMessageSent = true;
                         }
-                        continue;  // Skip to next action after protection
+                        continue;
                     }
 
                     // Handle Hunter case
@@ -714,6 +714,7 @@ class NightActionProcessor {
                         await target.sendDM('You have been eliminated! Use `/action choose_target` to choose someone to take with you.');
                     }
 
+                    // Mark target as dead and move to dead channel
                     target.isAlive = false;
                     await this.game.broadcastMessage({
                         embeds: [{
@@ -727,79 +728,149 @@ class NightActionProcessor {
                     });
                     
                     await this.game.moveToDeadChannel(target);
-                    await this.game.handleLoversDeath(target);
+
+                    // Handle lover death after target is fully processed
+                    const loverId = this.game.lovers.get(target.id);
+                    if (loverId) {
+                        const lover = this.game.players.get(loverId);
+                        if (lover?.isAlive) {
+                            lover.isAlive = false;
+                            await this.game.broadcastMessage({
+                                embeds: [{
+                                    color: 0xff69b4,
+                                    title: '💔 A Heart Breaks',
+                                    description: `**${lover.username}** has died of heartbreak!`,
+                                    footer: { text: 'Love and death are forever intertwined...' }
+                                }]
+                            });
+                            await this.game.moveToDeadChannel(lover);
+                        }
+                    }
                 }
             }
 
-            // After processing all attacks, advance to day if no win condition is met
+            // After processing all attacks, check win conditions
             const gameOver = await this.game.checkWinConditions();
             if (!gameOver) {
                 await this.game.advanceToDay();
             }
 
         } catch (error) {
-            logger.error('Error processing werewolf attacks', { error });
+            logger.error('Error processing werewolf attacks', { 
+                error: error.message,
+                stack: error.stack 
+            });
             // Even if there's an error, try to advance the phase
             if (!this.game.checkWinConditions()) {
                 await this.game.advanceToDay();
             }
         } finally {
-            // Reset protection message flag
             this.protectionMessageSent = false;
         }
     }
 
     async handleNightZero() {
         try {
-            // Clear any existing timeout first
-            if (this.game.nightActionTimeout) {
-                clearTimeout(this.game.nightActionTimeout);
-                this.game.nightActionTimeout = null;
-            }
+            logger.info('Starting Night Zero phase');
 
             // Handle Seer's initial revelation
             const seer = this.game.getPlayerByRole(ROLES.SEER);
-            if (seer?.isAlive) {
-                // Get all players except the seer
-                const validTargets = Array.from(this.game.players.values()).filter(
-                    p => p.id !== seer.id && p.isAlive
-                );
-                
-                if (validTargets.length > 0) {
-                    const randomPlayer = validTargets[Math.floor(Math.random() * validTargets.length)];
-                    const isWerewolf = randomPlayer.role === ROLES.WEREWOLF;
+            logger.info('Found Seer for Night Zero', {
+                seerFound: !!seer,
+                seerAlive: seer?.isAlive,
+                seerUsername: seer?.username
+            });
+
+            if (seer && seer.isAlive) {
+                try {
+                    const validTargets = Array.from(this.game.players.values()).filter(
+                        p => p.id !== seer.id && p.isAlive && p.role !== ROLES.WEREWOLF
+                    );
                     
-                    await seer.sendDM({
-                        embeds: [createSeerRevealEmbed(randomPlayer, isWerewolf)]
-                    });
-                    
-                    logger.info('Seer received initial vision', {
-                        seerId: seer.id,
-                        targetId: randomPlayer.id,
-                        isWerewolf: isWerewolf
+                    if (validTargets.length > 0) {
+                        const randomPlayer = validTargets[Math.floor(Math.random() * validTargets.length)];
+                        const isWerewolf = randomPlayer.role === ROLES.WEREWOLF;
+                        
+                        await seer.sendDM({
+                            embeds: [createSeerRevealEmbed(randomPlayer, isWerewolf)]
+                        });
+                        
+                        logger.info('Seer received initial vision', {
+                            seerId: seer.id,
+                            targetId: randomPlayer.id,
+                            isWerewolf: isWerewolf,
+                            targetRole: randomPlayer.role
+                        });
+                    }
+                } catch (error) {
+                    logger.error('Error sending Seer vision', { 
+                        error: error.message,
+                        stack: error.stack,
+                        seerId: seer.id
                     });
                 }
             }
 
-            // Only get Cupid for Night Zero
+            // Handle Cupid's action if present
             const cupid = this.game.getPlayerByRole(ROLES.CUPID);
+            logger.info('Found Cupid for Night Zero', {
+                cupidFound: !!cupid,
+                cupidAlive: cupid?.isAlive,
+                cupidUsername: cupid?.username
+            });
+
             if (cupid?.isAlive) {
-                this.game.expectedNightActions.add(cupid.id);
-                await cupid.sendDM('Use `/action choose_lovers` to select your lover. You have 10 minutes.');
-                
-                // Set new timeout
-                this.game.nightActionTimeout = setTimeout(async () => {
-                    try {
-                        await this.finishNightPhase();
-                    } catch (error) {
-                        logger.error('Error advancing after Cupid timeout', { error });
-                    }
-                }, 600000);
+                try {
+                    // Add Cupid to expected actions
+                    this.game.expectedNightActions.add(cupid.id);
+
+                    // Create dropdown for Cupid's lover selection
+                    const validTargets = Array.from(this.game.players.values())
+                        .filter(p => p.isAlive && p.id !== cupid.id);
+
+                    const selectMenu = new StringSelectMenuBuilder()
+                        .setCustomId('night_action_cupid')
+                        .setPlaceholder('Select your lover')
+                        .addOptions(
+                            validTargets.map(target => ({
+                                label: target.username,
+                                value: target.id,
+                                description: `Choose ${target.username} as your lover`
+                            }))
+                        );
+
+                    const row = new ActionRowBuilder().addComponents(selectMenu);
+                    const embed = createNightActionEmbed(ROLES.CUPID);
+
+                    await cupid.sendDM({ 
+                        embeds: [embed], 
+                        components: [row] 
+                    });
+
+                    logger.info('Sent Cupid action prompt with dropdown', { 
+                        username: cupid.username,
+                        validTargetCount: validTargets.length,
+                        hasComponents: true
+                    });
+
+                    // Set timeout for Cupid's action
+                    this.game.nightActionTimeout = setTimeout(async () => {
+                        try {
+                            if (this.game.expectedNightActions.has(cupid.id)) {
+                                await this.finishNightPhase();
+                            }
+                        } catch (error) {
+                            logger.error('Error advancing after Cupid timeout', { error });
+                        }
+                    }, 600000); // 10 minutes
+                } catch (error) {
+                    logger.error('Error sending Cupid prompt', { error });
+                }
             } else {
                 await this.finishNightPhase();
             }
         } catch (error) {
-            logger.error('Error during Night Zero', { error });
+            logger.error('Error during Night Zero', { error, stack: error.stack });
             throw error;
         }
     }
@@ -818,7 +889,7 @@ class NightActionProcessor {
                 loversMap: Array.from(this.game.lovers.entries())
             });
 
-            // Check both directions for lover relationship
+            // Check if dead player has a lover
             const loverId = this.game.lovers.get(deadPlayer.id);
             if (!loverId) {
                 logger.info('No lover found for dead player', {
@@ -833,11 +904,7 @@ class NightActionProcessor {
                 return;
             }
 
-            // Remove relationships before processing death
-            this.game.lovers.delete(deadPlayer.id);
-            this.game.lovers.delete(loverId);
-
-            // Mark as dead before sending messages
+            // Mark lover as dead
             lover.isAlive = false;
 
             // Send heartbreak message
@@ -849,14 +916,21 @@ class NightActionProcessor {
                     footer: { text: 'Love and death are forever intertwined...' }
                 }]
             });
-            
-            // Move to dead channel after death message
+
+            // Move lover to dead channel
             await this.game.moveToDeadChannel(lover);
 
-            // Check win conditions after all deaths are processed
-            this.game.checkWinConditions();
+            logger.info('Lover died of heartbreak', {
+                originalDeadPlayer: deadPlayer.username,
+                loverName: lover.username
+            });
+
         } catch (error) {
-            logger.error('Error handling lover death', { error });
+            logger.error('Error handling lover death', { 
+                error: error.message,
+                stack: error.stack,
+                deadPlayerId: deadPlayer.id
+            });
         }
     }
 }

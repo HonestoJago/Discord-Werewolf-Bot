@@ -164,17 +164,30 @@ async function handleStartGame(interaction, game) {
         // Defer the reply immediately to prevent timeout
         await interaction.deferReply({ ephemeral: true });
         
-        // Start the game
-        await game.startGame();
-        
-        // Edit the deferred reply
-        await interaction.editReply('Game started successfully!');
+        try {
+            // Start the game
+            await game.startGame();
+            
+            // Edit the deferred reply
+            await interaction.editReply('Game started successfully!');
+        } catch (error) {
+            // If there's an error, edit the deferred reply with the error message
+            if (error instanceof GameError) {
+                await interaction.editReply(error.userMessage);
+            } else {
+                logger.error('Error starting game', { error });
+                await interaction.editReply('Failed to start game.');
+            }
+        }
     } catch (error) {
-        logger.error('Error starting game', { error });
-        await interaction.reply({
-            content: error instanceof GameError ? error.userMessage : 'Failed to start game.',
-            ephemeral: true
-        });
+        // Only try to reply if we haven't already
+        if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({
+                content: error instanceof GameError ? error.userMessage : 'Failed to start game.',
+                ephemeral: true
+            });
+        }
+        logger.error('Error in handleStartGame', { error });
     }
 }
 
