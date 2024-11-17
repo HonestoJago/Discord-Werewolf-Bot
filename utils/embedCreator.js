@@ -85,31 +85,27 @@ function createTimedEmbed(title, description, endTime) {
         .setTimestamp(endTime);
 }
 
-function createVotingEmbed(target, seconder, game, endTime) {
-    const embed = createTimedEmbed(
-        '⚖️ Time to Vote!',
-        `${target.username} has been nominated...`,
-        endTime
-    );
-    const eligibleVoters = Array.from(game.players.values())
-        .filter(p => p.isAlive && p.id !== target.id);
-    const votesReceived = game.votes.size;
-    const remainingVotes = eligibleVoters.length - votesReceived;
-
-    embed.addFields(
-        { 
-            name: 'Instructions', 
-            value: 'Click Lynch to eliminate the player, or Let Live to spare them.' 
-        },
-        {
-            name: 'Voting Status',
-            value: remainingVotes > 0 ? 
-                `Waiting for ${remainingVotes} more vote${remainingVotes === 1 ? '' : 's'}...` :
-                'All votes are in!'
+function createVotingEmbed(target, seconder, game) {
+    return {
+        color: 0x800000, // Deep red for dramatic effect
+        title: '⚖️ Time to Vote!',
+        description: 
+            '*The village gathers to decide the fate of:*\n\n' +
+            `# **${target.username}**\n\n` +
+            `*Nominated by **${game.players.get(game.nominator).username}**\n` +
+            `Seconded by **${seconder.username}***\n\n` +
+            '```\nThe accused stands before you. Will justice be served, or will an innocent soul be lost?```',
+        fields: [
+            { 
+                name: '📜 Instructions', 
+                value: '• Click `Lynch` to eliminate the player\n• Click `Let Live` to spare them',
+                inline: false
+            }
+        ],
+        footer: { 
+            text: 'Choose wisely, for your vote may seal their fate...' 
         }
-    );
-
-    return embed;
+    };
 }
 
 function createVoteResultsEmbed(target, voteCounts, eliminated, playerVotes) {
