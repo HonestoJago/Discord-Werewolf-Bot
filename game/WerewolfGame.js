@@ -514,12 +514,18 @@ class WerewolfGame {
                 logger.warn('Already in Night phase, skipping transition');
                 return;
             }
-
-            // Clear any existing nomination before advancing to night
-            if (this.nominatedPlayer) {
-                await this.voteProcessor.clearNomination('Day phase is ending.');
+    
+            // Directly reset nomination state WITHOUT calling clearNomination
+            this.nominatedPlayer = null;
+            this.nominator = null;
+            this.seconder = null;
+            this.votingOpen = false;
+            this.votes.clear();
+            if (this.nominationTimeout) {
+                clearTimeout(this.nominationTimeout);
+                this.nominationTimeout = null;
             }
-
+    
             // Set phase first
             this.phase = PHASES.NIGHT;
             this.round += 1;
@@ -1286,15 +1292,7 @@ class WerewolfGame {
      */
     async processNightActions() {
         try {
-            // Process Night Zero actions
-            if (this.phase === PHASES.NIGHT_ZERO) {
-                logger.info('Processing Night Zero actions');
-                if (this.selectedRoles.has(ROLES.CUPID)) {
-                    await this.nightActionProcessor.processCupidAction();
-                }
-            }
-
-            // Process other night actions
+             // Process  night actions
             await this.nightActionProcessor.processBodyguardProtection();
             await this.nightActionProcessor.processWerewolfAttacks();
 

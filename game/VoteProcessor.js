@@ -235,7 +235,7 @@ class VoteProcessor {
                 const isWerewolf = target.role === ROLES.WEREWOLF;
                 await this.game.broadcastMessage({
                     embeds: [{
-                        color: isWerewolf ? 0x008000 : 0x800000, // Green for werewolf, red for non-werewolf
+                        color: isWerewolf ? 0x008000 : 0x800000,
                         title: isWerewolf ? '🐺 A Wolf Among Us!' : '❌ An Innocent Soul',
                         description: isWerewolf ?
                             `*The village's suspicions were correct! **${target.username}** was indeed a Werewolf!*` :
@@ -244,7 +244,7 @@ class VoteProcessor {
                     }]
                 });
 
-                // Handle Hunter's revenge if applicable
+                // Handle Hunter's revenge BEFORE marking as dead
                 if (target.role === ROLES.HUNTER) {
                     logger.info('Hunter was voted out', {
                         hunterId: target.id,
@@ -260,7 +260,7 @@ class VoteProcessor {
                     // Send mysterious message to village
                     await this.game.broadcastMessage({
                         embeds: [{
-                            color: 0x4B0082, // Deep purple for mystical effect
+                            color: 0x4B0082,
                             title: '🌘 A Moment of Tension',
                             description: 
                                 '*The air grows thick with anticipation as death\'s shadow lingers...*\n\n' +
@@ -270,10 +270,17 @@ class VoteProcessor {
                         }]
                     });
 
-                    // Automatically transition to Night phase after handling Hunter's revenge setup
-                    await this.game.completePhase();
+                    // Reset voting state WITHOUT broadcasting a "nomination failed" message
+                    this.game.nominatedPlayer = null;
+                    this.game.nominator = null;
+                    this.game.seconder = null;
+                    this.game.votingOpen = false;
+                    this.game.votes.clear();
+                    if (this.game.nominationTimeout) {
+                        clearTimeout(this.game.nominationTimeout);
+                        this.game.nominationTimeout = null;
+                    }
 
-                    // Exit early since phase has been transitioned
                     return;
                 }
 
@@ -282,6 +289,17 @@ class VoteProcessor {
                 await this.game.broadcastMessage(`**${target.username}** has been eliminated!`);
                 await this.game.moveToDeadChannel(target);
                 await this.game.nightActionProcessor.handleLoversDeath(target);
+
+                // Reset voting state WITHOUT broadcasting a "nomination failed" message
+                this.game.nominatedPlayer = null;
+                this.game.nominator = null;
+                this.game.seconder = null;
+                this.game.votingOpen = false;
+                this.game.votes.clear();
+                if (this.game.nominationTimeout) {
+                    clearTimeout(this.game.nominationTimeout);
+                    this.game.nominationTimeout = null;
+                }
 
                 // Only advance to night if someone was actually eliminated
                 const gameOver = await this.game.checkWinConditions();
@@ -350,7 +368,7 @@ class VoteProcessor {
         }
     }
 
-    async clearNomination(reason) {
+    async clearNomination(reason, broadcast = true) {
         if (this.game.nominatedPlayer || this.game.nominator || this.game.seconder || this.game.votingOpen) {
             // Clear all nomination-related state
             this.game.nominatedPlayer = null;
@@ -365,15 +383,17 @@ class VoteProcessor {
                 this.game.nominationTimeout = null;
             }
 
-            // Broadcast the nomination clearing
-            await this.game.broadcastMessage({
-                embeds: [{
-                    title: 'Nomination Failed',
-                    description: reason
-                }]
-            });
+            // Only broadcast if explicitly requested
+            if (broadcast) {
+                await this.game.broadcastMessage({
+                    embeds: [{
+                        title: 'Nomination Failed',
+                        description: reason
+                    }]
+                });
+            }
 
-            logger.info('Nomination cleared', { reason });
+            logger.info('Nomination cleared', { reason, broadcast });
         }
     }
 
