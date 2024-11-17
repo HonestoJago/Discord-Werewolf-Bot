@@ -110,26 +110,34 @@ function createVotingEmbed(target, seconder, game) {
 }
 
 function createVoteResultsEmbed(target, voteCounts, eliminated, playerVotes) {
-    const embed = new EmbedBuilder()
-        .setColor(eliminated ? '#800000' : '#006400')
-        .setTitle(eliminated ? '⚰️ The Village Has Spoken' : '🕊️ Mercy Prevails')
-        .setDescription(eliminated ? 
+    return {
+        color: eliminated ? 0x800000 : 0x006400,
+        title: eliminated ? '⚰️ The Village Has Spoken' : '🕊️ Mercy Prevails',
+        description: eliminated ? 
+            '```diff\n- JUDGMENT HAS BEEN PASSED\n```\n' +
             `*With heavy hearts, the village condemns **${target.username}** to death.*` :
-            `*The village shows mercy, and **${target.username}** lives to see another day.*`
-        )
-        .addFields(
-            { name: '🔨 Votes for Death', value: voteCounts.guilty.toString(), inline: true },
-            { name: '💐 Votes for Mercy', value: voteCounts.innocent.toString(), inline: true },
+            '```diff\n+ MERCY HAS BEEN GRANTED\n```\n' +
+            `*The village shows mercy, and **${target.username}** lives to see another day.*`,
+        fields: [
             { 
-                name: '📜 The Verdict',
+                name: '📊 The Vote', 
+                value: '```yaml\n' +
+                    `Death: ${voteCounts.guilty} | Mercy: ${voteCounts.innocent}\n` +
+                    '```',
+                inline: false 
+            },
+            { 
+                name: '📜 Individual Votes',
                 value: Object.entries(playerVotes)
-                    .map(([username, vote]) => `${username}: ${vote ? '🔨' : '💐'}`)
+                    .map(([username, vote]) => `${vote ? '🔨' : '💐'} ${username}`)
                     .join('\n') || '*No votes were cast*'
             }
-        )
-        .setTimestamp();
-
-    return embed;
+        ],
+        footer: { text: eliminated ? 
+            'The price of justice is often paid in blood...' : 
+            'May this mercy not be misplaced...' 
+        }
+    };
 }
 
 function createDayPhaseEmbed(players, nominationActive = false) {
@@ -223,9 +231,7 @@ function createSeerRevealEmbed(target, isWerewolf) {
 
 function createGameEndEmbed(winners, gameStats) {
     const isWerewolfWin = winners.some(player => player.role === 'werewolf');
-    
-    // Get all players from gameStats (this will include everyone, not just winners)
-    const allPlayers = Array.from(gameStats.players || []); // Add a fallback empty array
+    const allPlayers = Array.from(gameStats.players || []);
     const werewolves = allPlayers.filter(p => p.role === 'werewolf');
     const others = allPlayers.filter(p => p.role !== 'werewolf');
     
@@ -235,52 +241,53 @@ function createGameEndEmbed(winners, gameStats) {
             '🐺 The Werewolves Have Conquered the Village!' : 
             '🎉 The Village Has Triumphed!',
         description: isWerewolfWin ?
-            '*Darkness falls permanently as the werewolves claim their final victory...*' :
-            '*The village can finally rest, knowing the threat has been eliminated...*',
+            '```diff\n- DARKNESS FALLS FOREVER\n```\n' +
+            '*The last screams fade as the werewolves claim their final victory...*' :
+            '```diff\n+ LIGHT PREVAILS\n```\n' +
+            '*The village can finally rest, knowing the evil has been vanquished...*',
         fields: [
             ...(isWerewolfWin ? [
                 {
-                    name: '🐺 The Werewolves',
-                    value: werewolves.map(p => p.username).join('\n') || 'None',
+                    name: '🐺 The Victorious Pack',
+                    value: '```yaml\n' +
+                        werewolves.map(p => p.username).join('\n') +
+                        '\n```',
                     inline: false
                 },
                 {
-                    name: '👥 Other Players',
-                    value: others.map(p => `${p.username} (${p.role})`).join('\n') || 'None',
+                    name: '☠️ The Fallen Village',
+                    value: others.map(p => `\`${p.username}\` *(${p.role})*`).join('\n') || 'None',
                     inline: false
                 }
             ] : [
                 {
-                    name: '👑 Victorious Villagers',
-                    value: others.map(p => `${p.username} (${p.role})`).join('\n') || 'None',
+                    name: '👑 The Victorious Village',
+                    value: '```yaml\n' +
+                        others.map(p => `${p.username} (${p.role})`).join('\n') +
+                        '\n```',
                     inline: false
                 },
                 {
-                    name: '🐺 The Werewolves Were',
-                    value: werewolves.map(p => p.username).join('\n') || 'None',
+                    name: '⚰️ The Slain Wolves',
+                    value: werewolves.map(p => `\`${p.username}\``).join('\n') || 'None',
                     inline: false
                 }
             ]),
             {
                 name: '📊 Game Statistics',
-                value: [
-                    `Total Rounds: ${gameStats.rounds}`,
-                    `Players: ${gameStats.totalPlayers}`,
-                    `Eliminations: ${gameStats.eliminations}`,
-                    `Game Duration: ${gameStats.duration}`
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '🎮 New Game',
-                value: 'Use `/create` to start a new game!',
+                value: '```diff\n' +
+                    `+ Rounds: ${gameStats.rounds}\n` +
+                    `+ Players: ${gameStats.totalPlayers}\n` +
+                    `- Deaths: ${gameStats.eliminations}\n` +
+                    `+ Duration: ${gameStats.duration}\n` +
+                    '```',
                 inline: false
             }
         ],
         footer: { 
             text: isWerewolfWin ? 
                 'The village lies in ruins, but another will rise...' : 
-                'Peace returns to the village, until darkness stirs again...'
+                'Peace returns to the village, until darkness stirs again...' 
         }
     };
 }
@@ -290,34 +297,49 @@ function createGameWelcomeEmbed() {
         color: 0x800000,
         title: '🌕 A New Hunt Begins 🐺',
         description: 
-            '*The village elder has called for a gathering. Dark rumors spread of wolves among the sheep...*\n\n' +
-            '**Game Setup**\n' +
-            'This game will be played with video and voice chat:\n' +
-            '• During the day, all players will have cameras and mics ON\n' +
-            '• During the night, all players will turn cameras and mics OFF\n\n' +
-            '**Basic Roles (Automatic)**\n' +
-            '• Werewolves (1 per 4 players)\n' +
-            '• Seer (1)\n' +
-            '• Villagers (remaining players)\n\n' +
-            '**Optional Roles**\n' +
-            'The following roles can be added to enhance the game:\n' +
-            '• 🛡️ Bodyguard: Protects one player each night\n' +
-            '• 💘 Cupid: Chooses one player as their lover. If either dies, both die of heartbreak.\n' +
-            '• 🏹 Hunter: Takes one player with them when they die',
+            '```fix\n' +
+            'The village elder has called for a gathering...\n' +
+            '```\n' +
+            '*Dark rumors spread of wolves hiding among the villagers.*',
         fields: [
             {
-                name: '📜 How to Join',
-                value: 'Click the Join button below or use `/join` to enter the game.',
+                name: '📋 Game Setup',
+                value: '```yaml\n' +
+                    '• Day Phase: Cameras & Mics ON\n' +
+                    '• Night Phase: Cameras & Mics OFF\n' +
+                    '```',
+                inline: false
+            },
+            {
+                name: '🎭 Basic Roles',
+                value: '```\n' +
+                    '• Werewolves (1 per 4 players)\n' +
+                    '• Seer (1)\n' +
+                    '• Villagers (remaining players)\n' +
+                    '```',
                 inline: false
             },
             {
                 name: '⚔️ Optional Roles',
-                value: 'Game creator can toggle optional roles using the buttons below.\nThese roles will be randomly assigned when the game starts.',
+                value: 
+                    '• 🛡️ **Bodyguard**: Protects one player each night\n' +
+                    '• 💘 **Cupid**: Links two players in love. If one dies, both die\n' +
+                    '• 🏹 **Hunter**: Takes one player with them when they die',
+                inline: false
+            },
+            {
+                name: '🎮 How to Play',
+                value: 
+                    '1. Click `🎮 Join the Hunt` or use `/join`\n' +
+                    '2. Game creator can toggle optional roles with role buttons\n' +
+                    '3. Click `📜 View Setup` to see current players and roles\n' +
+                    '4. Use `🔄 Reset Roles` to clear optional role selections\n' +
+                    '5. Click `🌕 Begin the Hunt` when ready to start',
                 inline: false
             }
         ],
         footer: {
-            text: 'The hunt begins when the creator clicks Start Game...'
+            text: 'The fate of the village hangs in the balance...'
         }
     };
 }
