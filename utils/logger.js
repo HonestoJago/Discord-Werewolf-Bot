@@ -1,68 +1,61 @@
 // utils/logger.js
 
-const { createLogger, format, transports } = require('winston');
+const winston = require('winston');
 const path = require('path');
-const DailyRotateFile = require('winston-daily-rotate-file');
-const fs = require('fs');
 
-// Ensure that the logs directory exists
-const logDir = path.join(__dirname, '..', 'logs');
-if (!fs.existsSync(logDir)) {
-    fs.mkdirSync(logDir);
-}
-
-// Add format checking
-const logFormat = format.printf(({ level, message, timestamp, stack, ...metadata }) => {
-    if (typeof message === 'object') {
-        message = JSON.stringify(message);
-    }
-    let log = `${timestamp} [${level.toUpperCase()}]: ${message}`;
+// Custom format for better readability
+const customFormat = winston.format.printf(({ level, message, timestamp, ...metadata }) => {
+    let msg = `${timestamp} ${level.toUpperCase()} ${message}`;
+    
+    // Only add metadata if it exists and has properties
     if (Object.keys(metadata).length > 0) {
-        log += ` ${JSON.stringify(metadata)}`;
+        const metadataStr = JSON.stringify(metadata, null, 2);
+        if (metadataStr !== '{}') {
+            msg += `\n${metadataStr}`;
+        }
     }
-    if (stack) {
-        log += `\n${stack}`;
-    }
-    return log;
+    
+    return msg;
 });
 
-// Initialize Winston logger
-const logger = createLogger({
+const logger = winston.createLogger({
     level: 'info',
-    format: format.combine(
-        format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-        format.errors({ stack: true }),
-        format.splat(),
-        format.json()
+    format: winston.format.combine(
+        winston.format.timestamp({
+            format: 'YYYY-MM-DD HH:mm:ss'
+        }),
+        winston.format.errors({ stack: true }),
+        customFormat
     ),
     transports: [
-        // Console transport (only one)
-        new transports.Console({
-            format: format.combine(
-                format.colorize(),
-                format.simple(),
-                logFormat
+        // Console output with custom formatting
+        new winston.transports.Console({
+            format: winston.format.combine(
+                winston.format.colorize({
+                    all: true,
+                    colors: {
+                        info: 'blue',
+                        warn: 'yellow',
+                        error: 'red',
+                        debug: 'gray'
+                    }
+                }),
+                winston.format.timestamp({
+                    format: 'YYYY-MM-DD HH:mm:ss'
+                }),
+                customFormat
             )
         }),
-        // Daily Rotate File transport for error logs
-        new DailyRotateFile({
-            level: 'error',
-            filename: path.join(logDir, 'error-%DATE%.log'),
-            datePattern: 'YYYY-MM-DD',
-            zippedArchive: true,
-            maxSize: '20m',
-            maxFiles: '14d'
+        // File output for errors
+        new winston.transports.File({
+            filename: path.join(__dirname, '../logs/error.log'),
+            level: 'error'
         }),
-        // Daily Rotate File transport for combined logs
-        new DailyRotateFile({
-            filename: path.join(logDir, 'combined-%DATE%.log'),
-            datePattern: 'YYYY-MM-DD',
-            zippedArchive: true,
-            maxSize: '20m',
-            maxFiles: '14d'
+        // File output for all logs
+        new winston.transports.File({
+            filename: path.join(__dirname, '../logs/combined.log')
         })
-    ],
-    exitOnError: false
+    ]
 });
 
 module.exports = logger;

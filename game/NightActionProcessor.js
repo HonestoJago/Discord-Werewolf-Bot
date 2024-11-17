@@ -869,26 +869,20 @@ class NightActionProcessor {
                         validTargetCount: validTargets.length,
                         hasComponents: true
                     });
-
-                    // Set timeout for Cupid's action
-                    this.game.nightActionTimeout = setTimeout(async () => {
-                        try {
-                            if (this.game.expectedNightActions.has(cupid.id)) {
-                                await this.finishNightPhase();
-                            }
-                        } catch (error) {
-                            logger.error('Error advancing after Cupid timeout', { error });
-                        }
-                    }, 600000); // 10 minutes
                 } catch (error) {
                     logger.error('Error sending Cupid prompt', { error });
                 }
             } else {
-                await this.finishNightPhase();
+                // If no Cupid or Cupid is not alive, proceed to Day phase
+                logger.info('No Cupid present or Cupid not alive, proceeding to Day phase');
+                await this.game.finishNightZero();
             }
+
+            logger.info('Game started successfully');
         } catch (error) {
-            logger.error('Error during Night Zero', { error, stack: error.stack });
-            throw error;
+            logger.error('Error during Night Zero', { error });
+            // Even if there's an error, try to advance to Day phase
+            await this.game.finishNightZero();
         }
     }
 

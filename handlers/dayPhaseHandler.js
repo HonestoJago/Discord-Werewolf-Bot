@@ -67,6 +67,15 @@ module.exports = {
         try {
             const [action, targetId, vote] = interaction.customId.split('_');
             
+            // Check if game still exists and is valid
+            if (!currentGame || currentGame.gameOver) {
+                await interaction.reply({
+                    content: 'This game has ended.',
+                    ephemeral: true
+                });
+                return;
+            }
+
             if (action === 'vote') {
                 // Check if player is the nominated target
                 if (interaction.user.id === currentGame.nominatedPlayer) {
@@ -87,54 +96,96 @@ module.exports = {
                     return;
                 }
 
-                // Submit the vote through voteProcessor
-                await currentGame.voteProcessor.submitVote(interaction.user.id, vote === 'guilty');
-                await interaction.reply({
-                    content: `Your vote to ${vote === 'guilty' ? 'lynch' : 'spare'} has been recorded.`,
-                    ephemeral: true
-                });
-            } else if (action === 'second') {
-                // Use voteProcessor directly
-                await currentGame.voteProcessor.second(interaction.user.id);
-                await interaction.reply({ 
-                    content: 'You have seconded the nomination.', 
-                    ephemeral: true 
-                });
-
-                // Then create and send a new message with voting buttons
-                const lynchButton = new ButtonBuilder()
-                    .setCustomId(`vote_${targetId}_guilty`)
-                    .setLabel('Lynch')
-                    .setStyle(ButtonStyle.Danger);
-
-                const spareButton = new ButtonBuilder()
-                    .setCustomId(`vote_${targetId}_innocent`)
-                    .setLabel('Let Live')
-                    .setStyle(ButtonStyle.Success);
-
-                const row = new ActionRowBuilder()
-                    .addComponents(lynchButton, spareButton);
-
-                // Send voting message to channel, not as a reply
-                const channel = await interaction.client.channels.fetch(currentGame.gameChannelId);
-                await channel.send({
-                    embeds: [createVotingEmbed(
-                        currentGame.players.get(targetId),
-                        currentGame.players.get(interaction.user.id),
-                        currentGame
-                    )],
-                    components: [row]
-                });
-
-                // Delete the original nomination message if possible
                 try {
-                    await interaction.message.delete();
+                    // Submit the vote through voteProcessor
+                    const result = await currentGame.voteProcessor.submitVote(interaction.user.id, vote === 'guilty');
+                    await interaction.reply({
+                        content: `Your vote to ${vote === 'guilty' ? 'lynch' : 'spare'} has been recorded.`,
+                        ephemeral: true
+                    });
+
+                    // If game ended after this vote, don't try to update UI
+                    if (currentGame.gameOver) {
+                        return;
+                    }
                 } catch (error) {
-                    logger.warn('Could not delete nomination message', { error });
+                    logger.error('Error processing vote', { error });
+                    await interaction.reply({
+                        content: 'Failed to process your vote.',
+                        ephemeral: true
+                    });
+                }
+            } else if (action === 'second') {
+                try {
+                    // Use voteProcessor directly
+                    await currentGame.voteProcessor.second(interaction.user.id);
+                    await interaction.reply({ 
+                        content: 'You have seconded the nomination.', 
+                        ephemeral: true 
+                    });
+
+                    // Only proceed if game hasn't ended
+                    if (!currentGame.gameOver) {
+                        // Then create and send a new message with voting buttons
+                        const lynchButton = new ButtonBuilder()
+                            .setCustomId(`vote_${targetId}_guilty`)
+                            .setLabel('Lynch')
+                            .setStyle(ButtonStyle.Danger);
+
+                        const spareButton = new ButtonBuilder()
+                            .setCustomId(`vote_${targetId}_innocent`)
+                            .setLabel('Let Live')
+                            .setStyle(ButtonStyle.Success);
+
+                        const row = new ActionRowBuilder()
+                            .addComponents(lynchButton, spareButton);
+
+                        // Send voting message to channel, not as a reply
+                        const channel = await interaction.client.channels.fetch(currentGame.gameChannelId);
+                        await channel.send({
+                            embeds: [createVotingEmbed(
+                                currentGame.players.get(targetId),
+                                currentGame.players.get(interaction.user.id),
+                                currentGame
+                            )],
+                            components: [row]
+                        });
+
+                        // Delete the original nomination message if possible
+                        try {
+                            await interaction.message.delete();
+                        } catch (error) {
+                            logger.warn('Could not delete nomination message', { error });
+                        }
+                    }
+                } catch (error) {
+                    logger.error('Error processing second', { error });
+                    if (!interaction.replied) {
+                        await interaction.reply({
+                            content: 'Failed to process your action.',
+                            ephemeral: true
+                        });
+                    }
                 }
             }
         } catch (error) {
-            await handleCommandError(interaction, error);
+            logger.error('Error in handleButton', { 
+                error: error.message,
+                stack: error.stack,
+                interactionId: interaction.id
+            });
+            
+            // Only try to reply if we haven't already
+            if (!interaction.replied && !interaction.deferred) {
+                try {
+                    await interaction.reply({
+                        content: 'An error occurred while processing your action.',
+                        ephemeral: true
+                    });
+                } catch (replyError) {
+                    logger.error('Failed to send error reply', { replyError });
+                }
+            }
         }
     }
 };
