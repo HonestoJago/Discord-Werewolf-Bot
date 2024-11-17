@@ -773,6 +773,23 @@ class NightActionProcessor {
         try {
             logger.info('Starting Night Zero phase');
 
+            // Get werewolves and send them their team info first
+            const werewolves = this.game.getPlayersByRole(ROLES.WEREWOLF);
+            const werewolfNames = werewolves.map(w => w.username).join(', ');
+            
+            for (const werewolf of werewolves) {
+                await werewolf.sendDM({
+                    embeds: [{
+                        color: 0x800000,
+                        title: '🐺 Your Pack',
+                        description: werewolves.length > 1 ?
+                            `*Your fellow werewolves are: **${werewolfNames}***` :
+                            '*You are the lone werewolf. Hunt carefully...*',
+                        footer: { text: 'Coordinate with your pack during the night phase...' }
+                    }]
+                });
+            }
+
             // Handle Seer's initial revelation
             const seer = this.game.getPlayerByRole(ROLES.SEER);
             logger.info('Found Seer for Night Zero', {
