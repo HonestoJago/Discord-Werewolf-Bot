@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');
 const PHASES = require('../constants/phases');
 const { createNightActionEmbed, createSeerRevealEmbed } = require('../utils/embedCreator');
+const { createProtectionEmbed } = require('../utils/embedCreator');
 
 class NightActionProcessor {
     constructor(game) {
@@ -696,12 +697,7 @@ class NightActionProcessor {
                     if (target.isProtected) {
                         if (!this.protectionMessageSent) {
                             await this.game.broadcastMessage({
-                                embeds: [{
-                                    color: 0x4B0082,
-                                    title: '🛡️ Protection Prevails',
-                                    description: '*The Bodyguard\'s vigilance thwarts the wolves\' attack!*',
-                                    footer: { text: 'The village sleeps peacefully...' }
-                                }]
+                                embeds: [createProtectionEmbed(true)]
                             });
                             this.protectionMessageSent = true;
                         }
@@ -749,7 +745,12 @@ class NightActionProcessor {
                 }
             }
 
-            // After processing all attacks, check win conditions
+            // After processing all attacks, send night transition embed
+            await this.game.broadcastMessage({
+                embeds: [createNightTransitionEmbed(this.game.players)]
+            });
+
+            // Check win conditions and advance phase
             const gameOver = await this.game.checkWinConditions();
             if (!gameOver) {
                 await this.game.advanceToDay();

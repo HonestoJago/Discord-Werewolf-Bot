@@ -132,25 +132,55 @@ function createVoteResultsEmbed(target, voteCounts, eliminated, playerVotes) {
 }
 
 function createDayPhaseEmbed(players, nominationActive = false) {
-    const embed = new EmbedBuilder()
-        .setColor('#FFA500')
-        .setTitle('☀️ Village Council')
-        .setDescription(nominationActive ? 
+    // Get counts of living and dead players
+    const livingPlayers = Array.from(players.values()).filter(p => p.isAlive);
+    const deadPlayers = Array.from(players.values()).filter(p => !p.isAlive);
+    
+    return {
+        color: 0xFFA500, // Orange color for day phase
+        title: '☀️ Village Council',
+        description: nominationActive ? 
             '*Tensions rise as accusations fly...*' : 
-            '*The village gathers to root out evil. Who among you acts suspicious?*'
-        )
-        .addFields(
-            { 
-                name: '🎭 Living Villagers', 
-                value: Array.from(players.values())
-                    .filter(p => p.isAlive)
-                    .map(p => `• ${p.username}`)
-                    .join('\n') || '*The village lies empty...*'
+            '*The village square fills with whispered suspicions and wary glances...*',
+        fields: [
+            {
+                name: `🎭 Living Players (${livingPlayers.length})`, 
+                value: livingPlayers.length > 0 ?
+                    '```yaml\n' +
+                    livingPlayers
+                        .map(p => `• ${p.username}`)
+                        .join('\n') +
+                    '\n```' :
+                    '*No players remain...*',
+                inline: false
+            },
+            {
+                name: `☠️ Fallen Players (${deadPlayers.length})`,
+                value: deadPlayers.length > 0 ?
+                    deadPlayers
+                        .map(p => {
+                            const roleReveal = p.role === ROLES.WEREWOLF ? 
+                                '🐺 Was a Werewolf' : 
+                                '👥 Was not a Werewolf';
+                            return `\`${p.username}\` *(${roleReveal})*`;
+                        })
+                        .join('\n') :
+                    '*No deaths yet...*',
+                inline: false
+            },
+            {
+                name: '📊 Game Status',
+                value: '```diff\n' +
+                    `+ Total Players: ${players.size}\n` +
+                    `- Required for Majority: ${Math.ceil(livingPlayers.length / 2)}\n` +
+                    '```',
+                inline: false
             }
-        )
-        .setFooter({ text: 'Choose wisely, for the fate of the village hangs in the balance...' });
-
-    return embed;
+        ],
+        footer: { 
+            text: 'Choose wisely, for the fate of the village hangs in the balance...' 
+        }
+    };
 }
 
 function createNominationSelectEmbed(players) {
@@ -384,6 +414,101 @@ function getDefaultDescription(role) {
     return descriptions[role];
 }
 
+function createProtectionEmbed(wasAttacked = false) {
+    return {
+        color: 0x4B0082, // Deep indigo for mystical/protective feel
+        title: '🛡️ Protection Prevails',
+        description: wasAttacked ?
+            '```diff\n+ The Bodyguard\'s vigilance thwarts the wolves\' attack!\n```\n' +
+            '*A silent guardian stands watch through the night...*\n\n' +
+            '# **The Village Sleeps Peacefully**\n\n' +
+            '*Though evil prowled, none shall perish this night.*' :
+            '```diff\n+ The Bodyguard stands watch through the quiet night\n```\n' +
+            '*A vigilant protector keeps the peace...*\n\n' +
+            '# **The Village Rests Undisturbed**\n\n' +
+            '*No threats emerged to test their guard.*',
+        fields: [
+            {
+                name: '🌙 Night Results',
+                value: wasAttacked ?
+                    '• The Werewolves attempted an attack\n• The Bodyguard successfully protected their target\n• No lives were lost' :
+                    '• The night passed without incident\n• The Bodyguard\'s watch was uneventful\n• All villagers are safe',
+                inline: false
+            }
+        ],
+        footer: {
+            text: 'Dawn approaches, and with it, new suspicions will arise...'
+        }
+    };
+}
+
+function createDayTransitionEmbed() {
+    return {
+        color: 0xFFA500, // Orange for dawn
+        title: '☀️ A New Day Dawns',
+        description: 
+            '```fix\n' +
+            'The morning sun rises over the village...\n' +
+            '```\n' +
+            '*As shadows retreat, the time for discussion begins. Who among you bears the curse of the wolf?*',
+        footer: { 
+            text: 'Debate wisely, for a wrong accusation could doom the village...' 
+        }
+    };
+}
+
+function createNightTransitionEmbed(players) {
+    // Get counts of living and dead players
+    const livingPlayers = Array.from(players.values()).filter(p => p.isAlive);
+    const deadPlayers = Array.from(players.values()).filter(p => !p.isAlive);
+    
+    return {
+        color: 0x2C3E50, // Dark blue for night
+        title: '🌙 Night Falls Once More',
+        description: 
+            '```diff\n- As darkness envelops the village, danger lurks in the shadows...\n```\n' +
+            '**All players:** Please turn off your cameras and microphones now.',
+        fields: [
+            {
+                name: `🎭 Living Players (${livingPlayers.length})`, 
+                value: livingPlayers.length > 0 ?
+                    '```yaml\n' +
+                    livingPlayers
+                        .map(p => `• ${p.username}`)
+                        .join('\n') +
+                    '\n```' :
+                    '*No players remain...*',
+                inline: false
+            },
+            {
+                name: `☠️ Fallen Players (${deadPlayers.length})`,
+                value: deadPlayers.length > 0 ?
+                    deadPlayers
+                        .map(p => {
+                            const roleReveal = p.role === ROLES.WEREWOLF ? 
+                                '🐺 Was a Werewolf' : 
+                                '👥 Was not a Werewolf';
+                            return `\`${p.username}\` *(${roleReveal})*`;
+                        })
+                        .join('\n') :
+                    '*No deaths yet...*',
+                inline: false
+            },
+            {
+                name: '📊 Game Status',
+                value: '```diff\n' +
+                    `+ Total Players: ${players.size}\n` +
+                    `- Required for Majority: ${Math.ceil(livingPlayers.length / 2)}\n` +
+                    '```',
+                inline: false
+            }
+        ],
+        footer: { 
+            text: 'Remain silent until morning comes...' 
+        }
+    };
+}
+
 module.exports = { 
     createPlayerListEmbed,
     createNominationEmbed,
@@ -399,5 +524,8 @@ module.exports = {
     createCupidActionConfirmationEmbed,
     createGameStartNightZeroEmbed,
     createNominationResetEmbed,
-    createNightActionEmbed
+    createNightActionEmbed,
+    createProtectionEmbed,
+    createDayTransitionEmbed,
+    createNightTransitionEmbed
 };

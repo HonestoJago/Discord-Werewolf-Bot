@@ -1,32 +1,42 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } = require('discord.js');
 const logger = require('../utils/logger');
 const { handleCommandError, GameError } = require('../utils/error-handler');
-const { createDayPhaseEmbed, createNominationEmbed, createVotingEmbed } = require('../utils/embedCreator');
+const { createDayPhaseEmbed, createNominationEmbed, createVotingEmbed, createDayTransitionEmbed } = require('../utils/embedCreator');
 const PHASES = require('../constants/phases');
 
 module.exports = {
     async createDayPhaseUI(channel, players) {
-        // Create dropdown menu of alive players
-        const selectMenu = new StringSelectMenuBuilder()
-            .setCustomId('day_select_target')
-            .setPlaceholder('Select a player to nominate')
-            .addOptions(
-                Array.from(players.values())
-                    .filter(p => p.isAlive)
-                    .map(p => ({
-                        label: p.username,
-                        value: p.id,
-                        description: `Nominate ${p.username} for elimination`
-                    }))
-            );
+        try {
+            // First send the transition message
+            await channel.send({
+                embeds: [createDayTransitionEmbed()]
+            });
 
-        const row = new ActionRowBuilder().addComponents(selectMenu);
-        const embed = createDayPhaseEmbed(players);
+            // Then create the day phase UI with player status
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('day_select_target')
+                .setPlaceholder('Select a player to nominate')
+                .addOptions(
+                    Array.from(players.values())
+                        .filter(p => p.isAlive)
+                        .map(p => ({
+                            label: p.username,
+                            value: p.id,
+                            description: `Nominate ${p.username} for elimination`
+                        }))
+                );
 
-        await channel.send({
-            embeds: [embed],
-            components: [row]
-        });
+            const row = new ActionRowBuilder().addComponents(selectMenu);
+            const embed = createDayPhaseEmbed(players);
+
+            await channel.send({
+                embeds: [embed],
+                components: [row]
+            });
+        } catch (error) {
+            logger.error('Error creating day phase UI', { error });
+            throw error;
+        }
     },
 
     async handleSelect(interaction, currentGame) {
