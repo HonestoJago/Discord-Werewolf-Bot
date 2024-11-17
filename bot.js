@@ -25,6 +25,7 @@ const client = new Client({
         GatewayIntentBits.DirectMessages,
     ],
     partials: ['CHANNEL'], // Needed to receive DMs
+    componentLifetime: 0 // Components will never expire
 });
 
 // Initialize collections
