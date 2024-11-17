@@ -78,6 +78,7 @@ __tests__/
 __mocks__/
 jest.config.js
 jest.config.local.js
+jest.setup.js
 *.test.js
 *.spec.js
 

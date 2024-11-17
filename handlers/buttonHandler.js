@@ -26,9 +26,9 @@ async function handleJoinGame(interaction, game) {
 async function handleToggleRole(interaction, game) {
     try {
         // Check authorization
-        if (!game.isGameCreatorOrAuthorized(interaction.user.id)) {
+        if (interaction.user.id !== game.gameCreatorId) {
             await interaction.reply({
-                content: 'You are not authorized to modify roles.',
+                content: 'Only the game creator can modify roles.',
                 ephemeral: true
             });
             return;
@@ -152,6 +152,15 @@ async function handleViewRoles(interaction, game) {
 
 async function handleStartGame(interaction, game) {
     try {
+        // Check authorization
+        if (interaction.user.id !== game.gameCreatorId) {
+            await interaction.reply({
+                content: 'Only the game creator can start the game.',
+                ephemeral: true
+            });
+            return;
+        }
+
         // Defer the reply immediately to prevent timeout
         await interaction.deferReply({ ephemeral: true });
         
@@ -162,20 +171,10 @@ async function handleStartGame(interaction, game) {
         await interaction.editReply('Game started successfully!');
     } catch (error) {
         logger.error('Error starting game', { error });
-        if (interaction.deferred) {
-            await interaction.editReply(
-                error instanceof GameError ? 
-                    error.userMessage : 
-                    'Failed to start game. Please try again.'
-            );
-        } else {
-            await interaction.reply({ 
-                content: error instanceof GameError ? 
-                    error.userMessage : 
-                    'Failed to start game. Please try again.',
-                ephemeral: true 
-            });
-        }
+        await interaction.reply({
+            content: error instanceof GameError ? error.userMessage : 'Failed to start game.',
+            ephemeral: true
+        });
     }
 }
 

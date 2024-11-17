@@ -164,8 +164,8 @@ class NightActionProcessor {
                         await lover.sendDM({
                             embeds: [{
                                 color: 0xff69b4,
-                                title: '💘 You Have Been Struck By Cupid\'s Arrow!',
-                                description: `You have fallen in love with **${cupid.username}**. If either of you dies, the other will die of heartbreak.`
+                                title: '💘 You Have Been Chosen!',
+                                description: `**${cupid.username}** has chosen you as their lover. If either of you dies, the other will die of heartbreak.`
                             }]
                         });
                         
@@ -184,6 +184,9 @@ class NightActionProcessor {
                             loverName: lover.username,
                             loversMap: Array.from(this.game.lovers.entries())
                         });
+
+                        // After processing Cupid's action, finish Night Zero
+                        await this.game.finishNightZero();
                     }
                 }
             }
@@ -295,7 +298,7 @@ class NightActionProcessor {
         }
     }
 
-    validateNightAction(player, action, target) {
+    validateNightAction(player, action, targetId) {
         // Special case for Hunter's revenge - skip other validations
         if ((action === 'choose_target' || action === 'hunter_revenge') && 
             player.id === this.game.pendingHunterRevenge) {
@@ -355,102 +358,134 @@ class NightActionProcessor {
 
         // Additional target validations
         if (action === 'protect') {
-            if (target === player.id) {
+            if (targetId === player.id) {
                 throw new GameError('Invalid target', 'You cannot protect yourself.');
             }
-            if (this.game.lastProtectedPlayer && target === this.game.lastProtectedPlayer) {
+            if (this.game.lastProtectedPlayer && targetId === this.game.lastProtectedPlayer) {
                 throw new GameError('Invalid target', 'You cannot protect the same player two nights in a row.');
             }
         }
 
         if (action === 'investigate') {
-            if (target === player.id) {
+            if (targetId === player.id) {
                 throw new GameError('Invalid target', 'You cannot investigate yourself.');
             }
         }
 
         if (action === 'attack') {
-            if (target === player.id) {
+            if (targetId === player.id) {
                 throw new GameError('Invalid target', 'You cannot attack yourself.');
             }
         }
 
         if (action === 'choose_lovers') {
-            if (target === player.id) {
+            if (targetId === player.id) {
                 throw new GameError('Invalid target', 'You cannot choose yourself as a lover.');
             }
         }
     }
 
     /**
-     * Handles all night actions such as Werewolf attacks, Seer investigations, Bodyguard protections.
+     * Handles all night actions including Night Zero actions.
      */
     async handleNightActions() {
         try {
-            this.investigationProcessed = false;
-            // Clear previous actions first
-            this.game.expectedNightActions.clear();
-            this.game.nightActions = {};
-            this.game.completedNightActions.clear();
-            
-            // Get all role players first
-            const werewolves = this.game.getPlayersByRole(ROLES.WEREWOLF);
-            const seer = this.game.getPlayerByRole(ROLES.SEER);
-            const bodyguard = this.game.getPlayerByRole(ROLES.BODYGUARD);
+            logger.info('Handling night actions', { phase: this.game.phase });
 
-            // Add living players to expected actions
-            for (const wolf of werewolves) {
-                if (wolf.isAlive) {
-                    this.game.expectedNightActions.add(wolf.id);
+            // Identify all players with night actions
+            const nightRoles = [ROLES.WEREWOLF, ROLES.SEER, ROLES.BODYGUARD];
+            const nightPlayers = Array.from(this.game.players.values()).filter(player => 
+                nightRoles.includes(player.role) && player.isAlive
+            );
+
+            logger.info('Identified night action players', { players: nightPlayers.map(p => p.username) });
+
+            // Add night players to expectedNightActions
+            nightPlayers.forEach(player => {
+                this.game.expectedNightActions.add(player.id);
+            });
+
+            logger.info('Added night action players to expectedNightActions', { 
+                expectedPlayers: Array.from(this.game.expectedNightActions) 
+            });
+
+            // Send DM prompts to night action players
+            for (const player of nightPlayers) {
+                switch(player.role) {
+                    case ROLES.WEREWOLF:
+                        await player.sendDM({
+                            embeds: [{
+                                color: 0x800000,
+                                title: '🐺 The Hunt Begins',
+                                description: 
+                                    '*Your fangs gleam in the moonlight as you stalk your prey...*\n\n' +
+                                    'Use `/action attack` to choose your victim tonight.',
+                                footer: { text: 'Choose wisely, for the village grows suspicious...' }
+                            }]
+                        });
+                        logger.info('Sent attack prompt to Werewolf', { username: player.username });
+                        break;
+                    case ROLES.SEER:
+                        await player.sendDM({
+                            embeds: [{
+                                color: 0x4B0082,
+                                title: '🔮 Vision Quest',
+                                description: 
+                                    '*Your mystical powers awaken with the night...*\n\n' +
+                                    'Use `/action investigate` to investigate a player tonight.',
+                                footer: { text: 'The truth lies within your sight...' }
+                            }]
+                        });
+                        logger.info('Sent investigate prompt to Seer', { username: player.username });
+                        break;
+                    case ROLES.BODYGUARD:
+                        await player.sendDM({
+                            embeds: [{
+                                color: 0x4B0082,
+                                title: '🛡️ Vigilant Protection',
+                                description: 
+                                    '*Your watchful eyes scan the village, ready to shield the innocent...*\n\n' +
+                                    'Use `/action protect` to choose a player to protect tonight.',
+                                footer: { text: 'Your shield may mean the difference between life and death...' }
+                            }]
+                        });
+                        logger.info('Sent protect prompt to Bodyguard', { username: player.username });
+                        break;
                 }
             }
 
-            if (seer?.isAlive) {
-                this.game.expectedNightActions.add(seer.id);
-            }
-
-            if (bodyguard?.isAlive) {
-                this.game.expectedNightActions.add(bodyguard.id);
-                // Send prompt to Bodyguard
-                await bodyguard.sendDM({
-                    embeds: [{
-                        color: 0x4B0082,
-                        title: '🛡️ Choose Your Ward',
-                        description: 
-                            '*Your vigilant eyes scan the village, ready to protect the innocent...*\n\n' +
-                            'Use `/action protect` to choose a player to protect tonight.',
-                        footer: { text: 'Your shield may mean the difference between life and death...' }
-                    }]
-                });
-            }
-
-            // Send prompts to other roles
-            if (seer?.isAlive) {
-                await seer.sendDM('Use `/action investigate` to investigate a player tonight.');
-            }
-
-            for (const wolf of werewolves) {
-                if (wolf.isAlive) {
-                    await wolf.sendDM({
-                        embeds: [{
-                            color: 0x800000,
-                            title: '🐺 The Hunt Begins',
-                            description: 
-                                '*Your fangs gleam in the moonlight as you stalk your prey...*\n\n' +
-                                'Use `/action attack` to choose your victim tonight.',
-                            footer: { text: 'Choose wisely, for the village grows suspicious...' }
-                        }]
-                    });
-                }
-            }
-
-            logger.info('Night actions initialized', {
+            logger.info('Night action prompts sent, waiting for actions', {
                 expectedActions: Array.from(this.game.expectedNightActions)
             });
+
+            // Actions will be processed by processNightAction when they come in
+
         } catch (error) {
             logger.error('Error handling night actions', { error });
             throw error;
         }
+    }
+
+    /**
+     * Waits for Cupid to complete their action during Night Zero.
+     */
+    async waitForCupidAction() {
+        return new Promise((resolve, reject) => {
+            // Listen for Cupid's action completion
+            const interval = setInterval(() => {
+                if (!this.game.expectedNightActions.has(this.game.cupidId)) {
+                    clearInterval(interval);
+                    resolve();
+                }
+            }, 1000);
+
+            // Set a maximum wait time to prevent indefinite waiting
+            setTimeout(() => {
+                clearInterval(interval);
+                logger.warn('Cupid did not complete their action in time.');
+                resolve(); // Proceed to Day phase regardless
+            }, 60000); // 1 minute
+        });
     }
 
     /**
@@ -561,23 +596,71 @@ class NightActionProcessor {
      * Processes Cupid's action during Night Zero.
      */
     async processCupidAction() {
-        for (const [playerId, action] of Object.entries(this.game.nightActions)) {
-            if (action.action === 'choose_lovers') {
-                const cupid = this.game.players.get(playerId);
-                const lover = this.game.players.get(action.target);
-                
-                if (cupid && lover) {
-                    // Process the lover selection
-                    await this.game.processLoverSelection(cupid.id, lover.id);
+        try {
+            for (const [playerId, action] of Object.entries(this.game.nightActions)) {
+                if (action.action === 'choose_lovers') {
+                    const cupid = this.game.players.get(playerId);
+                    const lover = this.game.players.get(action.target);
                     
-                    logger.info('Cupid action processed', {
-                        cupidId: playerId,
-                        cupidName: cupid.username,
-                        loverId: action.target,
-                        loverName: lover.username
+                    if (!cupid || !lover) {
+                        logger.error('Invalid Cupid or lover selection', { 
+                            cupidId: playerId, 
+                            loverId: action.target 
+                        });
+                        continue;
+                    }
+
+                    if (!lover.isAlive) {
+                        logger.error('Cannot select dead player as lover', { 
+                            loverId: action.target 
+                        });
+                        continue;
+                    }
+
+                    if (cupid.id === lover.id) {
+                        logger.error('Cupid cannot select self as lover', { 
+                            cupidId: cupid.id 
+                        });
+                        continue;
+                    }
+
+                    // Set up bidirectional lover relationship
+                    this.game.lovers.set(cupid.id, lover.id);
+                    this.game.lovers.set(lover.id, cupid.id);
+                    
+                    // Notify both players
+                    await lover.sendDM({
+                        embeds: [{
+                            color: 0xff69b4,
+                            title: '💘 You Have Been Chosen!',
+                            description: `**${cupid.username}** has chosen you as their lover. If either of you dies, the other will die of heartbreak.`
+                        }]
                     });
+                    
+                    await cupid.sendDM({
+                        embeds: [{
+                            color: 0xff69b4,
+                            title: '💘 Love Blossoms',
+                            description: `You have chosen **${lover.username}** as your lover. If either of you dies, the other will die of heartbreak.`
+                        }]
+                    });
+
+                    logger.info('Lovers set', {
+                        cupidId: cupid.id,
+                        cupidName: cupid.username,
+                        loverId: lover.id,
+                        loverName: lover.username,
+                        loversMap: Array.from(this.game.lovers.entries())
+                    });
+
+                    // After processing Cupid's action, finish Night Zero
+                    await this.game.finishNightZero();
                 }
             }
+        } catch (error) {
+            logger.error('Error processing Cupid action', { error });
+            // Even if there's an error, try to advance the phase
+            await this.game.finishNightZero();
         }
     }
 

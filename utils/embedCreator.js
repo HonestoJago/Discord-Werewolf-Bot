@@ -274,8 +274,8 @@ function createGameWelcomeEmbed() {
             '**Optional Roles**\n' +
             'The following roles can be added to enhance the game:\n' +
             '• 🛡️ Bodyguard: Protects one player each night\n' +
-            '• 💘 Cupid: Chooses one player to be their lover (both die if either dies)\n' +
-            '• 🏹 Hunter: Takes someone with them when they die',
+            '• 💘 Cupid: Chooses one player as their lover. If either dies, both die of heartbreak.\n' +
+            '• 🏹 Hunter: Takes one player with them when they die',
         fields: [
             {
                 name: '📜 How to Join',
@@ -294,6 +294,54 @@ function createGameWelcomeEmbed() {
     };
 }
 
+function createNightZeroEmbed() {
+    return {
+        color: 0x2C3E50,
+        title: '🌘 Night Zero Descends 🐺',
+        description: 
+            '*As the first night falls, special roles prepare their actions...*\n\n' +
+            '**Seer Action:** You will receive the name of a random non-werewolf player.\n' +
+            '**Cupid Action:** If Cupid is active, they will choose one player as their lover.\n\n' +
+            'Please wait for all necessary actions to complete. The game will automatically proceed to the Day phase once done.',
+        footer: { text: 'The hunt begins quietly...' }
+    };
+}
+
+function createCupidActionConfirmationEmbed(lover) {
+    return {
+        color: 0xff69b4,
+        title: '💘 Love Blossoms',
+        description: 
+            `*Cupid has chosen **${lover.username}** as their lover.*\n\n` +
+            'If either of you dies, the other will die of heartbreak.',
+        footer: { text: 'Love and death are forever intertwined...' }
+    };
+}
+
+function createGameStartNightZeroEmbed() {
+    return {
+        color: 0x800000,
+        title: '🌕 Night Zero Begins 🐺',
+        description: 
+            '*The first night has begun. Special roles, take your actions carefully...*\n\n' +
+            '**Seer:** Check your DMs for your target.\n' +
+            '**Cupid:** If active, use `/action choose_lovers` to select two players as lovers.\n\n' +
+            'Your actions will determine the fate of the village. Night will progress automatically once all actions are completed.',
+        footer: { text: 'May wisdom and strategy guide you...' }
+    };
+}
+
+function createNominationResetEmbed() {
+    return {
+        color: 0xFFA500,
+        title: '🔄 Nomination Failed',
+        description: 
+            '*The previous nomination did not receive a second and has been canceled.*\n\n' +
+            'The village may now make another nomination.',
+        footer: { text: 'Choose wisely, for the fate of the village hangs in the balance...' }
+    };
+}
+
 module.exports = { 
     createPlayerListEmbed,
     createNominationEmbed,
@@ -304,5 +352,9 @@ module.exports = {
     createRoleCard,
     createSeerRevealEmbed,
     createGameEndEmbed,
-    createGameWelcomeEmbed
+    createGameWelcomeEmbed,
+    createNightZeroEmbed,
+    createCupidActionConfirmationEmbed,
+    createGameStartNightZeroEmbed,
+    createNominationResetEmbed
 };

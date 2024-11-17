@@ -20,8 +20,8 @@ module.exports = {
                 throw new GameError('No game', 'There is no active game.');
             }
 
-            if (!currentGame.isGameCreatorOrAuthorized(interaction.user.id)) {
-                throw new GameError('Not authorized', 'Only game administrators can advance phases.');
+            if (interaction.user.id !== currentGame.gameCreatorId) {
+                throw new GameError('Not authorized', 'Only the game creator can advance phases.');
             }
 
             // Defer reply since we might need to do a lot of processing
@@ -31,26 +31,16 @@ module.exports = {
             
             switch (currentPhase) {
                 case PHASES.DAY:
-                    // Clear voting state first
-                    if (currentGame.voteProcessor) {
-                        await currentGame.voteProcessor.clearVotingState();
-                    }
                     await currentGame.advanceToNight();
                     break;
-                    
                 case PHASES.NIGHT:
                     await currentGame.advanceToDay();
                     break;
-                    
                 case PHASES.NIGHT_ZERO:
-                    currentGame.phase = PHASES.DAY;
-                    currentGame.round = 1;
-                    const channel = await interaction.client.channels.fetch(currentGame.gameChannelId);
-                    await dayPhaseHandler.createDayPhaseUI(channel, currentGame.players);
+                    await currentGame.finishNightZero();
                     break;
-                    
                 default:
-                    throw new GameError('Invalid phase', 'Cannot advance from current game phase.');
+                    throw new GameError('Invalid phase', 'Cannot advance from the current game phase.');
             }
 
             // Log the phase change
@@ -61,7 +51,7 @@ module.exports = {
                 round: currentGame.round
             });
 
-            // Edit our deferred reply
+            // Edit the deferred reply
             await interaction.editReply({ 
                 content: `Successfully advanced from ${currentPhase} to ${currentGame.phase} (Round ${currentGame.round}).`
             });

@@ -96,6 +96,9 @@ class WerewolfGame {
                 logger.error('Error in periodic state save', { error });
             }
         }, 5 * 60 * 1000); // Save every 5 minutes
+
+        // Add game start time for duration tracking
+        this.gameStartTime = null;
     }
 
     /**
@@ -103,7 +106,7 @@ class WerewolfGame {
      * @param {User} user - Discord user object.
      * @returns {Player} - The added player.
      */
-    addPlayer(user) {
+    async addPlayer(user) {
         logger.info('Adding player', { 
             phase: this.phase,
             isLobby: this.phase === PHASES.LOBBY 
@@ -114,29 +117,22 @@ class WerewolfGame {
         }
 
         try {
-            // Add debug logging
             logger.info('Attempting to add player', { 
                 userId: user.id, 
                 currentPhase: this.phase,
                 isLobby: this.phase === PHASES.LOBBY 
             });
 
-            // Check phase first
-            if (this.phase !== PHASES.LOBBY) {
-                throw new GameError('Cannot join', 'The game has already started. You cannot join at this time.');
-            }
-
-            // Then check for duplicate players
+            // Synchronize addition to prevent race conditions
             if (this.players.has(user.id)) {
                 throw new GameError('Player already in game', 'You are already in the game.');
             }
 
             const player = new Player(user.id, user.username, this.client);
             this.players.set(user.id, player);
+
             // Save game state after adding player
-            this.saveGameState().catch(error => {
-                logger.error('Error saving game state after adding player', { error });
-            });
+            await this.saveGameState();
             logger.info('Player added to the game', { 
                 playerId: user.id, 
                 username: user.username,
@@ -178,27 +174,40 @@ class WerewolfGame {
             this.selectedRoles.set(ROLES.WEREWOLF, werewolfCount);
             this.selectedRoles.set(ROLES.SEER, 1);
 
+            // Add optional roles if they were selected
+            if (this.selectedRoles.get(ROLES.BODYGUARD)) {
+                this.selectedRoles.set(ROLES.BODYGUARD, this.selectedRoles.get(ROLES.BODYGUARD));
+            }
+            if (this.selectedRoles.get(ROLES.CUPID)) {
+                this.selectedRoles.set(ROLES.CUPID, this.selectedRoles.get(ROLES.CUPID));
+            }
+            if (this.selectedRoles.get(ROLES.HUNTER)) {
+                this.selectedRoles.set(ROLES.HUNTER, this.selectedRoles.get(ROLES.HUNTER));
+            }
+            
             // Set phase before other operations
             this.phase = PHASES.NIGHT_ZERO;
             this.round = 0;
+            this.gameStartTime = Date.now(); // Record the game start time
 
             await this.assignRoles();
             await this.createPrivateChannels();
             await this.broadcastMessage({
                 embeds: [{
                     color: 0x800000,
-                    title: '🌕 Night Falls on the Village 🐺',
+                    title: '🌕 Night Zero Descends 🐺',
                     description: 
-                        '*As darkness descends, fear grips the hearts of the villagers...*\n\n' +
-                        '**All players:** Please turn off your cameras and microphones now.\n' +
-                        'The first night begins, and with it, ancient powers awaken...',
-                    footer: { text: 'Stay silent until dawn breaks...' }
+                        '*As the first night falls, special roles prepare their actions...*\n\n' +
+                        '**Seer Action:** You will receive the name of a random non-werewolf player.\n' +
+                        '**Cupid Action:** If Cupid is active, they will choose two players to become lovers.\n\n' +
+                        'Please wait for all necessary actions to complete. The game will automatically proceed to the Day phase once done.',
+                    footer: { text: 'The hunt begins quietly...' }
                 }]
             });
-            
+
             // Initialize night zero
             await this.nightZero();
-            
+
             logger.info('Game started successfully');
         } catch (error) {
             // Reset phase if anything fails
@@ -416,47 +425,81 @@ class WerewolfGame {
                 }
             }
 
-            // If no Cupid, advance to Day phase immediately
+            // Handle Cupid's action if present
             const cupid = this.getPlayerByRole(ROLES.CUPID);
-            if (!cupid || !cupid.isAlive) {
-                // Set a short timeout to ensure all messages are sent before advancing
-                setTimeout(async () => {
-                    try {
-                        logger.info('Advancing to Day phase after Night Zero (no Cupid)');
-                        this.phase = PHASES.DAY;
-                        this.round = 1; // Start first day
-                        const channel = await this.client.channels.fetch(this.gameChannelId);
-                        await dayPhaseHandler.createDayPhaseUI(channel, this.players);
-                        await this.broadcastMessage('The sun rises on the first day. Discuss and find the werewolves!');
-                    } catch (error) {
-                        logger.error('Error advancing to day after Night Zero', { error: error.stack });
-                        throw error;
-                    }
-                }, 2000);
-            } else {
-                // Handle Cupid's action
-                await cupid.sendDM('Use `/action choose_lovers` to select your lover. You have 10 minutes.');
+            if (cupid && cupid.isAlive) {
+                // Prompt Cupid to choose lovers via DM
+                await cupid.sendDM('Use `/action choose_lovers` to select two players as lovers. You have 10 minutes.');
                 this.expectedNightActions.add(cupid.id);
                 
                 // Set timeout for Cupid's action
                 this.nightActionTimeout = setTimeout(async () => {
                     try {
-                        logger.info('Advancing to Day phase after Cupid timeout');
-                        this.phase = PHASES.DAY;
-                        this.round = 1;
-                        const channel = await this.client.channels.fetch(this.gameChannelId);
-                        await dayPhaseHandler.createDayPhaseUI(channel, this.players);
-                        await this.broadcastMessage('The sun rises on the first day. Discuss and find the werewolves!');
+                        if (this.expectedNightActions.has(cupid.id)) {
+                            await cupid.sendDM('Time is up! You did not choose lovers in time.');
+                            this.expectedNightActions.delete(cupid.id);
+                            await this.finishNightZero();
+                        }
                     } catch (error) {
-                        logger.error('Error advancing after Cupid timeout', { error: error.stack });
-                        throw error;
+                        logger.error('Error handling Cupid timeout during Night Zero', { error });
                     }
                 }, 600000); // 10 minutes
+            } else {
+                // No Cupid present, proceed to Day phase after brief delay
+                setTimeout(async () => {
+                    try {
+                        await this.finishNightZero();
+                    } catch (error) {
+                        logger.error('Error advancing to Day phase after Night Zero', { error: error.stack });
+                        throw error;
+                    }
+                }, 2000); // 2 seconds delay to ensure all messages are sent
             }
 
             logger.info('Night Zero started');
         } catch (error) {
             logger.error('Error during Night Zero', { error: error.stack });
+            throw error;
+        }
+    }
+
+    /**
+     * Completes Night Zero and transitions to Day phase.
+     */
+    async finishNightZero() {
+        try {
+            // Clear any remaining Night Zero actions
+            this.expectedNightActions.clear();
+            this.nightActions = {};
+
+            // Transition to Day phase
+            this.phase = PHASES.DAY;
+            this.round = 1; // Start first day
+
+            await this.broadcastMessage({
+                embeds: [{
+                    color: 0xFFA500,
+                    title: '☀️ Dawn Breaks Over the Village',
+                    description: 
+                        '*The morning sun reveals the events of the Night Zero...*\n\n' +
+                        'The game progresses to the Day phase. Discuss and find the werewolves!',
+                    footer: { text: 'Debate wisely, for a wrong accusation could doom the village.' }
+                }]
+            });
+
+            // Create Day phase UI
+            const channel = await this.client.channels.fetch(this.gameChannelId);
+            await dayPhaseHandler.createDayPhaseUI(channel, this.players);
+
+            // Save state after transition
+            await this.saveGameState();
+
+            logger.info('Transitioned to Day phase from Night Zero', { 
+                phase: this.phase, 
+                round: this.round 
+            });
+        } catch (error) {
+            logger.error('Error finishing Night Zero', { error });
             throw error;
         }
     }
@@ -471,13 +514,13 @@ class WerewolfGame {
                 logger.warn('Already in Night phase, skipping transition');
                 return;
             }
-    
+
             // Clear any existing nomination before advancing to night
             if (this.nominatedPlayer) {
                 await this.voteProcessor.clearNomination('Day phase is ending.');
             }
-    
-            // Set phase AFTER clearing nominations
+
+            // Set phase first
             this.phase = PHASES.NIGHT;
             this.round += 1;
             
@@ -492,30 +535,51 @@ class WerewolfGame {
                     footer: { text: 'Remain silent until morning comes...' }
                 }]
             });
-    
+
             // Reset night action tracking
             this.completedNightActions.clear();
             this.expectedNightActions.clear();
             this.nightActions = {};
-    
-            // Save state AFTER all changes
+
+            // Save state after all changes
             await this.saveGameState();
-    
+
             // Delegate night action handling to NightActionProcessor
             await this.nightActionProcessor.handleNightActions();
-    
+
             logger.info(`Game advanced to Night ${this.round}`, {
                 phase: this.phase,
                 round: this.round,
                 stateAfterSave: await Game.findByPk(this.guildId) // Add this to verify state
             });
-    
+
         } catch (error) {
             logger.error('Error advancing to Night phase', { error, stack: error.stack });
             throw error;
         }
     }
-      
+
+    /**
+     * Completes the current phase and transitions automatically or relies on manual advance.
+     */
+    async completePhase() {
+        try {
+            switch (this.phase) {
+                case PHASES.DAY:
+                    await this.advanceToNight();
+                    break;
+                case PHASES.NIGHT:
+                    await this.advanceToDay();
+                    break;
+                default:
+                    logger.warn('Attempted to complete an unhandled phase:', { phase: this.phase });
+            }
+        } catch (error) {
+            logger.error('Error in completePhase', { error });
+            throw error;
+        }
+    }
+
     /**
      * Moves a player to the Dead channel.
      * @param {Player} player - The player to move.
@@ -620,6 +684,9 @@ class WerewolfGame {
         return Array.from(this.players.values()).filter((player) => player.isAlive);
     }
     
+    /**
+     * Completes the Night phase and transitions to Day phase.
+     */
     async advanceToDay() {
         try {
             // Guard against multiple transitions
@@ -627,44 +694,39 @@ class WerewolfGame {
                 logger.warn('Already in Day phase, skipping transition');
                 return;
             }
-    
+
             // Set phase first
             this.phase = PHASES.DAY;
-            
-            // Clear any night state
-            this.completedNightActions.clear();
-            this.expectedNightActions.clear();
-            this.nightActions = {};
-            
+            this.round += 1; // Increment round if necessary
+
             await this.broadcastMessage({
                 embeds: [{
                     color: 0xFFA500,
                     title: '☀️ Dawn Breaks Over the Village',
                     description: 
-                        '*The morning sun reveals the events of the night...*\n\n' +
-                        '**All players:** Please turn your cameras and microphones ON.\n' +
-                        'The time for discussion begins. Who among you seems suspicious?',
+                        '*The morning sun reveals the events of the Night...*\n\n' +
+                        'The game progresses to the Day phase. Discuss and find the werewolves!',
                     footer: { text: 'Debate wisely, for a wrong accusation could doom the village.' }
                 }]
             });
-    
-            // Save state AFTER all changes
-            await this.saveGameState();
-    
+
+            // Create Day phase UI for new nominations
             const channel = await this.client.channels.fetch(this.gameChannelId);
             await dayPhaseHandler.createDayPhaseUI(channel, this.players);
-    
-            logger.info(`Advanced to Day ${this.round}`, {
-                phase: this.phase,
-                round: this.round,
-                stateAfterSave: await Game.findByPk(this.guildId) // Add this to verify state
+
+            // Save state after transition
+            await this.saveGameState();
+
+            logger.info('Transitioned to Day phase', { 
+                phase: this.phase, 
+                round: this.round 
             });
-    
         } catch (error) {
-            logger.error('Error advancing to Day phase', { error, stack: error.stack });
+            logger.error('Error advancing to Day phase', { error });
             throw error;
         }
     }
+
     /**
      * Shuts down the game, cleaning up channels and resetting state.
      */
@@ -684,6 +746,15 @@ class WerewolfGame {
             this.selectedRoles.clear();
             this.gameOver = false;
             this.lastProtectedPlayer = null;
+            this.pendingHunterRevenge = null;
+            this.nominatedPlayer = null;
+            this.nominator = null;
+            this.seconder = null;
+            this.votingOpen = false;
+
+            // Clear game start time
+            this.gameStartTime = null;
+
             logger.info('Game has been shut down and reset');
         } catch (error) {
             logger.error('Error shutting down the game', { error });
@@ -763,11 +834,42 @@ class WerewolfGame {
     }
 
     cleanup() {
+        // Clear any intervals
+        if (this.stateSaveInterval) {
+            clearInterval(this.stateSaveInterval);
+            this.stateSaveInterval = null;
+        }
+
+        // Clear any timeouts
+        if (this.nominationTimeout) {
+            clearTimeout(this.nominationTimeout);
+            this.nominationTimeout = null;
+        }
+
         if (this.nightActionTimeout) {
             clearTimeout(this.nightActionTimeout);
             this.nightActionTimeout = null;
         }
-        // Add any other cleanup needed
+
+        // Clear game state
+        this.players.clear();
+        this.votes.clear();
+        this.nightActions = {};
+        this.lovers.clear();
+        this.selectedRoles.clear();
+        this.completedNightActions.clear();
+        this.expectedNightActions.clear();
+
+        // Reset other properties
+        this.phase = PHASES.LOBBY;
+        this.round = 0;
+        this.gameOver = false;
+        this.lastProtectedPlayer = null;
+        this.pendingHunterRevenge = null;
+        this.nominatedPlayer = null;
+        this.nominator = null;
+        this.seconder = null;
+        this.votingOpen = false;
     }
 
     async checkWinConditions() {
@@ -1177,6 +1279,127 @@ class WerewolfGame {
      */
     async processNightAction(playerId, action, targetId) {
         return await this.nightActionProcessor.processNightAction(playerId, action, targetId);
+    }
+
+    /**
+     * Processes all night actions and transitions to Day phase.
+     */
+    async processNightActions() {
+        try {
+            // Process Night Zero actions
+            if (this.phase === PHASES.NIGHT_ZERO) {
+                logger.info('Processing Night Zero actions');
+                if (this.selectedRoles.has(ROLES.CUPID)) {
+                    await this.nightActionProcessor.processCupidAction();
+                }
+            }
+
+            // Process other night actions
+            await this.nightActionProcessor.processBodyguardProtection();
+            await this.nightActionProcessor.processWerewolfAttacks();
+
+            // Clean up night state
+            this.nightActions = {};
+            this.completedNightActions.clear();
+            this.expectedNightActions.clear();
+
+            // Check win conditions and advance phase
+            const gameOver = await this.checkWinConditions();
+            if (!gameOver) {
+                await this.completePhase();
+            }
+        } catch (error) {
+            logger.error('Error processing night actions', { error });
+            // Even if there's an error, try to advance the phase
+            if (!this.checkWinConditions()) {
+                await this.advanceToDay();
+            }
+        }
+    }
+
+    /**
+     * Checks win conditions to determine if the game should end.
+     * @returns {boolean} - True if the game is over, else False.
+     */
+    async checkWinConditions() {
+        // Don't check win conditions during setup phases
+        if (this.phase === PHASES.LOBBY || this.phase === PHASES.NIGHT_ZERO) {
+            return false;
+        }
+    
+        // If game is already over, don't check again
+        if (this.gameOver) {
+            return true;
+        }
+    
+        // Get all living players
+        const alivePlayers = this.getAlivePlayers();
+        
+        // Count living werewolves
+        const livingWerewolves = alivePlayers.filter(p => p.role === ROLES.WEREWOLF).length;
+        
+        // Count living villager team (everyone who's not a werewolf)
+        const livingVillagerTeam = alivePlayers.filter(p => p.role !== ROLES.WEREWOLF).length;
+    
+        let winners = new Set();
+        let gameOver = false;
+    
+        // Calculate game stats
+        const gameStats = {
+            rounds: this.round,
+            totalPlayers: this.players.size,
+            eliminations: this.players.size - alivePlayers.length,
+            duration: this.getGameDuration(),
+            players: Array.from(this.players.values())
+        };
+    
+        // If all werewolves are dead, villagers win
+        if (livingWerewolves === 0) {
+            this.phase = PHASES.GAME_OVER;
+            this.gameOver = true;
+            // Add all non-werewolf players to winners
+            this.players.forEach(player => {
+                if (player.role !== ROLES.WEREWOLF) {
+                    winners.add(player);
+                }
+            });
+            gameOver = true;
+        }
+    
+        // If werewolves reach parity with or outnumber villager team, werewolves win
+        if (livingWerewolves >= livingVillagerTeam) {
+            this.phase = PHASES.GAME_OVER;
+            this.gameOver = true;
+            // Add all werewolf players to winners
+            this.players.forEach(player => {
+                if (player.role === ROLES.WEREWOLF) {
+                    winners.add(player);
+                }
+            });
+            gameOver = true;
+        }
+    
+        if (gameOver) {
+            // Send game end message without buttons
+            await this.broadcastMessage({
+                embeds: [createGameEndEmbed(Array.from(winners), gameStats)]
+            });
+    
+            // Update player stats
+            await this.updatePlayerStats(winners);
+    
+            // Automatically clean up the game
+            await this.shutdownGame();
+            
+            // Remove from client's games collection
+            this.client.games.delete(this.guildId);
+            
+            // Clean up from database
+            const Game = require('../models/Game');
+            await Game.destroy({ where: { guildId: this.guildId } });
+        }
+    
+        return gameOver;
     }
 };
 

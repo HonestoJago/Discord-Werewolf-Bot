@@ -30,16 +30,19 @@ module.exports = {
 
     async handleSelect(interaction, currentGame) {
         try {
-            const targetId = interaction.values[0];
-            
-            // Clear any existing nomination before starting a new one
+            // Check for active nomination first
             if (currentGame.nominatedPlayer) {
-                await currentGame.voteProcessor.clearNomination('A new nomination has been made.');
+                await interaction.reply({
+                    content: 'A nomination is already in progress. Please wait for it to conclude.',
+                    ephemeral: true
+                });
+                return;
             }
-            
+
+            const targetId = interaction.values[0];
             const target = currentGame.players.get(targetId);
             
-            // Use voteProcessor directly instead of going through game
+            // Use voteProcessor to handle the nomination
             await currentGame.voteProcessor.nominate(interaction.user.id, targetId);
 
             // Create second button

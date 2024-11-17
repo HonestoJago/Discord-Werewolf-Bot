@@ -18,8 +18,15 @@ Dive into the classic game of Werewolf with enhanced features that make each ses
    - **Configure Roles**: Toggle optional roles like Bodyguard, Cupid, and Hunter to customize your game.
    - **Begin the Hunt**: Once ready, start the game with a minimum of 4 players.
 
-2. **Night Phase**
-   - **Silence is Gold**: All players turn off cameras and microphones.
+2. **Night Zero Phase**
+   - **Silent Beginnings**: All players turn off cameras and microphones.
+   - **Secret Actions**:
+     - **Seer**: Receives the name of a random non-werewolf player.
+     - **Cupid**: If active, chooses two players to become lovers.
+   - **Automatic Transition**: After all mandatory actions are completed (or after a timeout if necessary), the game progresses to the Day phase.
+
+3. **Night Phase**
+   - **Dark Deeds**: All players turn off cameras and microphones.
    - **Secret Actions**:
      - **Werewolves** communicate in a private text channel to identify and attack a villager.
      - **Seer** investigates a player's role.
@@ -28,12 +35,12 @@ Dive into the classic game of Werewolf with enhanced features that make each ses
      - **Hunter** preps for a final revenge shot.
    - **Action Commands**: Players submit their actions via DMs to the bot, which prompts them through private messages when actions are required.
 
-3. **Day Phase**
+4. **Day Phase**
    - **Reveal and React**: Cameras and microphones are turned back on.
    - **Discussion and Debate**: Players discuss, accuse, and defend.
    - **Voting Time**: Nominate and vote to eliminate a suspected werewolf.
 
-4. **Winning the Game**
+5. **Winning the Game**
    - **Villagers Win**: All werewolves are eliminated.
    - **Werewolves Win**: Werewolves equal or outnumber the villagers.
 
