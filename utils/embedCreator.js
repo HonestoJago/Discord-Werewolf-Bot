@@ -547,6 +547,28 @@ function createLoverDeathEmbed(deadPlayerName) {
     };
 }
 
+// Add this new function with the other embed creators
+function createHunterRevengeEmbed() {
+    return {
+        color: 0x800000,
+        title: '🏹 Hunter\'s Last Shot',
+        description: 'You have been eliminated! As the Hunter, you may choose one player to take with you.\n\nSelect your target from the dropdown menu below.',
+        footer: { text: 'Choose wisely - your final action could change the course of the game...' }
+    };
+}
+
+function createHunterTensionEmbed(isDayPhase = true) {
+    return {
+        color: 0x4B0082,
+        title: '🌘 A Moment of Tension',
+        description: 
+            '*The air grows thick with anticipation as death\'s shadow lingers...*\n\n' +
+            'The village holds its breath, sensing that this elimination has set something in motion.\n' +
+            `Wait for fate to unfold before proceeding to ${isDayPhase ? 'nightfall' : 'daylight'}.`,
+        footer: { text: 'Some deaths echo louder than others...' }
+    };
+}
+
 module.exports = { 
     createPlayerListEmbed,
     createNominationEmbed,
@@ -566,5 +588,7 @@ module.exports = {
     createProtectionEmbed,
     createDayTransitionEmbed,
     createNightTransitionEmbed,
-    createLoverDeathEmbed
+    createLoverDeathEmbed,
+    createHunterRevengeEmbed,
+    createHunterTensionEmbed
 };

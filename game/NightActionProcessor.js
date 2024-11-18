@@ -8,7 +8,9 @@ const {
     createSeerRevealEmbed, 
     createProtectionEmbed,
     createNightTransitionEmbed,
-    createLoverDeathEmbed
+    createLoverDeathEmbed,
+    createHunterRevengeEmbed,
+    createHunterTensionEmbed
 } = require('../utils/embedCreator');
 
 class NightActionProcessor {
@@ -718,7 +720,36 @@ class NightActionProcessor {
                     // Handle Hunter case
                     if (target.role === ROLES.HUNTER) {
                         this.game.pendingHunterRevenge = target.id;
-                        await target.sendDM('You have been eliminated! Use `/action choose_target` to choose someone to take with you.');
+                        
+                        // Create dropdown for Hunter's revenge
+                        const validTargets = Array.from(this.game.players.values())
+                            .filter(p => p.isAlive && p.id !== target.id)
+                            .map(p => ({
+                                label: p.username,
+                                value: p.id,
+                                description: `Take ${p.username} with you`
+                            }));
+
+                        const selectMenu = new StringSelectMenuBuilder()
+                            .setCustomId('hunter_revenge')
+                            .setPlaceholder('Choose your target')
+                            .addOptions(validTargets);
+
+                        const row = new ActionRowBuilder().addComponents(selectMenu);
+
+                        // Send DM to Hunter with dropdown
+                        await target.sendDM({
+                            embeds: [createHunterRevengeEmbed()],
+                            components: [row]
+                        });
+
+                        // Send mysterious message to village
+                        await this.game.broadcastMessage({
+                            embeds: [createHunterTensionEmbed(false)]
+                        });
+
+                        // Don't advance phase yet - wait for Hunter's revenge
+                        return;
                     }
 
                     // Mark target as dead and move to dead channel

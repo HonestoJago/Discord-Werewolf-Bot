@@ -3,7 +3,8 @@ const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');
 const PHASES = require('../constants/phases');
-const { createVoteResultsEmbed } = require('../utils/embedCreator');
+const { createVoteResultsEmbed, createHunterRevengeEmbed, createHunterTensionEmbed } = require('../utils/embedCreator');
+const { StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
 
 class VoteProcessor {
     constructor(game) {
@@ -254,20 +255,31 @@ class VoteProcessor {
                     // Set up Hunter's revenge state
                     this.game.pendingHunterRevenge = target.id;
                     
-                    // Send DM to Hunter before marking as dead
-                    await target.sendDM('You have been eliminated! Use `/action choose_target` to choose someone to take with you.');
+                    // Create dropdown for Hunter's revenge
+                    const validTargets = Array.from(this.game.players.values())
+                        .filter(p => p.isAlive && p.id !== target.id)
+                        .map(p => ({
+                            label: p.username,
+                            value: p.id,
+                            description: `Take ${p.username} with you`
+                        }));
+
+                    const selectMenu = new StringSelectMenuBuilder()
+                        .setCustomId('hunter_revenge')
+                        .setPlaceholder('Choose your target')
+                        .addOptions(validTargets);
+
+                    const row = new ActionRowBuilder().addComponents(selectMenu);
+
+                    // Send DM to Hunter with dropdown
+                    await target.sendDM({
+                        embeds: [createHunterRevengeEmbed()],
+                        components: [row]
+                    });
                     
                     // Send mysterious message to village
                     await this.game.broadcastMessage({
-                        embeds: [{
-                            color: 0x4B0082,
-                            title: '🌘 A Moment of Tension',
-                            description: 
-                                '*The air grows thick with anticipation as death\'s shadow lingers...*\n\n' +
-                                'The village holds its breath, sensing that this elimination has set something in motion.\n' +
-                                'Wait for fate to unfold before proceeding to nightfall.',
-                            footer: { text: 'Some deaths echo louder than others...' }
-                        }]
+                        embeds: [createHunterTensionEmbed(true)]
                     });
 
                     // Reset voting state WITHOUT broadcasting a "nomination failed" message
