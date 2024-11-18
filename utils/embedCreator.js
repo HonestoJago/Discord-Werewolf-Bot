@@ -1,7 +1,7 @@
 const { EmbedBuilder } = require('discord.js');
 const ROLES = require('../constants/roles');
 
-// First, we'd need to add these role-specific constants
+// Role-specific constants - define these once at the top
 const ROLE_ABILITIES = {
     'werewolf': 'Vote each night to eliminate a player',
     'seer': 'Investigate one player each night to learn if they are a werewolf',
@@ -9,7 +9,8 @@ const ROLE_ABILITIES = {
     'cupid': 'Choose one player to be your lover at the start of the game. If either lover dies, both die of heartbreak.',
     'hunter': 'Take one player with you when you die',
     'villager': 'Vote during the day to eliminate suspicious players',
-    'minion': 'Learn the identity of the werewolves at the start of the game. Win with the werewolves.'
+    'minion': 'Learn the identity of the werewolves at the start of the game. Win with the werewolves.',
+    'sorcerer': 'Each night, investigate one player to learn if they are the Seer. Win with the werewolves.'
 };
 
 const ROLE_WIN_CONDITIONS = {
@@ -19,7 +20,8 @@ const ROLE_WIN_CONDITIONS = {
     'cupid': 'Win when all werewolves are eliminated',
     'hunter': 'Win when all werewolves are eliminated',
     'villager': 'Win when all werewolves are eliminated',
-    'minion': 'Win when werewolves achieve parity with villagers'
+    'minion': 'Win when werewolves achieve parity with villagers',
+    'sorcerer': 'Win when werewolves achieve parity with villagers'
 };
 
 const ROLE_TIPS = {
@@ -29,7 +31,8 @@ const ROLE_TIPS = {
     'cupid': 'Choose your lover wisely - your fates are linked! Consider picking someone you trust.',
     'hunter': 'Your revenge shot is powerful - use it wisely when eliminated',
     'villager': 'Pay attention to voting patterns and player behavior',
-    'minion': 'Help the werewolves without revealing your identity. You know who they are, but they don\'t know you!'
+    'minion': 'Help the werewolves without revealing your identity. You know who they are, but they don\'t know you!',
+    'sorcerer': 'Use your investigations to find and eliminate the Seer. Help the werewolves without revealing your identity!'
 };
 
 const ROLE_EMOJIS = {
@@ -39,7 +42,8 @@ const ROLE_EMOJIS = {
     'cupid': '💘',
     'hunter': '🏹',
     'villager': '👥',
-    'minion': '🦹'
+    'minion': '🦹',
+    'sorcerer': '🧙'
 };
 
 function getRoleEmoji(role) {
@@ -234,12 +238,24 @@ function createSeerRevealEmbed(target, isWerewolf) {
 }
 
 function createGameEndEmbed(winners, gameStats) {
-    const isWerewolfWin = winners.some(player => player.role === ROLES.WEREWOLF || player.role === ROLES.MINION);
+    const isWerewolfWin = winners.some(player => 
+        player.role === ROLES.WEREWOLF || 
+        player.role === ROLES.MINION || 
+        player.role === ROLES.SORCERER
+    );
     const allPlayers = Array.from(gameStats.players || []);
     
     // Group winners and others differently for werewolf win
-    const victoriousTeam = allPlayers.filter(p => p.role === ROLES.WEREWOLF || p.role === ROLES.MINION);
-    const defeatedTeam = allPlayers.filter(p => p.role !== ROLES.WEREWOLF && p.role !== ROLES.MINION);
+    const victoriousTeam = allPlayers.filter(p => 
+        p.role === ROLES.WEREWOLF || 
+        p.role === ROLES.MINION || 
+        p.role === ROLES.SORCERER
+    );
+    const defeatedTeam = allPlayers.filter(p => 
+        p.role !== ROLES.WEREWOLF && 
+        p.role !== ROLES.MINION && 
+        p.role !== ROLES.SORCERER
+    );
     
     return {
         color: isWerewolfWin ? 0x800000 : 0x008000,
@@ -330,7 +346,9 @@ function createGameWelcomeEmbed() {
                 value: 
                     '• 🛡️ **Bodyguard**: Protects one player each night\n' +
                     '• 💘 **Cupid**: Links two players in love. If one dies, both die\n' +
-                    '• 🏹 **Hunter**: Takes one player with them when they die',
+                    '• 🏹 **Hunter**: Takes one player with them when they die\n' +
+                    '• 🦹 **Minion**: Knows the Werewolves but is unknown to them. Wins with Werewolves\n' +
+                    '• 🧙 **Sorcerer**: Can identify the Seer. Unknown to Werewolves but wins with them',
                 inline: false
             },
             {
@@ -399,13 +417,14 @@ function createNominationResetEmbed() {
 }
 
 // Add these new functions
-function createNightActionEmbed(role, description) {
+function createNightActionEmbed(role) {
     const colors = {
         [ROLES.WEREWOLF]: 0x800000,
         [ROLES.SEER]: 0x4B0082,
         [ROLES.BODYGUARD]: 0x4B0082,
         [ROLES.HUNTER]: 0x800000,
-        [ROLES.CUPID]: 0xff69b4
+        [ROLES.CUPID]: 0xff69b4,
+        [ROLES.SORCERER]: 0x4B0082
     };
 
     const titles = {
@@ -413,7 +432,17 @@ function createNightActionEmbed(role, description) {
         [ROLES.SEER]: '🔮 Vision Quest',
         [ROLES.BODYGUARD]: '🛡️ Vigilant Protection',
         [ROLES.HUNTER]: '🏹 Hunter\'s Last Stand',
-        [ROLES.CUPID]: '💘 Choose Your Lover'
+        [ROLES.CUPID]: '💘 Choose Your Lover',
+        [ROLES.SORCERER]: '🧙 Dark Divination'
+    };
+
+    const descriptions = {
+        [ROLES.WEREWOLF]: '*Your fangs gleam in the moonlight as you stalk your prey...*\n\nSelect your victim from the dropdown menu below.',
+        [ROLES.SEER]: '*Your mystical powers awaken with the night...*\n\nSelect a player to investigate from the dropdown menu below.',
+        [ROLES.BODYGUARD]: '*Your watchful eyes scan the village, ready to shield the innocent...*\n\nSelect a player to protect from the dropdown menu below.',
+        [ROLES.HUNTER]: '*With your dying breath, you reach for your bow...*\n\nSelect a player to take with you from the dropdown menu below.',
+        [ROLES.CUPID]: '*Your arrows of love are ready to fly...*\n\nSelect a player to be your lover from the dropdown menu below.',
+        [ROLES.SORCERER]: '*Your dark powers surge as you seek the Seer...*\n\nSelect a player to investigate from the dropdown menu below.'
     };
 
     const footers = {
@@ -421,26 +450,16 @@ function createNightActionEmbed(role, description) {
         [ROLES.SEER]: 'The truth lies within your sight...',
         [ROLES.BODYGUARD]: 'Your shield may mean the difference between life and death...',
         [ROLES.HUNTER]: 'Your final shot will not go to waste...',
-        [ROLES.CUPID]: 'Love and death are forever intertwined...'
+        [ROLES.CUPID]: 'Love and death are forever intertwined...',
+        [ROLES.SORCERER]: 'Choose wisely - finding the Seer could turn the tide...'
     };
 
     return {
         color: colors[role],
         title: titles[role],
-        description: description || getDefaultDescription(role),
+        description: descriptions[role],
         footer: { text: footers[role] }
     };
-}
-
-function getDefaultDescription(role) {
-    const descriptions = {
-        [ROLES.WEREWOLF]: '*Your fangs gleam in the moonlight as you stalk your prey...*\n\nSelect your victim from the dropdown menu below.',
-        [ROLES.SEER]: '*Your mystical powers awaken with the night...*\n\nSelect a player to investigate from the dropdown menu below.',
-        [ROLES.BODYGUARD]: '*Your watchful eyes scan the village, ready to shield the innocent...*\n\nSelect a player to protect from the dropdown menu below.',
-        [ROLES.HUNTER]: '*With your dying breath, you reach for your bow...*\n\nSelect a player to take with you from the dropdown menu below.',
-        [ROLES.CUPID]: '*Your arrows of love are ready to fly...*\n\nSelect a player to be your lover from the dropdown menu below.'
-    };
-    return descriptions[role];
 }
 
 function createProtectionEmbed(wasAttacked = false) {
@@ -588,6 +607,30 @@ function createMinionRevealEmbed(werewolves) {
     };
 }
 
+// Add new embed creator for Sorcerer investigation results
+function createSorcererRevealEmbed(target, isSeer) {
+    return {
+        color: 0x4B0082,  // Deep purple for mystical effect
+        title: '🧙 Dark Vision',
+        description: 
+            `*Your dark powers reveal the truth about **${target.username}**...*\n\n` +
+            `Your vision shows that they are **${isSeer ? 'the Seer!' : 'Not the Seer.'}**`,
+        footer: { text: 'Use this knowledge to aid the werewolves from the shadows...' }
+    };
+}
+
+// Add Sorcerer-specific embed creators
+function createSorcererActionEmbed() {
+    return {
+        color: 0x4B0082,
+        title: '🧙 Dark Divination',
+        description: 
+            '*Your dark powers surge as you seek the Seer...*\n\n' +
+            'Select a player to investigate from the dropdown menu below.',
+        footer: { text: 'Choose wisely - finding the Seer could turn the tide...' }
+    };
+}
+
 module.exports = { 
     createPlayerListEmbed,
     createNominationEmbed,
@@ -610,5 +653,7 @@ module.exports = {
     createLoverDeathEmbed,
     createHunterRevengeEmbed,
     createHunterTensionEmbed,
-    createMinionRevealEmbed
+    createMinionRevealEmbed,
+    createSorcererRevealEmbed,
+    createSorcererActionEmbed
 };

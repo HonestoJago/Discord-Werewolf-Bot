@@ -197,13 +197,21 @@ class GameStateManager {
                         // Continue with game restoration even if UI fails
                     });
 
-                // Restore role history
+                // Restore role-specific history
                 if (savedState.roleHistory?.seer?.investigations) {
                     game.seerInvestigations = savedState.roleHistory.seer.investigations;
                     logger.info('Restored Seer investigations', {
                         investigationCount: savedState.roleHistory.seer.investigations.length
                     });
                 }
+
+                if (savedState.roleHistory?.sorcerer?.investigations) {
+                    game.sorcererInvestigations = savedState.roleHistory.sorcerer.investigations;
+                    logger.info('Restored Sorcerer investigations', {
+                        investigationCount: savedState.roleHistory.sorcerer.investigations.length
+                    });
+                }
+
                 if (savedState.roleHistory?.bodyguard?.protections) {
                     game.bodyguardProtections = savedState.roleHistory.bodyguard.protections;
                 }
@@ -463,6 +471,14 @@ class GameStateManager {
                     info.push('You are the lone werewolf');
                 }
                 break;
+            case ROLES.MINION:
+                const knownWerewolves = Array.from(game.players.values())
+                    .filter(p => p.role === ROLES.WEREWOLF)
+                    .map(p => p.username);
+                if (knownWerewolves.length > 0) {
+                    info.push(`The werewolves are: **${knownWerewolves.join(', ')}**`);
+                }
+                break;
             case ROLES.SEER:
                 if (game.seerInvestigations) {
                     const investigations = game.seerInvestigations
@@ -478,6 +494,22 @@ class GameStateManager {
 
                     if (investigations.length > 0) {
                         info.push('Your investigations have revealed:\n' + investigations.join('\n'));
+                    }
+                }
+                break;
+            case ROLES.SORCERER:
+                if (game.sorcererInvestigations) {
+                    const investigations = game.sorcererInvestigations
+                        .filter(inv => inv.sorcererId === player.id)
+                        .map(inv => {
+                            const target = game.players.get(inv.targetId);
+                            if (!target) return null;
+                            return `Investigation: **${target.username}** is ${inv.isSeer ? 'the Seer!' : 'Not the Seer.'}`;
+                        })
+                        .filter(Boolean);
+
+                    if (investigations.length > 0) {
+                        info.push('Your dark visions have revealed:\n' + investigations.join('\n'));
                     }
                 }
                 break;

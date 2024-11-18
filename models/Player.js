@@ -55,6 +55,10 @@ const PlayerStats = sequelize.define('PlayerStats', {
         type: DataTypes.INTEGER,
         defaultValue: 0
     },
+    timesSorcerer: {
+        type: DataTypes.INTEGER,
+        defaultValue: 0
+    },
     // Additional stats
     correctVotes: {
         type: DataTypes.INTEGER,

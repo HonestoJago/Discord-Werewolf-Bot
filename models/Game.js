@@ -238,11 +238,13 @@ const Game = sequelize.define('Game', {
         //             }
         //         ]
         //     },
-        //     minion: {  // Add Minion history
-        //         revealedWerewolves: [
+        //     sorcerer: {  // Add Sorcerer history
+        //         investigations: [
         //             {
-        //                 minionId: string,
-        //                 werewolfIds: string[],
+        //                 sorcererId: string,
+        //                 targetId: string,
+        //                 round: number,
+        //                 result: boolean,  // true = is seer
         //                 timestamp: number
         //             }
         //         ]

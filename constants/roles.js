@@ -8,6 +8,7 @@ const ROLES = Object.freeze({
     HUNTER: 'hunter',
     VILLAGER: 'villager',
     MINION: 'minion',
+    SORCERER: 'sorcerer',
 });
 
 module.exports = ROLES;

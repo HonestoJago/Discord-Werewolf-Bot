@@ -23,6 +23,7 @@ const ROLE_CONFIG = {
     [ROLES.CUPID]: { maxCount: 1 },
     [ROLES.HUNTER]: { maxCount: 1 },
     [ROLES.MINION]: { maxCount: 1 },
+    [ROLES.SORCERER]: { maxCount: 1 },
     [ROLES.VILLAGER]: { maxCount: (playerCount) => playerCount }
 };
 
@@ -237,6 +238,9 @@ class WerewolfGame {
             }
             if (this.selectedRoles.get(ROLES.MINION)) {
                 roles.push(ROLES.MINION);
+            }
+            if (this.selectedRoles.get(ROLES.SORCERER)) {
+                roles.push(ROLES.SORCERER);
             }
             
             // Validate total roles before adding villagers
@@ -889,13 +893,15 @@ class WerewolfGame {
             gameOver = true;
         }
     
-        // If werewolves reach parity with villager team, werewolves and minion win
+        // If werewolves reach parity with villager team, werewolves, minion, and sorcerer win
         if (livingWerewolves >= livingVillagerTeam) {
             this.phase = PHASES.GAME_OVER;
             this.gameOver = true;
-            // Add all werewolf players and minion to winners
+            // Add all werewolf team players to winners
             this.players.forEach(player => {
-                if (player.role === ROLES.WEREWOLF || player.role === ROLES.MINION) {
+                if (player.role === ROLES.WEREWOLF || 
+                    player.role === ROLES.MINION || 
+                    player.role === ROLES.SORCERER) {
                     winners.add(player);
                 }
             });
@@ -1262,13 +1268,15 @@ class WerewolfGame {
             gameOver = true;
         }
     
-        // If werewolves reach parity with villager team, werewolves and minion win
+        // If werewolves reach parity with villager team, werewolves, minion, and sorcerer win
         if (livingWerewolves >= livingVillagerTeam) {
             this.phase = PHASES.GAME_OVER;
             this.gameOver = true;
-            // Add all werewolf players and minion to winners
+            // Add all werewolf team players to winners
             this.players.forEach(player => {
-                if (player.role === ROLES.WEREWOLF || player.role === ROLES.MINION) {
+                if (player.role === ROLES.WEREWOLF || 
+                    player.role === ROLES.MINION || 
+                    player.role === ROLES.SORCERER) {
                     winners.add(player);
                 }
             });

@@ -11,7 +11,8 @@ const {
     createLoverDeathEmbed,
     createHunterRevengeEmbed,
     createHunterTensionEmbed,
-    createMinionRevealEmbed
+    createMinionRevealEmbed,
+    createSorcererRevealEmbed
 } = require('../utils/embedCreator');
 
 class NightActionProcessor {
@@ -38,14 +39,6 @@ class NightActionProcessor {
                     'You are not authorized to perform this action', 
                     'You are not authorized to perform this action.'
                 );
-            }
-
-            // Handle Hunter's revenge
-            if (action === 'choose_target' || action === 'hunter_revenge') {
-                if (!this.game.pendingHunterRevenge || player.id !== this.game.pendingHunterRevenge) {
-                    throw new GameError('Invalid action', 'You can only use this action when prompted after being eliminated as the Hunter.');
-                }
-                return await this.processHunterRevenge(player, targetId);
             }
 
             // Regular night action validation
@@ -85,14 +78,7 @@ class NightActionProcessor {
                 
                 // Send the result immediately
                 await seer.sendDM({
-                    embeds: [{
-                        color: 0x4B0082,
-                        title: '🔮 Vision Revealed',
-                        description: 
-                            `*Your mystical powers reveal the truth about **${target.username}**${aliveStatus}...*\n\n` +
-                            `Your vision shows that they are **${isWerewolf ? 'a Werewolf!' : 'Not a Werewolf.'}**`,
-                        footer: { text: 'Use this knowledge wisely...' }
-                    }]
+                    embeds: [createSeerRevealEmbed(target, isWerewolf)]
                 });
 
                 logger.info('Seer investigation completed', {
@@ -103,12 +89,36 @@ class NightActionProcessor {
                 });
             }
 
+            // Handle Sorcerer investigation immediately
+            if (action === 'dark_investigate') {
+                const sorcerer = this.game.players.get(playerId);
+                const target = this.game.players.get(targetId);
+
+                if (!target) {
+                    throw new GameError('Invalid target', 'Target player not found.');
+                }
+
+                const isSeer = target.role === ROLES.SEER;
+                
+                // Send the result immediately
+                await sorcerer.sendDM({
+                    embeds: [createSorcererRevealEmbed(target, isSeer)]
+                });
+
+                logger.info('Sorcerer investigation completed', {
+                    sorcererId: sorcerer.id,
+                    targetId: target.id,
+                    targetAlive: target.isAlive,
+                    result: isSeer ? 'seer' : 'not seer'
+                });
+            }
+
             // Store the action for other roles
             this.game.nightActions[playerId] = { action, target: targetId };
             this.game.completedNightActions.add(playerId);
 
-            // Only send generic confirmation for non-Seer actions
-            if (action !== 'investigate') {
+            // Only send generic confirmation for non-investigation actions
+            if (action !== 'investigate' && action !== 'dark_investigate') {
                 await player.sendDM('Your action has been recorded. Wait for the night phase to end to see the results.');
             }
 
@@ -335,6 +345,11 @@ class NightActionProcessor {
                     throw new GameError('Invalid role', 'Only the Seer can investigate players.');
                 }
                 break;
+            case 'dark_investigate':
+                if (player.role !== ROLES.SORCERER) {
+                    throw new GameError('Invalid role', 'Only the Sorcerer can perform dark investigations.');
+                }
+                break;
             case 'attack':
                 if (player.role !== ROLES.WEREWOLF) {
                     throw new GameError('Invalid role', 'Only Werewolves can attack players.');
@@ -347,7 +362,7 @@ class NightActionProcessor {
                 }
                 break;
             default:
-                throw new GameError('Invalid action', 'Unknown action type.');
+                throw new GameError('Unknown action type', 'Unknown action type.');
         }
 
         // Check if player has already acted
@@ -376,7 +391,7 @@ class NightActionProcessor {
             }
         }
 
-        if (action === 'investigate') {
+        if (action === 'investigate' || action === 'dark_investigate') {
             if (targetId === player.id) {
                 throw new GameError('Invalid target', 'You cannot investigate yourself.');
             }
@@ -409,7 +424,7 @@ class NightActionProcessor {
             });
 
             // Identify all players with night actions
-            const nightRoles = [ROLES.WEREWOLF, ROLES.SEER, ROLES.BODYGUARD];
+            const nightRoles = [ROLES.WEREWOLF, ROLES.SEER, ROLES.BODYGUARD, ROLES.SORCERER];
             const nightPlayers = Array.from(this.game.players.values()).filter(player => 
                 nightRoles.includes(player.role) && player.isAlive
             );
@@ -470,6 +485,8 @@ class NightActionProcessor {
                     p.id !== this.game.lastProtectedPlayer
                 );
             case ROLES.SEER:
+                return allPlayers;
+            case ROLES.SORCERER:
                 return allPlayers;
             default:
                 return [];

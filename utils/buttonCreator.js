@@ -12,7 +12,8 @@ const createRoleButton = (role) => {
         [ROLES.BODYGUARD]: '🛡️',
         [ROLES.CUPID]: '💘',
         [ROLES.HUNTER]: '🏹',
-        [ROLES.MINION]: '🦹'
+        [ROLES.MINION]: '🦹',
+        [ROLES.SORCERER]: '🧙'
     };
     
     return new ButtonBuilder()
@@ -46,7 +47,8 @@ function createGameSetupButtons() {
             createRoleButton(ROLES.BODYGUARD),
             createRoleButton(ROLES.CUPID),
             createRoleButton(ROLES.HUNTER),
-            createRoleButton(ROLES.MINION)
+            createRoleButton(ROLES.MINION),
+            createRoleButton(ROLES.SORCERER)
         );
 
     const controlRow = new ActionRowBuilder()

@@ -394,7 +394,8 @@ client.on('interactionCreate', async interaction => {
                             [ROLES.WEREWOLF]: 'attack',
                             [ROLES.SEER]: 'investigate',
                             [ROLES.BODYGUARD]: 'protect',
-                            [ROLES.CUPID]: 'choose_lovers'
+                            [ROLES.CUPID]: 'choose_lovers',
+                            [ROLES.SORCERER]: 'dark_investigate'
                         };
 
                         try {

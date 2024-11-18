@@ -29,10 +29,11 @@ async function initializeDatabase() {
         await sequelize.sync({ alter: true });
         logger.info('Database schema synchronized.');
 
-        // Check if we need to add the timesMinion column
+        // Check if we need to add new role columns
         const PlayerStats = require('../models/Player');
         const tableInfo = await sequelize.queryInterface.describeTable(PlayerStats.tableName);
         
+        // Add Minion column if it doesn't exist
         if (!tableInfo.timesMinion) {
             await sequelize.queryInterface.addColumn(
                 PlayerStats.tableName,
@@ -43,6 +44,19 @@ async function initializeDatabase() {
                 }
             );
             logger.info('Added timesMinion column to PlayerStats');
+        }
+
+        // Add Sorcerer column if it doesn't exist
+        if (!tableInfo.timesSorcerer) {
+            await sequelize.queryInterface.addColumn(
+                PlayerStats.tableName,
+                'timesSorcerer',
+                {
+                    type: DataTypes.INTEGER,
+                    defaultValue: 0
+                }
+            );
+            logger.info('Added timesSorcerer column to PlayerStats');
         }
 
     } catch (err) {

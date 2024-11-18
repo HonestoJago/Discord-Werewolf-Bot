@@ -13,7 +13,8 @@ const validRoles = [
     ROLES.CUPID,
     ROLES.HUNTER,
     ROLES.VILLAGER,
-    ROLES.MINION
+    ROLES.MINION,
+    ROLES.SORCERER
 ];
 
 class Player {
