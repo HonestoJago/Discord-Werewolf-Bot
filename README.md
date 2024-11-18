@@ -2,59 +2,64 @@
 
 Welcome to the **Discord Werewolf Bot** 🐺—your gateway to the thrilling social deduction game of Werewolf (also known as Mafia) right within your Discord server! With seamless video and voice chat integration, gather your friends, form alliances, and unveil the hidden werewolves among you.
 
-## 🌟 Why Choose Discord Werewolf Bot?
-
-Embark on an immersive gaming experience where strategy, deception, and deduction come alive. Whether you're a seasoned Werewolf veteran or new to the game, our bot offers an intuitive and engaging platform to enjoy endless rounds of intrigue and fun.
-
 ## 🎮 Gameplay Overview
 
 Dive into the classic game of Werewolf with enhanced features that make each session unique and exciting:
 
 ### 🔄 **Game Flow**
 
-1. **Setup Phase**
-   - **Start a Game**: Server admin uses `/create` to initiate a new game session.
-   - **Join the Game**: Players join using the **Join** button.
-   - **Configure Roles**: Use intuitive toggle buttons to customize optional roles.
-   - **Role Preview**: View current role distribution with the **View Roles** button.
-   - **Begin the Hunt**: Start the game when ready (minimum 4 players).
+1. **Setup/Lobby Phase**
+   - **Start a Game**: Server admin initiates with the Create button (or `/create` as backup)
+   - **Join the Game**: Players join using the **Join** button (or `/join` as backup)
+   - **Configure Roles**: Use intuitive toggle buttons to customize optional roles
+   - **Role Preview**: View current role distribution with the **View Roles** button
+   - **Begin the Hunt**: Start the game when ready (minimum 4 players)
 
 2. **Night Zero Phase**
-   - **Silent Beginnings**: All players turn off cameras and microphones.
-   - **Secret Actions**:
-     - **Seer**: Receives initial information via DM about a random non-werewolf player.
-     - **Cupid**: If active, uses dropdown menu in DM to choose two players as lovers.
-   - **Automatic Transition**: Game advances to Day phase after all actions complete.
+   - **Silent Beginnings**: All players turn off cameras and microphones
+   - **Special Role Actions**:
+     - **Seer**: Receives initial vision via DM about a random non-werewolf player
+     - **Cupid**: If active, uses dropdown menu to choose their own lover (if either lover dies, both die of heartbreak)
+   - **Automatic Transition**: Game advances to first Day phase after all actions complete
 
-3. **Night Phase**
-   - **Dark Deeds**: All players turn off cameras and microphones.
-   - **Interactive DM System**:
-     - **Werewolves**: Select victims through dropdown menus in their private channel.
-     - **Seer**: Choose investigation targets via DM dropdown.
-     - **Bodyguard**: Select protection targets through DM interface.
-     - **Hunter**: Prepare revenge shot through DM selection (when eliminated).
-   - **Real-time Feedback**: Immediate confirmation of action submissions.
-
-4. **Day Phase**
-   - **Enhanced Voting System**:
-     - **Nomination**: Select players through dropdown menu.
-     - **Seconding**: Clear button interface for supporting nominations.
-     - **Voting**: Intuitive guilty/innocent buttons for each vote.
+3. **Day Phase**
+   - **Discussion Time**: All players turn cameras and microphones back on
+   - **Enhanced Voting System** (all through intuitive dropdown menus and buttons):
+     - **Nomination**: Select players through dropdown menu
+     - **Seconding**: Support nominations with clear button interface
+     - **Voting**: Cast votes through guilty/innocent buttons
    - **Visual Feedback**: 
      - Real-time vote tallies
-     - Clear indicators for nomination status
-     - Embedded messages showing voting results
+     - Clear nomination status indicators
+     - Detailed voting results in embedded messages
 
-5. **Winning the Game**
-   - **Villagers Win**: All werewolves are eliminated.
-   - **Werewolves Win**: Werewolves equal or outnumber the villagers.
+4. **Night Phase**
+   - **Dark Deeds**: All players turn off cameras and microphones
+   - **Role Actions** (all through convenient dropdown menus in DMs):
+     - **Werewolves**: Select victims in their private channel
+     - **Seer**: Choose investigation targets
+     - **Bodyguard**: Select protection targets
+     - **Hunter**: Choose revenge target (when eliminated)
+   - **Real-time Feedback**: Immediate confirmation of submitted actions
+
+The game alternates between Day and Night phases until a win condition is met:
+- **Villagers Win**: All werewolves are eliminated
+- **Werewolves Win**: Werewolves equal or outnumber the villagers
+
+### 🎮 Interface Priority
+All game actions are primarily conducted through our intuitive GUI system:
+- **Dropdown Menus**: For player selection and actions
+- **Interactive Buttons**: For voting and role toggles
+- **Rich Embeds**: For game information and results
+
+Slash commands are maintained only as a backup system and are not the primary way to interact with the game.
 
 ### 🧑‍🤝‍🧑 **Roles Explained**
 
 - **🐺 Werewolves**: Covertly eliminate villagers at night. They communicate with each other in a private text channel within the Discord server to strategize and plan their attacks.
 - **👁️ Seer**: Discover the true identity of players.
 - **🛡️ Bodyguard**: Shield players from werewolf attacks.
-- **💘 Cupid**: Create bonds that affect the game's outcome.
+- **💘 Cupid**: Chooses one player as their lover at the start of the game. The two lovers' fates are intertwined - if either dies, the other dies of heartbreak.
 - **🏹 Hunter**: Execute a final revenge upon elimination.
 - **👥 Villagers**: Work together to root out werewolves.
 
