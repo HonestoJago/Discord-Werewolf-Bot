@@ -111,6 +111,19 @@ class NightActionProcessor {
                     targetAlive: target.isAlive,
                     result: isSeer ? 'seer' : 'not seer'
                 });
+
+                // Store the investigation result
+                if (!this.game.roleHistory.sorcerer) {
+                    this.game.roleHistory.sorcerer = { investigations: [] };
+                }
+                
+                this.game.roleHistory.sorcerer.investigations.push({
+                    sorcererId: sorcerer.id,
+                    targetId: target.id,
+                    round: this.game.round,
+                    result: isSeer,
+                    timestamp: Date.now()
+                });
             }
 
             // Store the action for other roles

@@ -57,16 +57,6 @@ module.exports = {
 
             let stats = await PlayerStats.findByPk(targetUser.id.toString());
             
-            logger.info('Database query details:', { 
-                searchedId: targetUser.id,
-                found: !!stats,
-                statsData: stats ? {
-                    discordId: stats.discordId,
-                    username: stats.username,
-                    gamesPlayed: stats.gamesPlayed
-                } : null
-            });
-
             if (!stats) {
                 logger.info('Creating new player record', {
                     discordId: targetUser.id,
@@ -101,7 +91,9 @@ module.exports = {
                         `Bodyguard: ${stats.timesBodyguard || 0}\n` +
                         `Cupid: ${stats.timesCupid || 0}\n` +
                         `Hunter: ${stats.timesHunter || 0}\n` +
-                        `Villager: ${stats.timesVillager || 0}`
+                        `Villager: ${stats.timesVillager || 0}\n` +
+                        `Minion: ${stats.timesMinion || 0}\n` +
+                        `Sorcerer: ${stats.timesSorcerer || 0}`
                     },
                     { name: '🎯 Achievements', value:
                         `Correct Votes: ${stats.correctVotes || 0}\n` +

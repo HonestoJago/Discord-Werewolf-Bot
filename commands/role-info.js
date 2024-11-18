@@ -17,7 +17,9 @@ module.exports = {
                     { name: '🛡️ Bodyguard', value: ROLES.BODYGUARD },
                     { name: '💘 Cupid', value: ROLES.CUPID },
                     { name: '🏹 Hunter', value: ROLES.HUNTER },
-                    { name: '👥 Villager', value: ROLES.VILLAGER }
+                    { name: '👥 Villager', value: ROLES.VILLAGER },
+                    { name: '🦹 Minion', value: ROLES.MINION },
+                    { name: '🧙 Sorcerer', value: ROLES.SORCERER }
                 )),
 
     async execute(interaction) {

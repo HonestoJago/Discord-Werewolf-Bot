@@ -243,6 +243,18 @@ class WerewolfGame {
                 roles.push(ROLES.SORCERER);
             }
             
+            // Add validation for werewolf team size
+            const werewolfTeamSize = werewolfCount + 
+                (this.selectedRoles.get(ROLES.MINION) || 0) + 
+                (this.selectedRoles.get(ROLES.SORCERER) || 0);
+                
+            if (werewolfTeamSize > Math.floor(playerCount / 3)) {
+                throw new GameError(
+                    'Too many evil roles',
+                    'Too many werewolf-aligned roles selected for the player count. Remove some optional roles.'
+                );
+            }
+            
             // Validate total roles before adding villagers
             if (roles.length > playerCount) {
                 throw new GameError(
@@ -292,8 +304,7 @@ class WerewolfGame {
                     });
                 }
             }
-
-                   
+            
             logger.info('Roles assigned successfully', {
                 playerCount,
                 werewolfCount,
@@ -315,6 +326,7 @@ class WerewolfGame {
             throw error;
         }
     }
+    
 
     /**
      * Creates private channels for werewolves and dead players.
