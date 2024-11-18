@@ -308,10 +308,25 @@ We're actively developing new features to enhance your gaming experience:
 - **Achievement System**: Unlock special badges and titles
 
 ### 💾 Persistent Gaming
-- **Database Integration**: Games persist across bot restarts
-- **Game State Recovery**: Seamlessly resume interrupted games
-- **Long-term Statistics**: Track player progress over time
-- **Cross-server Profiles**: Maintain stats across different Discord servers
+- **Database Integration**: 
+  - SQLite database for reliable storage
+  - Automatic game state snapshots
+  - Player statistics tracking
+  - Role history and achievements
+- **Game State Recovery**: 
+  - Seamless recovery after interruptions
+  - Preserves all game progress
+  - Maintains channel states
+  - Restores player roles and actions
+- **Long-term Statistics**: 
+  - Individual player tracking
+  - Role-specific performance
+  - Win rates and streaks
+  - Historical game data
+- **Cross-server Profiles**: 
+  - Unified player statistics
+  - Achievement progression
+  - Consistent tracking across servers
 
 ---
 
