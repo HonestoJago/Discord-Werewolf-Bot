@@ -532,6 +532,21 @@ function createNightTransitionEmbed(players) {
     };
 }
 
+function createLoverDeathEmbed(deadPlayerName) {
+    return {
+        color: 0xff69b4,  // Pink color for love theme
+        title: '💔 A Heart Breaks',
+        description: 
+            '```diff\n- LOVE AND DEATH ARE INTERTWINED\n```\n' +
+            `*The tragic fate of **${deadPlayerName}** sends ripples through the village...*\n\n` +
+            '# **A Bond of Love Claims Another**\n\n' +
+            '*Unable to live without their beloved, another soul departs this world...*',
+        footer: { 
+            text: 'Some bonds transcend even death itself...' 
+        }
+    };
+}
+
 module.exports = { 
     createPlayerListEmbed,
     createNominationEmbed,
@@ -550,5 +565,6 @@ module.exports = {
     createNightActionEmbed,
     createProtectionEmbed,
     createDayTransitionEmbed,
-    createNightTransitionEmbed
+    createNightTransitionEmbed,
+    createLoverDeathEmbed
 };

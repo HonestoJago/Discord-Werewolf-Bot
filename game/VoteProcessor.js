@@ -233,8 +233,8 @@ class VoteProcessor {
             if (eliminated) {
                 // Announce whether the eliminated player was a werewolf
                 const isWerewolf = target.role === ROLES.WEREWOLF;
-                await this.game.broadcastMessage({
-                    embeds: [{
+                    await this.game.broadcastMessage({
+                        embeds: [{
                         color: isWerewolf ? 0x008000 : 0x800000,
                         title: isWerewolf ? '🐺 A Wolf Among Us!' : '❌ An Innocent Soul',
                         description: isWerewolf ?
@@ -290,16 +290,16 @@ class VoteProcessor {
                 await this.game.moveToDeadChannel(target);
                 await this.game.nightActionProcessor.handleLoversDeath(target);
 
-                // Reset voting state WITHOUT broadcasting a "nomination failed" message
-                this.game.nominatedPlayer = null;
-                this.game.nominator = null;
-                this.game.seconder = null;
-                this.game.votingOpen = false;
-                this.game.votes.clear();
-                if (this.game.nominationTimeout) {
-                    clearTimeout(this.game.nominationTimeout);
-                    this.game.nominationTimeout = null;
-                }
+                    // Reset voting state WITHOUT broadcasting a "nomination failed" message
+                    this.game.nominatedPlayer = null;
+                    this.game.nominator = null;
+                    this.game.seconder = null;
+                    this.game.votingOpen = false;
+                    this.game.votes.clear();
+                    if (this.game.nominationTimeout) {
+                        clearTimeout(this.game.nominationTimeout);
+                        this.game.nominationTimeout = null;
+                    }
 
                 // Only advance to night if someone was actually eliminated
                 const gameOver = await this.game.checkWinConditions();
@@ -338,24 +338,24 @@ class VoteProcessor {
 
         // Mark both players as dead
         hunter.isAlive = false;
-        target.isAlive = false;
+                target.isAlive = false;
 
         // Broadcast the revenge
-        await this.game.broadcastMessage({
-            embeds: [{
+                    await this.game.broadcastMessage({
+                        embeds: [{
                 color: 0x800000,
                 title: '🏹 The Hunter\'s Final Shot',
-                description: 
+                            description: 
                     `*With their dying breath, **${hunter.username}** raises their bow...*\n\n` +
                     `In a final act of vengeance, they take **${target.username}** with them to the grave!`,
                 footer: { text: 'Even in death, the Hunter\'s aim remains true...' }
-            }]
-        });
-        
+                        }]
+                    });
+
         // Move both to dead channel
         await this.game.moveToDeadChannel(hunter);
-        await this.game.moveToDeadChannel(target);
-        
+                await this.game.moveToDeadChannel(target);
+
         // Handle any lover deaths
         await this.game.nightActionProcessor.handleLoversDeath(target);
         
@@ -371,26 +371,26 @@ class VoteProcessor {
     async clearNomination(reason, broadcast = true) {
         if (this.game.nominatedPlayer || this.game.nominator || this.game.seconder || this.game.votingOpen) {
             // Clear all nomination-related state
-            this.game.nominatedPlayer = null;
-            this.game.nominator = null;
-            this.game.seconder = null;
-            this.game.votingOpen = false;
-            this.game.votes.clear();
+                    this.game.nominatedPlayer = null;
+                    this.game.nominator = null;
+                    this.game.seconder = null;
+                    this.game.votingOpen = false;
+                    this.game.votes.clear();
 
             // Clear any existing timeout
-            if (this.game.nominationTimeout) {
-                clearTimeout(this.game.nominationTimeout);
-                this.game.nominationTimeout = null;
-            }
+                    if (this.game.nominationTimeout) {
+                        clearTimeout(this.game.nominationTimeout);
+                        this.game.nominationTimeout = null;
+                    }
 
             // Only broadcast if explicitly requested
             if (broadcast) {
-                await this.game.broadcastMessage({
-                    embeds: [{
+                    await this.game.broadcastMessage({
+                        embeds: [{
                         title: 'Nomination Failed',
                         description: reason
-                    }]
-                });
+                        }]
+                    });
             }
 
             logger.info('Nomination cleared', { reason, broadcast });
@@ -402,19 +402,19 @@ class VoteProcessor {
      */
     async initiateNewNomination() {
         // Reset nomination state
-        this.game.nominatedPlayer = null;
-        this.game.nominator = null;
-        this.game.seconder = null;
-        this.game.votingOpen = false;
-        this.game.votes.clear();
+                    this.game.nominatedPlayer = null;
+                    this.game.nominator = null;
+                    this.game.seconder = null;
+                    this.game.votingOpen = false;
+                    this.game.votes.clear();
 
         // Notify players to nominate again
-        await this.game.broadcastMessage({
-            embeds: [{
+                    await this.game.broadcastMessage({
+                        embeds: [{
                 title: 'Nomination Reset',
                 description: 'The previous nomination failed due to a lack of a second. Please nominate a new player for elimination.'
-            }]
-        });
+                        }]
+                    });
 
         // Re-initiate Day phase UI to prompt for new nomination
         const channel = await this.game.client.channels.fetch(this.game.gameChannelId);

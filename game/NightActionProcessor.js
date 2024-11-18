@@ -7,7 +7,8 @@ const {
     createNightActionEmbed, 
     createSeerRevealEmbed, 
     createProtectionEmbed,
-    createNightTransitionEmbed 
+    createNightTransitionEmbed,
+    createLoverDeathEmbed
 } = require('../utils/embedCreator');
 
 class NightActionProcessor {
@@ -742,12 +743,7 @@ class NightActionProcessor {
                         if (lover?.isAlive) {
                             lover.isAlive = false;
                             await this.game.broadcastMessage({
-                                embeds: [{
-                                    color: 0xff69b4,
-                                    title: '💔 A Heart Breaks',
-                                    description: `**${lover.username}** has died of heartbreak!`,
-                                    footer: { text: 'Love and death are forever intertwined...' }
-                                }]
+                                embeds: [createLoverDeathEmbed(lover.username)]
                             });
                             await this.game.moveToDeadChannel(lover);
                         }
@@ -925,12 +921,7 @@ class NightActionProcessor {
 
             // Send heartbreak message
             await this.game.broadcastMessage({
-                embeds: [{
-                    color: 0xff69b4,
-                    title: '💔 A Heart Breaks',
-                    description: `**${lover.username}** has died of heartbreak!`,
-                    footer: { text: 'Love and death are forever intertwined...' }
-                }]
+                embeds: [createLoverDeathEmbed(lover.username)]
             });
 
             // Move lover to dead channel

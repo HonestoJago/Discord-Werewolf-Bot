@@ -14,31 +14,36 @@ Dive into the classic game of Werewolf with enhanced features that make each ses
 
 1. **Setup Phase**
    - **Start a Game**: Server admin uses `/create` to initiate a new game session.
-   - **Join the Game**: Players join using the **Join** button or the `/join` command.
-   - **Configure Roles**: Toggle optional roles like Bodyguard, Cupid, and Hunter to customize your game.
-   - **Begin the Hunt**: Once ready, start the game with a minimum of 4 players.
+   - **Join the Game**: Players join using the **Join** button.
+   - **Configure Roles**: Use intuitive toggle buttons to customize optional roles.
+   - **Role Preview**: View current role distribution with the **View Roles** button.
+   - **Begin the Hunt**: Start the game when ready (minimum 4 players).
 
 2. **Night Zero Phase**
    - **Silent Beginnings**: All players turn off cameras and microphones.
    - **Secret Actions**:
-     - **Seer**: Receives the name of a random non-werewolf player.
-     - **Cupid**: If active, chooses two players to become lovers.
-   - **Automatic Transition**: After all mandatory actions are completed (or after a timeout if necessary), the game progresses to the Day phase.
+     - **Seer**: Receives initial information via DM about a random non-werewolf player.
+     - **Cupid**: If active, uses dropdown menu in DM to choose two players as lovers.
+   - **Automatic Transition**: Game advances to Day phase after all actions complete.
 
 3. **Night Phase**
    - **Dark Deeds**: All players turn off cameras and microphones.
-   - **Secret Actions**:
-     - **Werewolves** communicate in a private text channel to identify and attack a villager.
-     - **Seer** investigates a player's role.
-     - **Bodyguard** protects a player from attacks.
-     - **Cupid** pairs two players as lovers.
-     - **Hunter** preps for a final revenge shot.
-   - **Action Commands**: Players submit their actions via DMs to the bot, which prompts them through private messages when actions are required.
+   - **Interactive DM System**:
+     - **Werewolves**: Select victims through dropdown menus in their private channel.
+     - **Seer**: Choose investigation targets via DM dropdown.
+     - **Bodyguard**: Select protection targets through DM interface.
+     - **Hunter**: Prepare revenge shot through DM selection (when eliminated).
+   - **Real-time Feedback**: Immediate confirmation of action submissions.
 
 4. **Day Phase**
-   - **Reveal and React**: Cameras and microphones are turned back on.
-   - **Discussion and Debate**: Players discuss, accuse, and defend.
-   - **Voting Time**: Nominate and vote to eliminate a suspected werewolf.
+   - **Enhanced Voting System**:
+     - **Nomination**: Select players through dropdown menu.
+     - **Seconding**: Clear button interface for supporting nominations.
+     - **Voting**: Intuitive guilty/innocent buttons for each vote.
+   - **Visual Feedback**: 
+     - Real-time vote tallies
+     - Clear indicators for nomination status
+     - Embedded messages showing voting results
 
 5. **Winning the Game**
    - **Villagers Win**: All werewolves are eliminated.
@@ -196,19 +201,25 @@ Join our thriving community and get the support you need:
 
 ## 📸 Screenshots
 
-*Note: The images are a bit dated, and the GUI and embedded messages are continually improving to enhance your gaming experience.*
+### 🎮 Game Setup
+![Game Setup Interface](assets/images/game_setup.png)
+*Enhanced setup interface with role toggles and player list*
 
-### 🎉 Game Setup
-![Game Loading Interface](assets/images/loading_GUI.png)
-*Initial game setup and role configuration interface.*
+### 🌅 Day Phase
+![Day Phase Voting](assets/images/day_voting.png)
+*Streamlined voting interface with nomination and vote tracking*
 
-### ☀️ Day Phase
-![Day Phase Discussion](assets/images/day_phase.png)
-*Players discussing strategies during the day.*
+### 🎯 Player Actions
+![Action Selection](assets/images/action_dm.png)
+*Intuitive dropdown menus for night actions in DMs*
 
-### 🌙 Night Actions
-![Werewolf DM](assets/images/werewolf_DM.png)
-*Werewolves coordinate their sinister plans in DMs.*
+### 🐺 Werewolf Channel
+![Werewolf Coordination](assets/images/werewolf_channel.png)
+*Private werewolf channel with target selection*
+
+### 🏆 Game End
+![Victory Screen](assets/images/victory_screen.png)
+*Dynamic end-game screen with role reveals and statistics*
 
 ## 🎉 Game End
 
