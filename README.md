@@ -58,6 +58,25 @@ Dive into the classic game of Werewolf with enhanced features that make each ses
 - **🏹 Hunter**: Execute a final revenge upon elimination.
 - **👥 Villagers**: Work together to root out werewolves.
 
+## ⌨️ Commands & Interface
+
+The bot primarily uses an intuitive GUI-based interface with buttons and dropdown menus for most actions. Slash commands are maintained as a backup system:
+
+### 🎮 Primary Interface
+- **Buttons**: Join game, toggle roles, view setup, start game
+- **Dropdowns**: Player selection, night actions, nominations
+- **Interactive Embeds**: Game status, voting results, role information
+
+### ⚔️ Backup Slash Commands
+These commands are preserved as alternatives to the GUI:
+- `/join` - Alternative to the Join button
+- `/action` - Backup for dropdown-based night actions
+- `/create` - For server admins to initiate games
+- `/end-game` - Emergency game termination
+- `/game-status` - View current game state
+- `/stats` - Check player statistics
+- `/role-info` - View role details
+
 ## 🚀 Getting Started
 
 Ready to play? Follow these simple steps to set up the Discord Werewolf Bot on your server!
@@ -202,28 +221,92 @@ Join our thriving community and get the support you need:
 ## 📸 Screenshots
 
 ### 🎮 Game Setup
-![Game Setup Interface](assets/images/game_setup.png)
-*Enhanced setup interface with role toggles and player list*
+![Game Loading Interface](assets/images/loading_GUI.png)
+*Initial game setup screen with role configuration options and join button*
 
-### 🌅 Day Phase
-![Day Phase Voting](assets/images/day_voting.png)
-*Streamlined voting interface with nomination and vote tracking*
+### 🌙 Night Zero Actions
+![Cupid's Night Zero](assets/images/cupid_night_zero.png)
+*Cupid selecting lovers during Night Zero phase*
 
-### 🎯 Player Actions
-![Action Selection](assets/images/action_dm.png)
-*Intuitive dropdown menus for night actions in DMs*
+### ☀️ Day Phase
+![Day Phase Interface](assets/images/day_phase.png)
+*Day phase discussion and nomination interface*
 
-### 🐺 Werewolf Channel
-![Werewolf Coordination](assets/images/werewolf_channel.png)
-*Private werewolf channel with target selection*
+### ⚔️ Day Phase Combat
+![Day Attacks](assets/images/day_attacks.png)
+*Players discussing and debating during the day*
 
-### 🏆 Game End
-![Victory Screen](assets/images/victory_screen.png)
-*Dynamic end-game screen with role reveals and statistics*
+### 💀 Dead Chat
+![Dead Chat](assets/images/dead_chat.png)
+*Private channel for eliminated players to discuss the game*
+
+### 💘 Love Stories
+![Lover Message](assets/images/lover_message.png)
+*Cupid's love connection notification*
+
+![Lovers Death](assets/images/lovers_death.png)
+*The tragic consequence when one lover dies*
+
+### 🐺 Werewolf Actions
+![Private Werewolf Channel](assets/images/private_werewolf_channel.png)
+*Secret werewolf coordination channel*
+
+![Werewolf DM](assets/images/werewolf_DM.png)
+*Werewolf target selection via DM*
+
+### 🔮 Seer Powers
+![Seer DM](assets/images/seer_DM.png)
+*Seer's investigation interface*
+
+### ⚖️ Voting System
+![Second Nomination](assets/images/second_nomination.png)
+*Nomination seconding interface*
+
+![Voting Interface](assets/images/voting.png)
+*Final voting interface for player elimination*
+
+![Voting Results](assets/images/result_of_voting.png)
+*Detailed voting results display*
+
+### 📊 Player Information
+![Player Stats](assets/images/player_stats.png)
+*Detailed player statistics tracking*
+
+### 🏆 Victory
+![Village Victory](assets/images/village_wins.png)
+*Victory screen showing game results*
 
 ## 🎉 Game End
 
 At the conclusion of each game, all private channels (e.g., Werewolf and Dead Players channels) are automatically cleaned up and deleted to maintain server organization. This process is managed using the `WEREWOLF_CATEGORY_ID` specified in the environment variables.
+
+## 🚀 Upcoming Features
+
+We're actively developing new features to enhance your gaming experience:
+
+### 🎭 New Roles
+- **🔮 Sorcerer**: A cunning ally of the wolves who:
+  - Seeks to identify the Seer through nightly investigations
+  - Wins with the werewolves but remains unknown to them
+  - Receives "Seer" or "Not Seer" results from investigations
+  - Does not count as a werewolf for win conditions
+- **👹 Minion**: A devoted servant of the wolves who:
+  - Knows the werewolves' identities from the start
+  - Remains unknown to the werewolves themselves
+  - Has no active powers but wins with the wolves
+  - Does not count as a werewolf for win conditions
+- More roles planned based on community feedback!
+
+### 📊 Enhanced Statistics
+- **Global Leaderboards**: Compare stats across all servers
+- **Role-specific Rankings**: Best werewolf, most successful seer, etc.
+- **Achievement System**: Unlock special badges and titles
+
+### 💾 Persistent Gaming
+- **Database Integration**: Games persist across bot restarts
+- **Game State Recovery**: Seamlessly resume interrupted games
+- **Long-term Statistics**: Track player progress over time
+- **Cross-server Profiles**: Maintain stats across different Discord servers
 
 ---
 
