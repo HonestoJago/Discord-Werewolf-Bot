@@ -471,22 +471,20 @@ client.endGame = async (guildId) => {
 };
 
 // Add this before client.login
+const { initializeDatabase } = require('./utils/database');
+
 (async () => {
     try {
-        await sequelize.sync();
+        // Initialize database first
+        await initializeDatabase();
         
-        // Test database connection with a count query
-        const gameCount = await Game.count();
-        logger.info('Database synchronized and tested', { 
-            existingGames: gameCount 
-        });
+        // Then start the bot
+        await client.login(process.env.BOT_TOKEN);
     } catch (error) {
-        logger.error('Database sync or test failed:', error);
+        logger.error('Failed to initialize:', error);
+        process.exit(1);
     }
 })();
-
-// Keep existing login
-client.login(process.env.BOT_TOKEN);
 
 // Global error handlers
 process.on('unhandledRejection', (reason, promise) => {

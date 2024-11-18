@@ -13,6 +13,7 @@ const dayPhaseHandler = require('../handlers/dayPhaseHandler');
 const PlayerStats = require('../models/Player');
 const Game = require('../models/Game');
 const { createGameEndButtons } = require('../utils/buttonCreator');
+const GameStateManager = require('../utils/gameStateManager');
 
 // Define roles and their properties in a configuration object
 const ROLE_CONFIG = {
@@ -1024,53 +1025,96 @@ class WerewolfGame {
         return userId === this.gameCreatorId || this.authorizedIds.includes(userId);
     }
 
-        /**
-     * Serializes the game state for database storage
+    /**
+     * Serializes the complete game state for database storage
      */
-    serializeGame() {
+    async serializeGame() {
         try {
             // First log the current state before serialization
-            logger.info('Current game state before serialization', {
+            logger.info('Serializing game state', {
                 phase: this.phase,
                 round: this.round,
-                playerCount: this.players.size,
-                playersWithRoles: Array.from(this.players.values()).filter(p => p.role).length
+                playerCount: this.players.size
             });
-    
-            const serializedState = {
-                players: Array.from(this.players.values()).map(player => ({
-                    id: player.id,
-                    username: player.username,
-                    role: player.role || null,  // Explicitly handle null case
-                    isAlive: Boolean(player.isAlive),
-                    isProtected: Boolean(player.isProtected)
-                })),
-                phase: this.phase,
-                round: Number(this.round),
-                votes: Array.from(this.votes.entries()),
-                nightActions: this.nightActions || {},
-                lastProtectedPlayer: this.lastProtectedPlayer,
-                lovers: Array.from(this.lovers.entries()),
-                selectedRoles: Array.from(this.selectedRoles.entries()),
-                pendingHunterRevenge: this.pendingHunterRevenge,
+
+            // Serialize all players
+            const serializedPlayers = {};
+            for (const [playerId, player] of this.players) {
+                serializedPlayers[playerId] = player.toJSON();
+            }
+
+            // Serialize active message IDs
+            const activeMessageIds = {
+                dayPhaseMessage: this.currentDayPhaseMessageId,
+                votingMessage: this.currentVotingMessageId,
+                lastAnnouncement: this.lastAnnouncementId,
+                activePrompts: Object.fromEntries(this.activePrompts || new Map())
+            };
+
+            // Serialize voting state
+            const votingState = {
                 nominatedPlayer: this.nominatedPlayer,
                 nominator: this.nominator,
                 seconder: this.seconder,
-                votingOpen: Boolean(this.votingOpen),
-                completedNightActions: Array.from(this.completedNightActions),
-                expectedNightActions: Array.from(this.expectedNightActions)
+                votingOpen: this.votingOpen,
+                votes: Object.fromEntries(this.votes),
+                nominationStartTime: this.nominationStartTime,
+                votingMessageId: this.currentVotingMessageId
             };
-    
+
+            // Serialize night state
+            const nightState = {
+                expectedActions: Array.from(this.expectedNightActions),
+                completedActions: Array.from(this.completedNightActions),
+                pendingActions: this.nightActions,
+                lastProtectedPlayer: this.lastProtectedPlayer
+            };
+
+            // Serialize special role relationships
+            const specialRoles = {
+                lovers: Object.fromEntries(this.lovers),
+                pendingHunterRevenge: this.pendingHunterRevenge,
+                selectedRoles: Object.fromEntries(this.selectedRoles)
+            };
+
+            // Create the complete game state
+            const gameState = {
+                guildId: this.guildId,
+                channelId: this.gameChannelId,
+                werewolfChannelId: this.werewolfChannel?.id,
+                deadChannelId: this.deadChannel?.id,
+                categoryId: process.env.WEREWOLF_CATEGORY_ID,
+                creatorId: this.gameCreatorId,
+                phase: this.phase,
+                round: this.round,
+                activeMessageIds,
+                players: serializedPlayers,
+                votingState,
+                nightState,
+                specialRoles,
+                gameStartTime: this.gameStartTime,
+                lastUpdated: new Date()
+            };
+
             // Validate the serialized state
-            if (!serializedState.phase || !PHASES[serializedState.phase]) {
-                throw new Error(`Invalid phase in game state: ${serializedState.phase}`);
+            if (!gameState.phase || !PHASES[gameState.phase]) {
+                throw new Error(`Invalid phase in game state: ${gameState.phase}`);
             }
-    
-            return serializedState;
+
+            // Save to database
+            await Game.upsert(gameState);
+
+            logger.info('Game state serialized and saved successfully', {
+                guildId: this.guildId,
+                phase: this.phase,
+                playerCount: Object.keys(serializedPlayers).length
+            });
+
+            return gameState;
         } catch (error) {
-            logger.error('Error in serializeGame', { 
+            logger.error('Error serializing game state', {
                 error: error.message,
-                stack: error.stack 
+                stack: error.stack
             });
             throw error;
         }
@@ -1081,50 +1125,13 @@ class WerewolfGame {
      */
     async saveGameState() {
         try {
-            // First get the current state
-            const currentState = this.serializeGame();
-            
-            // Log the state we're about to save
-            logger.info('Saving game state', { 
+            await GameStateManager.saveGameState(this);
+            logger.info('Game state saved via manager', { 
                 guildId: this.guildId,
-                currentPhase: this.phase,
-                statePhase: currentState.phase,
-                round: this.round,
-                playerCount: this.players.size
-            });
-    
-            // Save to database with explicit phase from current game state
-            await Game.upsert({
-                guildId: this.guildId,
-                channelId: this.gameChannelId,
-                creatorId: this.gameCreatorId,
-                phase: this.phase,  // Use the actual current phase
-                round: this.round,
-                gameState: currentState,
-                lastUpdated: new Date()
-            });
-            
-            // Verify the save was successful
-            const savedGame = await Game.findByPk(this.guildId);
-            if (savedGame.phase !== this.phase) {
-                logger.error('Phase mismatch after save', {
-                    expectedPhase: this.phase,
-                    savedPhase: savedGame.phase
-                });
-                throw new Error('Game state save verification failed');
-            }
-    
-            logger.info('Game state saved successfully', { 
-                guildId: this.guildId,
-                phase: savedGame.phase,
-                round: savedGame.round
+                phase: this.phase
             });
         } catch (error) {
-            logger.error('Failed to save game state', { 
-                error,
-                currentPhase: this.phase,
-                guildId: this.guildId
-            });
+            logger.error('Error saving game state', { error });
             throw error;
         }
     }
@@ -1134,98 +1141,9 @@ class WerewolfGame {
      */
     static async restoreGame(client, guildId) {
         try {
-            const savedGame = await Game.findByPk(guildId);
-            if (!savedGame) {
-                logger.error('No saved game found during restoration', { guildId });
-                return null;
-            }
-    
-            // Create new game instance using static create method
-            const game = await WerewolfGame.create(
-                client,
-                savedGame.guildId,
-                savedGame.channelId,
-                savedGame.creatorId
-            );
-    
-            // Restore game state from saved data
-            const state = savedGame.gameState;
-            if (!state) {
-                logger.error('No game state found in saved game', { guildId });
-                return null;
-            }
-    
-            try {
-                // First restore basic game properties
-                game.phase = savedGame.phase;
-                game.round = savedGame.round;
-    
-                // Restore players with error handling
-                if (state.players && Array.isArray(state.players)) {
-                    game.players.clear(); // Clear any default players
-                    for (const playerData of state.players) {
-                        try {
-                            const player = new Player(playerData.id, playerData.username, client);
-                            player.role = playerData.role;
-                            player.isAlive = playerData.isAlive;
-                            player.isProtected = playerData.isProtected;
-                            game.players.set(player.id, player);
-                        } catch (error) {
-                            logger.error('Error restoring player', { error, playerData });
-                        }
-                    }
-                }
-    
-                // Restore other game state with type checking
-                game.votes = new Map(Array.isArray(state.votes) ? state.votes : []);
-                game.nightActions = state.nightActions || {};
-                game.lastProtectedPlayer = state.lastProtectedPlayer;
-                game.lovers = new Map(Array.isArray(state.lovers) ? state.lovers : []);
-                game.selectedRoles = new Map(Array.isArray(state.selectedRoles) ? state.selectedRoles : []);
-                game.pendingHunterRevenge = state.pendingHunterRevenge;
-                game.nominatedPlayer = state.nominatedPlayer;
-                game.nominator = state.nominator;
-                game.seconder = state.seconder;
-                game.votingOpen = Boolean(state.votingOpen);
-                game.completedNightActions = new Set(Array.isArray(state.completedNightActions) ? state.completedNightActions : []);
-                game.expectedNightActions = new Set(Array.isArray(state.expectedNightActions) ? state.expectedNightActions : []);
-    
-                // Add to client.games map
-                client.games.set(guildId, game);
-    
-                // Send restoration confirmation
-                await game.broadcastMessage({
-                    embeds: [{
-                        color: 0x0099ff,
-                        title: '🔄 Game Restored',
-                        description: 
-                            'The game has been restored after a brief interruption.\n\n' +
-                            `**Current Phase:** ${game.phase}\n` +
-                            `**Round:** ${game.round}\n` +
-                            `**Players Alive:** ${game.getAlivePlayers().length}/${game.players.size}\n\n` +
-                            (game.phase === 'LOBBY' ? 'The game is in the lobby phase.' : 'Continue with the current phase.'),
-                        footer: { text: 'Use /game-status for detailed game information' }
-                    }]
-                });
-    
-                logger.info('Game restored successfully', {
-                    guildId,
-                    phase: game.phase,
-                    round: game.round,
-                    alivePlayers: game.getAlivePlayers().length
-                });
-    
-                return game;
-            } catch (error) {
-                logger.error('Error restoring game state', { error });
-                throw error;
-            }
+            return await GameStateManager.restoreGameState(client, guildId);
         } catch (error) {
-            logger.error('Error in game restoration', { 
-                error: error.message,
-                stack: error.stack,
-                guildId 
-            });
+            logger.error('Error restoring game', { error });
             throw error;
         }
     }

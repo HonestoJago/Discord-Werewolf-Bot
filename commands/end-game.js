@@ -3,6 +3,7 @@
 const { SlashCommandBuilder } = require('discord.js');
 const { GameError, handleCommandError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
+const GameStateManager = require('../utils/gameStateManager');
 
 module.exports = {
     data: new SlashCommandBuilder()

@@ -1,5 +1,5 @@
+const { sequelize } = require('../utils/database');
 const { DataTypes } = require('sequelize');
-const sequelize = require('../utils/database');
 
 const PlayerStats = sequelize.define('PlayerStats', {
     discordId: {

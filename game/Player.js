@@ -16,13 +16,16 @@ const validRoles = [
 ];
 
 class Player {
-    constructor(id, username, client) {
+    constructor(id, username, client, discriminator = '') {
         this.id = id;
         this.username = username;
+        this.discriminator = discriminator;
         this.client = client; // Discord client
         this.role = null;
         this.isAlive = true;
         this.isProtected = false;
+        this.lastAction = null;
+        this.actionTarget = null;
     }
 
     /**
@@ -136,6 +139,31 @@ class Player {
         if (player.isAlive) {
             await player.sendDM('You have died! You can now speak with other dead players in the #dead-players channel.');
         }
+    }
+
+    // Add method to serialize player data for database storage
+    toJSON() {
+        return {
+            discordId: this.id,
+            username: this.username,
+            discriminator: this.discriminator,
+            role: this.role,
+            isAlive: this.isAlive,
+            isProtected: this.isProtected,
+            lastAction: this.lastAction,
+            actionTarget: this.actionTarget
+        };
+    }
+
+    // Add method to restore player from database
+    static fromJSON(data, client) {
+        const player = new Player(data.discordId, data.username, client, data.discriminator);
+        player.role = data.role;
+        player.isAlive = data.isAlive;
+        player.isProtected = data.isProtected;
+        player.lastAction = data.lastAction;
+        player.actionTarget = data.actionTarget;
+        return player;
     }
 }
 
