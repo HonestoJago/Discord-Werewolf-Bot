@@ -1,4 +1,4 @@
-const { Sequelize } = require('sequelize');
+const { Sequelize, DataTypes } = require('sequelize');
 const logger = require('./logger');
 
 const sequelize = new Sequelize({
@@ -25,9 +25,26 @@ async function initializeDatabase() {
         await sequelize.authenticate();
         logger.info('Database connection established successfully.');
         
-        // Sync all models with force:false to prevent data loss
+        // Add alter option to allow adding new columns
         await sequelize.sync({ alter: true });
         logger.info('Database schema synchronized.');
+
+        // Check if we need to add the timesMinion column
+        const PlayerStats = require('../models/Player');
+        const tableInfo = await sequelize.queryInterface.describeTable(PlayerStats.tableName);
+        
+        if (!tableInfo.timesMinion) {
+            await sequelize.queryInterface.addColumn(
+                PlayerStats.tableName,
+                'timesMinion',
+                {
+                    type: DataTypes.INTEGER,
+                    defaultValue: 0
+                }
+            );
+            logger.info('Added timesMinion column to PlayerStats');
+        }
+
     } catch (err) {
         logger.error('Unable to connect to or sync database:', err);
         throw err;

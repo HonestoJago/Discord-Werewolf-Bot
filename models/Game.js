@@ -233,7 +233,16 @@ const Game = sequelize.define('Game', {
         //                 seerId: string,
         //                 targetId: string,
         //                 round: number,
-        //                 result: boolean,  // true = werewolf
+        //                 result: boolean,
+        //                 timestamp: number
+        //             }
+        //         ]
+        //     },
+        //     minion: {  // Add Minion history
+        //         revealedWerewolves: [
+        //             {
+        //                 minionId: string,
+        //                 werewolfIds: string[],
         //                 timestamp: number
         //             }
         //         ]
@@ -243,15 +252,11 @@ const Game = sequelize.define('Game', {
         //             {
         //                 round: number,
         //                 targetId: string,
-        //                 successful: boolean  // true if blocked attack
+        //                 successful: boolean
         //             }
         //         ]
-        //     },
-        //     // Easy to add new roles:
-        //     // witch: { potions: [] },
-        //     // mason: { reveals: [] },
-        //     // etc.
         //     }
+        // }
     },
 
     // Track all actions and their outcomes for history/stats

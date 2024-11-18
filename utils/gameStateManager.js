@@ -208,6 +208,13 @@ class GameStateManager {
                     game.bodyguardProtections = savedState.roleHistory.bodyguard.protections;
                 }
 
+                if (savedState.roleHistory?.minion?.revealedWerewolves) {
+                    game.minionRevealedWerewolves = savedState.roleHistory.minion.revealedWerewolves;
+                    logger.info('Restored Minion information', {
+                        revealCount: savedState.roleHistory.minion.revealedWerewolves.length
+                    });
+                }
+
                 logger.info('Game state restored successfully', {
                     guildId,
                     phase: game.phase,
