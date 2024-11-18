@@ -325,6 +325,15 @@ function createGameWelcomeEmbed() {
             '*Dark rumors spread of wolves hiding among the villagers.*',
         fields: [
             {
+                name: '⚠️ Important Requirements',
+                value: '```yaml\n' +
+                    '• Enable DMs from server members\n' +
+                    '• Follow the Werewolf category or enable channel viewing\n' +
+                    '```\n' +
+                    '*These settings are required for role info and private channels*',
+                inline: false
+            },
+            {
                 name: '📋 Game Setup',
                 value: '```yaml\n' +
                     '• Day Phase: Cameras & Mics ON\n' +

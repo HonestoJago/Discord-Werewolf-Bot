@@ -62,6 +62,8 @@ Slash commands are maintained only as a backup system and are not the primary wa
 - **💘 Cupid**: Chooses one player as their lover at the start of the game. The two lovers' fates are intertwined - if either dies, the other dies of heartbreak.
 - **🏹 Hunter**: Execute a final revenge upon elimination.
 - **👥 Villagers**: Work together to root out werewolves.
+- **🦹 Minion**: A devoted servant who knows the werewolves but remains unknown to them. Has no active powers but wins with the wolves. Must help the werewolves while maintaining their cover.
+- **🧙 Sorcerer**: A mystical ally who investigates one player each night to determine if they are the Seer. Wins with the werewolves but remains unknown to them. Must use their knowledge to help eliminate the Seer while avoiding detection.
 
 ## ⌨️ Commands & Interface
 
@@ -71,16 +73,6 @@ The bot primarily uses an intuitive GUI-based interface with buttons and dropdow
 - **Buttons**: Join game, toggle roles, view setup, start game
 - **Dropdowns**: Player selection, night actions, nominations
 - **Interactive Embeds**: Game status, voting results, role information
-
-### ⚔️ Backup Slash Commands
-These commands are preserved as alternatives to the GUI:
-- `/join` - Alternative to the Join button
-- `/action` - Backup for dropdown-based night actions
-- `/create` - For server admins to initiate games
-- `/end-game` - Emergency game termination
-- `/game-status` - View current game state
-- `/stats` - Check player statistics
-- `/role-info` - View role details
 
 ## 🚀 Getting Started
 
@@ -92,6 +84,19 @@ Ready to play? Follow these simple steps to set up the Discord Werewolf Bot on y
 - **Discord Bot Token**: Obtain from the [Discord Developer Portal](https://discord.com/developers/applications).
 - **Discord Server**: With administrator privileges to manage bot permissions.
 - **Git**: For cloning the repository.
+
+### 🔔 Player Requirements
+
+For the best gameplay experience, players must:
+- **Enable DMs**: Allow direct messages from server members in Discord privacy settings
+- **Channel Access**: Either:
+  - Follow the Werewolf category (recommended), or
+  - Have "View Channel" permissions for all channels
+  
+These settings are crucial as:
+- The bot sends role information and night actions via DM
+- Players need access to private channels (werewolf chat, dead player chat) when applicable
+- Missing these settings can disrupt gameplay and may prevent participation
 
 ### 💻 Installation
 
@@ -145,17 +150,9 @@ Enhance your gaming experience with a variety of commands:
 
 ### 🎲 Game Management
 - `/create` - Start a new game session.
-- `/join` - Enter an active game.
+- `/join` - Enter an active game (or use the Join button in the lobby).
 - `/end-game` - Terminate the current game.
 - `/game-status` - View the current game state.
-
-### 🎭 Player Actions
-- `/action` - Submit your night actions (use in DMs).
-  - `attack` (Werewolf)
-  - `investigate` (Seer)
-  - `protect` (Bodyguard)
-  - `choose_lovers` (Cupid)
-  - `choose_target` (Hunter)
 
 ### 📊 Player Statistics
 - `/stats` - View your game statistics.
