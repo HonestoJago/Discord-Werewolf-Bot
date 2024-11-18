@@ -234,10 +234,12 @@ function createSeerRevealEmbed(target, isWerewolf) {
 }
 
 function createGameEndEmbed(winners, gameStats) {
-    const isWerewolfWin = winners.some(player => player.role === 'werewolf');
+    const isWerewolfWin = winners.some(player => player.role === ROLES.WEREWOLF || player.role === ROLES.MINION);
     const allPlayers = Array.from(gameStats.players || []);
-    const werewolves = allPlayers.filter(p => p.role === 'werewolf');
-    const others = allPlayers.filter(p => p.role !== 'werewolf');
+    
+    // Group winners and others differently for werewolf win
+    const victoriousTeam = allPlayers.filter(p => p.role === ROLES.WEREWOLF || p.role === ROLES.MINION);
+    const defeatedTeam = allPlayers.filter(p => p.role !== ROLES.WEREWOLF && p.role !== ROLES.MINION);
     
     return {
         color: isWerewolfWin ? 0x800000 : 0x008000,
@@ -254,26 +256,26 @@ function createGameEndEmbed(winners, gameStats) {
                 {
                     name: '🐺 The Victorious Pack',
                     value: '```yaml\n' +
-                        werewolves.map(p => p.username).join('\n') +
+                        victoriousTeam.map(p => `${p.username} (${p.role})`).join('\n') +
                         '\n```',
                     inline: false
                 },
                 {
                     name: '☠️ The Fallen Village',
-                    value: others.map(p => `\`${p.username}\` *(${p.role})*`).join('\n') || 'None',
+                    value: defeatedTeam.map(p => `\`${p.username}\` *(${p.role})*`).join('\n') || 'None',
                     inline: false
                 }
             ] : [
                 {
                     name: '👑 The Victorious Village',
                     value: '```yaml\n' +
-                        others.map(p => `${p.username} (${p.role})`).join('\n') +
+                        defeatedTeam.map(p => `${p.username} (${p.role})`).join('\n') +
                         '\n```',
                     inline: false
                 },
                 {
                     name: '⚰️ The Slain Wolves',
-                    value: werewolves.map(p => `\`${p.username}\``).join('\n') || 'None',
+                    value: victoriousTeam.map(p => `\`${p.username}\` *(${p.role})*`).join('\n') || 'None',
                     inline: false
                 }
             ]),
