@@ -8,7 +8,8 @@ const ROLE_ABILITIES = {
     'bodyguard': 'Protect one player each night from werewolf attacks',
     'cupid': 'Choose one player to be your lover at the start of the game. If either lover dies, both die of heartbreak.',
     'hunter': 'Take one player with you when you die',
-    'villager': 'Vote during the day to eliminate suspicious players'
+    'villager': 'Vote during the day to eliminate suspicious players',
+    'minion': 'Learn the identity of the werewolves at the start of the game. Win with the werewolves.'
 };
 
 const ROLE_WIN_CONDITIONS = {
@@ -17,7 +18,8 @@ const ROLE_WIN_CONDITIONS = {
     'bodyguard': 'Win when all werewolves are eliminated',
     'cupid': 'Win when all werewolves are eliminated',
     'hunter': 'Win when all werewolves are eliminated',
-    'villager': 'Win when all werewolves are eliminated'
+    'villager': 'Win when all werewolves are eliminated',
+    'minion': 'Win when werewolves achieve parity with villagers'
 };
 
 const ROLE_TIPS = {
@@ -26,7 +28,8 @@ const ROLE_TIPS = {
     'bodyguard': 'Pay attention to discussions to identify likely werewolf targets',
     'cupid': 'Choose your lover wisely - your fates are linked! Consider picking someone you trust.',
     'hunter': 'Your revenge shot is powerful - use it wisely when eliminated',
-    'villager': 'Pay attention to voting patterns and player behavior'
+    'villager': 'Pay attention to voting patterns and player behavior',
+    'minion': 'Help the werewolves without revealing your identity. You know who they are, but they don\'t know you!'
 };
 
 const ROLE_EMOJIS = {
@@ -35,7 +38,8 @@ const ROLE_EMOJIS = {
     'bodyguard': '🛡️',
     'cupid': '💘',
     'hunter': '🏹',
-    'villager': '👥'
+    'villager': '👥',
+    'minion': '🦹'
 };
 
 function getRoleEmoji(role) {
@@ -569,6 +573,19 @@ function createHunterTensionEmbed(isDayPhase = true) {
     };
 }
 
+// Add this new function with the other embed creators
+function createMinionRevealEmbed(werewolves) {
+    return {
+        color: 0x800000,
+        title: '🦹 Your Werewolf Masters',
+        description: 
+            '*The werewolves prowl in the darkness, unaware of your loyalty...*\n\n' +
+            `The werewolves are: **${werewolves.map(w => w.username).join(', ')}**\n\n` +
+            'Help them win, but remember - they don\'t know you\'re on their side!',
+        footer: { text: 'Serve from the shadows...' }
+    };
+}
+
 module.exports = { 
     createPlayerListEmbed,
     createNominationEmbed,
@@ -590,5 +607,6 @@ module.exports = {
     createNightTransitionEmbed,
     createLoverDeathEmbed,
     createHunterRevengeEmbed,
-    createHunterTensionEmbed
+    createHunterTensionEmbed,
+    createMinionRevealEmbed
 };

@@ -22,6 +22,7 @@ const ROLE_CONFIG = {
     [ROLES.BODYGUARD]: { maxCount: 1 },
     [ROLES.CUPID]: { maxCount: 1 },
     [ROLES.HUNTER]: { maxCount: 1 },
+    [ROLES.MINION]: { maxCount: 1 },
     [ROLES.VILLAGER]: { maxCount: (playerCount) => playerCount }
 };
 
@@ -234,6 +235,9 @@ class WerewolfGame {
             if (this.selectedRoles.get(ROLES.HUNTER)) {
                 roles.push(ROLES.HUNTER);
             }
+            if (this.selectedRoles.get(ROLES.MINION)) {
+                roles.push(ROLES.MINION);
+            }
             
             // Validate total roles before adding villagers
             if (roles.length > playerCount) {
@@ -284,7 +288,8 @@ class WerewolfGame {
                     });
                 }
             }
-            
+
+                   
             logger.info('Roles assigned successfully', {
                 playerCount,
                 werewolfCount,
@@ -856,6 +861,7 @@ class WerewolfGame {
         const livingWerewolves = alivePlayers.filter(p => p.role === ROLES.WEREWOLF).length;
         
         // Count living villager team (everyone who's not a werewolf)
+        // Note: Minion counts as villager for parity calculation
         const livingVillagerTeam = alivePlayers.filter(p => p.role !== ROLES.WEREWOLF).length;
     
         let winners = new Set();
@@ -870,43 +876,30 @@ class WerewolfGame {
             players: Array.from(this.players.values())
         };
     
-        // If all werewolves are dead, villagers win
+        // If all werewolves are dead, villagers win (except Minion)
         if (livingWerewolves === 0) {
             this.phase = PHASES.GAME_OVER;
             this.gameOver = true;
-            // Add all non-werewolf players (including dead ones) to winners
+            // Add all non-werewolf and non-minion players to winners
             this.players.forEach(player => {
-                if (player.role !== ROLES.WEREWOLF) {
+                if (player.role !== ROLES.WEREWOLF && player.role !== ROLES.MINION) {
                     winners.add(player);
                 }
             });
             gameOver = true;
-    
-            // Log victory condition
-            logger.info('Village victory achieved', {
-                livingVillagers: livingVillagerTeam,
-                totalWinners: winners.size
-            });
         }
     
-        // If werewolves reach parity with or outnumber villager team, werewolves win
+        // If werewolves reach parity with villager team, werewolves and minion win
         if (livingWerewolves >= livingVillagerTeam) {
             this.phase = PHASES.GAME_OVER;
             this.gameOver = true;
-            // Add all werewolf players (including dead ones) to winners
+            // Add all werewolf players and minion to winners
             this.players.forEach(player => {
-                if (player.role === ROLES.WEREWOLF) {
+                if (player.role === ROLES.WEREWOLF || player.role === ROLES.MINION) {
                     winners.add(player);
                 }
             });
             gameOver = true;
-    
-            // Log victory condition
-            logger.info('Werewolf victory achieved', {
-                livingWerewolves,
-                livingVillagers: livingVillagerTeam,
-                totalWinners: winners.size
-            });
         }
     
         if (gameOver) {
@@ -928,12 +921,17 @@ class WerewolfGame {
                 embeds: [createGameEndEmbed(Array.from(winners), gameStats)]
             });
     
-            // Update player stats with correct winners
+            // Update player stats
             await this.updatePlayerStats(winners);
     
-            // Clean up the game
+            // Automatically clean up the game
             await this.shutdownGame();
+            
+            // Remove from client's games collection
             this.client.games.delete(this.guildId);
+            
+            // Clean up from database
+            const Game = require('../models/Game');
             await Game.destroy({ where: { guildId: this.guildId } });
         }
     
@@ -1236,6 +1234,7 @@ class WerewolfGame {
         const livingWerewolves = alivePlayers.filter(p => p.role === ROLES.WEREWOLF).length;
         
         // Count living villager team (everyone who's not a werewolf)
+        // Note: Minion counts as villager for parity calculation
         const livingVillagerTeam = alivePlayers.filter(p => p.role !== ROLES.WEREWOLF).length;
     
         let winners = new Set();
@@ -1250,26 +1249,26 @@ class WerewolfGame {
             players: Array.from(this.players.values())
         };
     
-        // If all werewolves are dead, villagers win
+        // If all werewolves are dead, villagers win (except Minion)
         if (livingWerewolves === 0) {
             this.phase = PHASES.GAME_OVER;
             this.gameOver = true;
-            // Add all non-werewolf players to winners
+            // Add all non-werewolf and non-minion players to winners
             this.players.forEach(player => {
-                if (player.role !== ROLES.WEREWOLF) {
+                if (player.role !== ROLES.WEREWOLF && player.role !== ROLES.MINION) {
                     winners.add(player);
                 }
             });
             gameOver = true;
         }
     
-        // If werewolves reach parity with or outnumber villager team, werewolves win
+        // If werewolves reach parity with villager team, werewolves and minion win
         if (livingWerewolves >= livingVillagerTeam) {
             this.phase = PHASES.GAME_OVER;
             this.gameOver = true;
-            // Add all werewolf players to winners
+            // Add all werewolf players and minion to winners
             this.players.forEach(player => {
-                if (player.role === ROLES.WEREWOLF) {
+                if (player.role === ROLES.WEREWOLF || player.role === ROLES.MINION) {
                     winners.add(player);
                 }
             });

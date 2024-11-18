@@ -10,7 +10,8 @@ const {
     createNightTransitionEmbed,
     createLoverDeathEmbed,
     createHunterRevengeEmbed,
-    createHunterTensionEmbed
+    createHunterTensionEmbed,
+    createMinionRevealEmbed
 } = require('../utils/embedCreator');
 
 class NightActionProcessor {
@@ -819,6 +820,20 @@ class NightActionProcessor {
                             '*You are the lone werewolf. Hunt carefully...*',
                         footer: { text: 'Coordinate with your pack during the night phase...' }
                     }]
+                });
+            }
+
+            // Handle Minion's werewolf reveal
+            const minion = this.game.getPlayerByRole(ROLES.MINION);
+            if (minion && minion.isAlive) {
+                await minion.sendDM({
+                    embeds: [createMinionRevealEmbed(werewolves)]
+                });
+                
+                logger.info('Sent werewolf information to Minion', {
+                    minionId: minion.id,
+                    minionName: minion.username,
+                    werewolfCount: werewolves.length
                 });
             }
 

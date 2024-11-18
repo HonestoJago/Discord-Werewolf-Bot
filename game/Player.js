@@ -12,7 +12,8 @@ const validRoles = [
     ROLES.BODYGUARD,
     ROLES.CUPID,
     ROLES.HUNTER,
-    ROLES.VILLAGER
+    ROLES.VILLAGER,
+    ROLES.MINION
 ];
 
 class Player {
