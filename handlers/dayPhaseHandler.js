@@ -198,8 +198,8 @@ module.exports = {
                 interactionId: interaction.id
             });
             
-            // Only try to reply if we haven't already
-            if (!interaction.replied && !interaction.deferred) {
+            // Only try to reply if we haven't already and game isn't over
+            if (!interaction.replied && !interaction.deferred && !currentGame?.gameOver) {
                 try {
                     await interaction.reply({
                         content: 'An error occurred while processing your action.',

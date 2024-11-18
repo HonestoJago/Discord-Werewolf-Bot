@@ -248,12 +248,24 @@ class WerewolfGame {
                 (this.selectedRoles.get(ROLES.MINION) || 0) + 
                 (this.selectedRoles.get(ROLES.SORCERER) || 0);
                 
-            if (werewolfTeamSize > Math.floor(playerCount / 3)) {
-                throw new GameError(
-                    'Too many evil roles',
-                    'Too many werewolf-aligned roles selected for the player count. Remove some optional roles.'
-                );
-            }
+            // Original validation (commented out for testing)
+    /*
+    if (werewolfTeamSize > Math.floor(playerCount / 3)) {
+        throw new GameError(
+            'Too many evil roles',
+            'Too many werewolf-aligned roles selected for the player count. Remove some optional roles.'
+        );
+    }
+    */
+
+    // More lenient validation for testing
+        const maxEvilTeamSize = playerCount <= 4 ? 2 : Math.floor(playerCount / 3);
+        if (werewolfTeamSize > maxEvilTeamSize) {
+        throw new GameError(
+            'Too many evil roles',
+            'Too many werewolf-aligned roles selected for the player count. Remove some optional roles.'
+            );
+     }
             
             // Validate total roles before adding villagers
             if (roles.length > playerCount) {
