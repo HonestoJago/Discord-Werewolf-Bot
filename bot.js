@@ -17,6 +17,16 @@ const GameManager = require('./utils/gameManager');
 const ROLES = require('./constants/roles');
 const PHASES = require('./constants/phases');
 
+// Add this near the top of the file with other constants
+const ACTION_MAP = {
+    [ROLES.WEREWOLF]: 'attack',
+    [ROLES.SEER]: 'investigate',
+    [ROLES.BODYGUARD]: 'protect',
+    [ROLES.SORCERER]: 'dark_investigate',
+    [ROLES.HUNTER]: 'hunter_revenge',
+    [ROLES.CUPID]: 'choose_lovers'
+};
+
 // Create a new Discord client with necessary intents
 const client = new Client({ 
     intents: [
@@ -350,9 +360,7 @@ client.on('interactionCreate', async interaction => {
         }
         else if (interaction.isStringSelectMenu()) {
             try {
-                const [handlerId, actionType] = interaction.customId.split('_');
-                
-                // Find the game for this player (could be in DMs)
+                // Find the game for this player
                 const game = interaction.guild ? 
                     client.games.get(interaction.guildId) : 
                     Array.from(client.games.values())
@@ -366,93 +374,31 @@ client.on('interactionCreate', async interaction => {
                     return;
                 }
 
-                // Check if game is over BEFORE processing any actions
-                if (game.gameOver || game.phase === PHASES.GAME_OVER) {
+                const player = game.players.get(interaction.user.id);
+                if (!player?.isAlive) {
                     await interaction.reply({
-                        content: 'This game has ended.',
+                        content: 'You cannot perform actions.',
                         ephemeral: true
                     });
                     return;
                 }
 
-                switch(handlerId) {
-                    case 'day':
-                        await dayPhaseHandler.handleSelect(interaction, game);
-                        break;
-                    case 'night':
-                        const player = game.players.get(interaction.user.id);
-                        if (!player?.isAlive) {
-                            await interaction.reply({
-                                content: 'You cannot perform actions.',
-                                ephemeral: true
-                            });
-                            return;
-                        }
-
-                        // Map role to action type
-                        const actionMap = {
-                            [ROLES.WEREWOLF]: 'attack',
-                            [ROLES.SEER]: 'investigate',
-                            [ROLES.BODYGUARD]: 'protect',
-                            [ROLES.CUPID]: 'choose_lovers',
-                            [ROLES.SORCERER]: 'dark_investigate'
-                        };
-
-                        try {
-                            await game.processNightAction(
-                                player.id,
-                                actionMap[player.role],
-                                interaction.values[0]
-                            );
-                            
-                            // Only reply if game isn't over
-                            if (!game.gameOver && game.phase !== PHASES.GAME_OVER) {
-                                await interaction.reply({
-                                    content: 'Your action has been recorded.',
-                                    ephemeral: true
-                                });
-                            }
-                        } catch (error) {
-                            if (!game.gameOver && game.phase !== PHASES.GAME_OVER) {
-                                await handleCommandError(interaction, error);
-                            }
-                        }
-                        break;
-                    case 'hunter':
-                        if (game.pendingHunterRevenge !== interaction.user.id) {
-                            await interaction.reply({
-                                content: 'You cannot perform this action.',
-                                ephemeral: true
-                            });
-                            return;
-                        }
-
-                        await game.voteProcessor.processHunterRevenge(
-                            interaction.user.id,
-                            interaction.values[0]
-                        );
-                        
-                        await interaction.reply({
-                            content: 'Your revenge has been executed.',
-                            ephemeral: true
-                        });
-                        break;
-                    default:
-                        logger.warn('Unknown select menu interaction', { 
-                            handlerId, 
-                            customId: interaction.customId 
-                        });
+                // Simply route based on the customId prefix
+                if (interaction.customId.startsWith('day_')) {
+                    await dayPhaseHandler.handleSelect(interaction, game);
+                } else if (interaction.customId === 'night_action_cupid') {
+                    await game.nightActionProcessor.processNightZeroAction(
+                        player.id,
+                        interaction.values[0]
+                    );
+                    await interaction.reply({
+                        content: 'Your action has been recorded.',
+                        ephemeral: true
+                    });
                 }
             } catch (error) {
                 logger.error('Error handling select menu interaction', { error });
-                // Only try to handle the error if the game isn't over
-                const game = interaction.guild ? 
-                    client.games.get(interaction.guildId) : 
-                    Array.from(client.games.values())
-                        .find(g => g.players.has(interaction.user.id));
-                if (!game?.gameOver && game?.phase !== PHASES.GAME_OVER) {
-                    await handleCommandError(interaction, error);
-                }
+                await handleCommandError(interaction, error);
             }
         }
     } catch (error) {

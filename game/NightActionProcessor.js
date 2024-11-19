@@ -160,70 +160,6 @@ class NightActionProcessor {
 
     async processNightActions() {
         try {
-            // Process Cupid's action first if it's Night Zero
-            if (this.game.phase === PHASES.NIGHT_ZERO) {
-                for (const [playerId, action] of Object.entries(this.game.nightActions)) {
-                    if (action.action === 'choose_lovers') {
-                        const cupid = this.game.players.get(playerId);
-                        const lover = this.game.players.get(action.target);
-                        
-                        if (!cupid || !lover) {
-                            logger.error('Invalid Cupid or lover selection', { 
-                                cupidId: playerId, 
-                                loverId: action.target 
-                            });
-                            continue;
-                        }
-
-                        if (!lover.isAlive) {
-                            logger.error('Cannot select dead player as lover', { 
-                                loverId: action.target 
-                            });
-                            continue;
-                        }
-
-                        if (cupid.id === lover.id) {
-                            logger.error('Cupid cannot select self as lover', { 
-                                cupidId: cupid.id 
-                            });
-                            continue;
-                        }
-
-                        // Set up bidirectional lover relationship
-                        this.game.lovers.set(cupid.id, lover.id);
-                        this.game.lovers.set(lover.id, cupid.id);
-                        
-                        // Notify both players
-                        await lover.sendDM({
-                            embeds: [{
-                                color: 0xff69b4,
-                                title: '💘 You Have Been Chosen!',
-                                description: `**${cupid.username}** has chosen you as their lover. If either of you dies, the other will die of heartbreak.`
-                            }]
-                        });
-                        
-                        await cupid.sendDM({
-                            embeds: [{
-                                color: 0xff69b4,
-                                title: '💘 Love Blossoms',
-                                description: `You have chosen **${lover.username}** as your lover. If either of you dies, the other will die of heartbreak.`
-                            }]
-                        });
-
-                        logger.info('Lovers set', {
-                            cupidId: cupid.id,
-                            cupidName: cupid.username,
-                            loverId: lover.id,
-                            loverName: lover.username,
-                            loversMap: Array.from(this.game.lovers.entries())
-                        });
-
-                        // After processing Cupid's action, finish Night Zero
-                        await this.game.finishNightZero();
-                    }
-                }
-            }
-
             // Process other night actions...
             await this.processBodyguardProtection();
             await this.processWerewolfAttacks();
@@ -1014,6 +950,69 @@ class NightActionProcessor {
                 stack: error.stack,
                 deadPlayerId: deadPlayer.id
             });
+        }
+    }
+
+    async processNightZeroAction(playerId, targetId) {
+        try {
+            // Validate the action
+            if (!this.game.expectedNightActions.has(playerId)) {
+                throw new GameError('Invalid Action', 'You are not expected to take an action at this time.');
+            }
+
+            const cupid = this.game.players.get(playerId);
+            const lover = this.game.players.get(targetId);
+
+            if (!cupid || !lover) {
+                throw new GameError('Invalid players', 'Could not find one or both players.');
+            }
+
+            if (!lover.isAlive) {
+                throw new GameError('Invalid target', 'Cannot select a dead player as lover.');
+            }
+
+            if (cupid.id === lover.id) {
+                throw new GameError('Invalid target', 'You cannot choose yourself as a lover.');
+            }
+
+            // Set up bidirectional lover relationship
+            this.game.lovers.set(cupid.id, lover.id);
+            this.game.lovers.set(lover.id, cupid.id);
+            
+            // Notify both players
+            await lover.sendDM({
+                embeds: [{
+                    color: 0xff69b4,
+                    title: '💘 You Have Been Chosen!',
+                    description: `**${cupid.username}** has chosen you as their lover. If either of you dies, the other will die of heartbreak.`
+                }]
+            });
+            
+            await cupid.sendDM({
+                embeds: [{
+                    color: 0xff69b4,
+                    title: '💘 Love Blossoms',
+                    description: `You have chosen **${lover.username}** as your lover. If either of you dies, the other will die of heartbreak.`
+                }]
+            });
+
+            // Mark action as completed
+            this.game.completedNightActions.add(playerId);
+
+            logger.info('Lovers set', {
+                cupidId: cupid.id,
+                cupidName: cupid.username,
+                loverId: lover.id,
+                loverName: lover.username,
+                loversMap: Array.from(this.game.lovers.entries())
+            });
+
+            // Since this is the only Night Zero action, advance to Day
+            await this.game.advanceToDay();
+
+        } catch (error) {
+            logger.error('Error processing Night Zero action', { error });
+            throw error;
         }
     }
 }

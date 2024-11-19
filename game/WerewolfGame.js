@@ -455,102 +455,7 @@ class WerewolfGame {
         }
     }
 
-    /**
-     * Handles Night Zero phase where initial actions occur.
-     */
-    async nightZero() {
-        try {
-            // Get werewolves and send them their team info
-            const werewolves = this.getPlayersByRole(ROLES.WEREWOLF);
-            const werewolfNames = werewolves.map(w => w.username).join(', ');
-            for (const werewolf of werewolves) {
-                await werewolf.sendDM(`Your fellow werewolves are: ${werewolfNames}`);
-            }
-
-            // Handle Seer's initial revelation
-            const seer = this.getPlayerByRole(ROLES.SEER);
-            if (seer && seer.isAlive) {
-                const validTargets = Array.from(this.players.values()).filter(
-                    p => p.role !== ROLES.WEREWOLF && 
-                         p.id !== seer.id && 
-                         p.isAlive
-                );
-                
-                if (validTargets.length > 0) {
-                    const randomPlayer = validTargets[Math.floor(Math.random() * validTargets.length)];
-                    await seer.sendDM(`You have been shown that **${randomPlayer.username}** is **Not a Werewolf**.`);
-                }
-            }
-
-            // Handle Cupid's action if present
-            const cupid = this.getPlayerByRole(ROLES.CUPID);
-            if (cupid && cupid.isAlive) {
-                // Prompt Cupid to choose lovers via DM
-                await cupid.sendDM('Use `/action choose_lovers` to select two players as lovers. You have 10 minutes.');
-                this.expectedNightActions.add(cupid.id);
-                
-                // Set timeout for Cupid's action
-                this.nightActionTimeout = setTimeout(async () => {
-                    try {
-                        if (this.expectedNightActions.has(cupid.id)) {
-                            await cupid.sendDM('Time is up! You did not choose lovers in time.');
-                            this.expectedNightActions.delete(cupid.id);
-                            await this.finishNightZero();
-                        }
-                    } catch (error) {
-                        logger.error('Error handling Cupid timeout during Night Zero', { error });
-                    }
-                }, 600000); // 10 minutes
-            } else {
-                // No Cupid present, proceed to Day phase after brief delay
-                setTimeout(async () => {
-                    try {
-                        await this.finishNightZero();
-                    } catch (error) {
-                        logger.error('Error advancing to Day phase after Night Zero', { error: error.stack });
-                        throw error;
-                    }
-                }, 2000); // 2 seconds delay to ensure all messages are sent
-            }
-
-            logger.info('Night Zero started');
-        } catch (error) {
-            logger.error('Error during Night Zero', { error: error.stack });
-            throw error;
-        }
-    }
-
-    /**
-     * Completes Night Zero and transitions to Day phase.
-     */
-    async finishNightZero() {
-        try {
-            // Clear any remaining Night Zero actions
-            this.expectedNightActions.clear();
-            this.nightActions = {};
-
-            // Transition to Day phase
-            this.phase = PHASES.DAY;
-            this.round = 1; // Start first day
-
-            // Create Day phase UI
-            const channel = await this.client.channels.fetch(this.gameChannelId);
-            await dayPhaseHandler.createDayPhaseUI(channel, this.players);
-
-            // Save state after transition
-            await this.saveGameState();
-
-            logger.info('Transitioned to Day phase from Night Zero', { 
-                phase: this.phase, 
-                round: this.round 
-            });
-        } catch (error) {
-            logger.error('Error finishing Night Zero', { error });
-            throw error;
-        }
-    }
-
-    /**
+       /**
      * Advances the game to the Night phase.
      */
     async advanceToNight() {
@@ -729,37 +634,21 @@ class WerewolfGame {
      */
     async advanceToDay() {
         try {
-            // Guard against multiple transitions
             if (this.phase === PHASES.DAY) {
                 logger.warn('Already in Day phase, skipping transition');
                 return;
             }
-
-            // Set phase first
+    
             this.phase = PHASES.DAY;
-            this.round += 1; // Increment round if necessary
-
-            await this.broadcastMessage({
-                embeds: [{
-                    color: 0xFFA500,
-                    title: '☀️ Dawn Breaks Over the Village',
-                    description: 
-                        '*The morning sun reveals the events of the Night...*\n\n' +
-                        'The game progresses to the Day phase. Discuss and find the werewolves!',
-                    footer: { text: 'Debate wisely, for a wrong accusation could doom the village.' }
-                }]
-            });
-
-            // Create Day phase UI for new nominations
+            this.round += 1;
+            await this.saveGameState();
+    
             const channel = await this.client.channels.fetch(this.gameChannelId);
             await dayPhaseHandler.createDayPhaseUI(channel, this.players);
-
-            // Save state after transition
-            await this.saveGameState();
-
-            logger.info('Transitioned to Day phase', { 
-                phase: this.phase, 
-                round: this.round 
+    
+            logger.info('Advanced to Day phase', {
+                phase: this.phase,
+                round: this.round
             });
         } catch (error) {
             logger.error('Error advancing to Day phase', { error });
