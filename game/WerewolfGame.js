@@ -174,9 +174,49 @@ class WerewolfGame {
             this.round = 0;
             this.gameStartTime = Date.now();
     
+            logger.info('Initial game state before saves', {
+                phase: this.phase,
+                playerCount: this.players.size,
+                playerRoles: Array.from(this.players.values()).map(p => ({
+                    username: p.username,
+                    role: p.role
+                }))
+            });
+    
+            // Save #1 - After phase change
+            await this.saveGameState();
+            logger.info('Game state saved after phase change', {
+                phase: this.phase,
+                playerRoles: Array.from(this.players.values()).map(p => ({
+                    username: p.username,
+                    role: p.role
+                }))
+            });
+    
             // Assign roles and create channels
             await this.assignRoles();
+            
+            // Save #2 - After role assignment
+            await this.saveGameState();
+            logger.info('Game state saved after role assignment', {
+                phase: this.phase,
+                playerRoles: Array.from(this.players.values()).map(p => ({
+                    username: p.username,
+                    role: p.role
+                }))
+            });
+    
             await this.createPrivateChannels();
+            
+            // Save #3 - After channel creation
+            await this.saveGameState();
+            logger.info('Game state saved after channel creation', {
+                phase: this.phase,
+                channels: {
+                    werewolf: this.werewolfChannel?.id,
+                    dead: this.deadChannel?.id
+                }
+            });
     
             // Send initial game message
             await this.broadcastMessage({
@@ -197,6 +237,7 @@ class WerewolfGame {
         } catch (error) {
             // Reset phase if anything fails
             this.phase = PHASES.LOBBY;
+            await this.saveGameState(); // Save the reversion to LOBBY
             logger.error('Error starting game', { error });
             throw error;
         }
