@@ -31,7 +31,10 @@ module.exports = {
             // Add the player to the game (addPlayer has its own phase check)
             gameInstance.addPlayer(interaction.user);
 
-            await interaction.reply({ content: 'You have successfully joined the Werewolf game!', ephemeral: true });
+            await interaction.reply({
+                content: `${interaction.user} joined (${gameInstance.players.size} players)`,
+                ephemeral: false
+            });
             await gameInstance.broadcastMessage(`**${interaction.user.username}** has joined the game.`);
             logger.info('Player joined the game', { 
                 userId: interaction.user.id, 

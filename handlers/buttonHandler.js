@@ -13,17 +13,16 @@ async function handleJoinGame(interaction, game) {
         if (isAlreadyInGame) {
             // Remove player from game
             game.players.delete(interaction.user.id);
-            await game.saveGameState(); // Save before replying
+            await game.saveGameState();
             await interaction.reply({
-                content: `${interaction.user} has left the game! (${game.players.size} players remaining)`,
+                content: `${interaction.user} left (${game.players.size} players)`,
                 ephemeral: false
             });
         } else {
             // Add player to game
             await game.addPlayer(interaction.user);
-            // saveGameState is called inside addPlayer
             await interaction.reply({
-                content: `${interaction.user} has joined the game! (${game.players.size} players total)`,
+                content: `${interaction.user} joined (${game.players.size} players)`,
                 ephemeral: false
             });
         }

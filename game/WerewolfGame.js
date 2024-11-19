@@ -878,102 +878,6 @@ class WerewolfGame {
     isGameCreatorOrAuthorized(userId) {
         return userId === this.gameCreatorId || this.authorizedIds.includes(userId);
     }
-
-    /**
-     * Serializes the complete game state for database storage
-     */
-    async serializeGame() {
-        try {
-            // First log the current state before serialization
-            logger.info('Serializing game state', {
-                phase: this.phase,
-                round: this.round,
-                playerCount: this.players.size
-            });
-
-            // Serialize all players
-            const serializedPlayers = {};
-            for (const [playerId, player] of this.players) {
-                serializedPlayers[playerId] = player.toJSON();
-            }
-
-            // Serialize active message IDs
-            const activeMessageIds = {
-                dayPhaseMessage: this.currentDayPhaseMessageId,
-                votingMessage: this.currentVotingMessageId,
-                lastAnnouncement: this.lastAnnouncementId,
-                activePrompts: Object.fromEntries(this.activePrompts || new Map())
-            };
-
-            // Serialize voting state
-            const votingState = {
-                nominatedPlayer: this.nominatedPlayer,
-                nominator: this.nominator,
-                seconder: this.seconder,
-                votingOpen: this.votingOpen,
-                votes: Object.fromEntries(this.votes),
-                nominationStartTime: this.nominationStartTime,
-                votingMessageId: this.currentVotingMessageId
-            };
-
-            // Serialize night state
-            const nightState = {
-                expectedActions: Array.from(this.expectedNightActions),
-                completedActions: Array.from(this.completedNightActions),
-                pendingActions: this.nightActions,
-                lastProtectedPlayer: this.lastProtectedPlayer
-            };
-
-            // Serialize special role relationships
-            const specialRoles = {
-                lovers: Object.fromEntries(this.lovers),
-                pendingHunterRevenge: this.pendingHunterRevenge,
-                selectedRoles: Object.fromEntries(this.selectedRoles)
-            };
-
-            // Create the complete game state
-            const gameState = {
-                guildId: this.guildId,
-                channelId: this.gameChannelId,
-                werewolfChannelId: this.werewolfChannel?.id,
-                deadChannelId: this.deadChannel?.id,
-                categoryId: process.env.WEREWOLF_CATEGORY_ID,
-                creatorId: this.gameCreatorId,
-                phase: this.phase,
-                round: this.round,
-                activeMessageIds,
-                players: serializedPlayers,
-                votingState,
-                nightState,
-                specialRoles,
-                gameStartTime: this.gameStartTime,
-                lastUpdated: new Date()
-            };
-
-            // Validate the serialized state
-            if (!gameState.phase || !PHASES[gameState.phase]) {
-                throw new Error(`Invalid phase in game state: ${gameState.phase}`);
-            }
-
-            // Save to database
-            await Game.upsert(gameState);
-
-            logger.info('Game state serialized and saved successfully', {
-                guildId: this.guildId,
-                phase: this.phase,
-                playerCount: Object.keys(serializedPlayers).length
-            });
-
-            return gameState;
-        } catch (error) {
-            logger.error('Error serializing game state', {
-                error: error.message,
-                stack: error.stack
-            });
-            throw error;
-        }
-    }
-
     /**
      * Saves the current game state to the database
      */
@@ -990,19 +894,7 @@ class WerewolfGame {
         }
     }
 
-    /**
-     * Restores a game from saved state
-     */
-    static async restoreGame(client, guildId) {
-        try {
-            return await GameStateManager.restoreGameState(client, guildId);
-        } catch (error) {
-            logger.error('Error restoring game', { error });
-            throw error;
-        }
-    }
-
-    // Add static create method
+     // Add static create method
     static async create(client, guildId, channelId, creatorId) {
         try {
             logger.info('Creating new game instance', {
@@ -1031,44 +923,7 @@ class WerewolfGame {
         }
     }
 
-    /**
-     * Processes a night action by delegating to NightActionProcessor.
-     * @param {string} playerId - The ID of the player performing the action.
-     * @param {string} action - The action being performed.
-     * @param {string} targetId - The ID of the target player.
-     */
-    async processNightAction(playerId, action, targetId) {
-        return await this.nightActionProcessor.processNightAction(playerId, action, targetId);
-    }
-
-    /**
-     * Processes all night actions and transitions to Day phase.
-     */
-    async processNightActions() {
-        try {
-             // Process  night actions
-            await this.nightActionProcessor.processBodyguardProtection();
-            await this.nightActionProcessor.processWerewolfAttacks();
-
-            // Clean up night state
-            this.nightActions = {};
-            this.completedNightActions.clear();
-            this.expectedNightActions.clear();
-
-            // Check win conditions and advance phase
-            const gameOver = await this.checkWinConditions();
-            if (!gameOver) {
-                await this.completePhase();
-            }
-        } catch (error) {
-            logger.error('Error processing night actions', { error });
-            // Even if there's an error, try to advance the phase
-            if (!this.checkWinConditions()) {
-                await this.advanceToDay();
-            }
-        }
-    }
-
+  
     /**
      * Checks win conditions to determine if the game should end.
      * @returns {boolean} - True if the game is over, else False.

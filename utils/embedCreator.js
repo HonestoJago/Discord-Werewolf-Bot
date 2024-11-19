@@ -347,7 +347,8 @@ function createGameWelcomeEmbed() {
                     '• Werewolves (1 per 4 players)\n' +
                     '• Seer (1)\n' +
                     '• Villagers (remaining players)\n' +
-                    '```',
+                    '```\n' +
+                    'Use `/role-info` to learn more about each role!',
                 inline: false
             },
             {
@@ -640,6 +641,27 @@ function createSorcererActionEmbed() {
     };
 }
 
+function createGameSetupEmbed(game) {
+    return {
+        color: 0x0099ff,
+        title: '🎮 Game Setup',
+        fields: [
+            {
+                name: 'Players',
+                value: `${game.players.size} joined`,
+                inline: true
+            },
+            {
+                name: 'Optional Roles',
+                value: Array.from(game.selectedRoles.keys())
+                    .map(role => `${roleEmojis[role.toLowerCase()] || ''} ${role}`)
+                    .join(', ') || 'None',
+                inline: true
+            }
+        ]
+    };
+}
+
 module.exports = { 
     createPlayerListEmbed,
     createNominationEmbed,
@@ -664,5 +686,6 @@ module.exports = {
     createHunterTensionEmbed,
     createMinionRevealEmbed,
     createSorcererRevealEmbed,
-    createSorcererActionEmbed
+    createSorcererActionEmbed,
+    createGameSetupEmbed
 };

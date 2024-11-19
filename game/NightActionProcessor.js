@@ -888,14 +888,14 @@ class NightActionProcessor {
             } else {
                 // If no Cupid or Cupid is not alive, proceed to Day phase
                 logger.info('No Cupid present or Cupid not alive, proceeding to Day phase');
-                await this.game.finishNightZero();
+                await this.game.advanceToDay();
             }
 
             logger.info('Game started successfully');
         } catch (error) {
             logger.error('Error during Night Zero', { error });
             // Even if there's an error, try to advance to Day phase
-            await this.game.finishNightZero();
+            await this.game.advanceToDay();
         }
     }
 

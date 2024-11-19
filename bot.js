@@ -16,6 +16,7 @@ const Game = require('./models/Game');
 const ROLES = require('./constants/roles');
 const PHASES = require('./constants/phases');
 const ACTIONS = require('./constants/actions');
+const GameStateManager = require('./utils/gameStateManager');
 
 // Add this near the top of the file with other constants
 const ACTION_MAP = {
@@ -274,7 +275,7 @@ client.on('interactionCreate', async interaction => {
 
                 if (action === 'restore') {
                     try {
-                        const restoredGame = await WerewolfGame.restoreGame(client, guildId);
+                        const restoredGame = await GameStateManager.restoreGameState(client, guildId);
                         if (restoredGame) {
                             client.games.set(guildId, restoredGame);
                             await interaction.message.edit({
@@ -391,41 +392,40 @@ client.on('interactionCreate', async interaction => {
 
                 // Handle night actions
                 if (interaction.customId.startsWith('night_action_')) {
+                    // Defer the reply immediately
+                    await interaction.deferReply({ ephemeral: true });
+                    
                     const roleKey = interaction.customId.split('night_action_')[1].toUpperCase();
-                    logger.info('Processing night action', {
-                        roleKey,
-                        availableActions: Object.keys(ACTION_MAP),
-                        action: ACTION_MAP[ROLES[roleKey]],
-                        roles: ROLES,
-                        customId: interaction.customId,
-                        player: {
-                            role: player.role,
-                            isAlive: player.isAlive
-                        }
-                    });
                     
-                    // Special handling for Cupid's Night Zero action
-                    if (roleKey === 'CUPID' && game.phase === PHASES.NIGHT_ZERO) {
-                        await game.nightActionProcessor.processNightZeroAction(
-                            player.id,
-                            interaction.values[0]
-                        );
-                    } else {
-                        const action = ACTION_MAP[ROLES[roleKey]];
-                        if (!action) {
-                            throw new GameError('Invalid action', `No action found for role ${roleKey}`);
+                    try {
+                        // Special handling for Night Zero actions
+                        if (game.phase === PHASES.NIGHT_ZERO && roleKey === 'CUPID') {
+                            await game.nightActionProcessor.processNightZeroAction(
+                                player.id,
+                                interaction.values[0]
+                            );
+                        } else if (game.phase === PHASES.NIGHT) {
+                            const action = ACTION_MAP[ROLES[roleKey]];
+                            await game.nightActionProcessor.processNightAction(
+                                player.id,
+                                action,
+                                interaction.values[0]
+                            );
                         }
-                        await game.processNightAction(
-                            player.id,
-                            action,
-                            interaction.values[0]
-                        );
+                        
+                        // Edit the deferred reply
+                        await interaction.editReply({
+                            content: 'Your action has been recorded.',
+                            ephemeral: true
+                        });
+                    } catch (error) {
+                        // If there's an error, edit the deferred reply with the error message
+                        await interaction.editReply({
+                            content: 'There was an error processing your action. Please try again.',
+                            ephemeral: true
+                        });
+                        logger.error('Error handling night action', { error });
                     }
-                    
-                    await interaction.reply({
-                        content: 'Your action has been recorded.',
-                        ephemeral: true
-                    });
                 }
                 // Handle other select menus
                 else if (interaction.customId.startsWith('day_')) {
