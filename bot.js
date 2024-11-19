@@ -13,9 +13,9 @@ const buttonHandler = require('./handlers/buttonHandler');
 const sequelize = require('./utils/database');
 const PlayerStats = require('./models/Player');
 const Game = require('./models/Game');
-const GameManager = require('./utils/gameManager');
 const ROLES = require('./constants/roles');
 const PHASES = require('./constants/phases');
+const ACTIONS = require('./constants/actions');
 
 // Add this near the top of the file with other constants
 const ACTION_MAP = {
@@ -41,7 +41,7 @@ const client = new Client({
 
 // Initialize collections
 client.commands = new Collection();
-client.games = new Map();  // Add this line to initialize games Map
+client.games = new Collection();  // Add this line to initialize games Map
 
 // Define the ID(s) of the allowed channel(s) from environment variables
 const allowedChannelIds = process.env.ALLOWED_CHANNEL_IDS ? process.env.ALLOWED_CHANNEL_IDS.split(',') : [];
@@ -321,7 +321,7 @@ client.on('interactionCreate', async interaction => {
                 return;
             }
 
-            // Extract action from customId with special handling for game end buttons
+            // Extract action from customId
             const action = interaction.customId.includes('_') ? 
                 interaction.customId.split('_')[0] : 
                 interaction.customId;
@@ -332,10 +332,16 @@ client.on('interactionCreate', async interaction => {
                         await buttonHandler.handleJoinGame(interaction, game);
                         break;
                     case 'toggle':
+                    case 'add':
+                    case 'remove':
                         await buttonHandler.handleToggleRole(interaction, game);
                         break;
                     case 'view':
-                        await buttonHandler.handleViewRoles(interaction, game);
+                        if (interaction.customId === 'view_info') {
+                            await buttonHandler.handleViewRoles(interaction, game);
+                        } else if (interaction.customId === 'view') {
+                            await buttonHandler.handleViewSetup(interaction, game);
+                        }
                         break;
                     case 'reset':
                         await buttonHandler.handleResetRoles(interaction, game);
@@ -383,18 +389,47 @@ client.on('interactionCreate', async interaction => {
                     return;
                 }
 
-                // Simply route based on the customId prefix
-                if (interaction.customId.startsWith('day_')) {
-                    await dayPhaseHandler.handleSelect(interaction, game);
-                } else if (interaction.customId === 'night_action_cupid') {
-                    await game.nightActionProcessor.processNightZeroAction(
-                        player.id,
-                        interaction.values[0]
-                    );
+                // Handle night actions
+                if (interaction.customId.startsWith('night_action_')) {
+                    const roleKey = interaction.customId.split('night_action_')[1].toUpperCase();
+                    logger.info('Processing night action', {
+                        roleKey,
+                        availableActions: Object.keys(ACTION_MAP),
+                        action: ACTION_MAP[ROLES[roleKey]],
+                        roles: ROLES,
+                        customId: interaction.customId,
+                        player: {
+                            role: player.role,
+                            isAlive: player.isAlive
+                        }
+                    });
+                    
+                    // Special handling for Cupid's Night Zero action
+                    if (roleKey === 'CUPID' && game.phase === PHASES.NIGHT_ZERO) {
+                        await game.nightActionProcessor.processNightZeroAction(
+                            player.id,
+                            interaction.values[0]
+                        );
+                    } else {
+                        const action = ACTION_MAP[ROLES[roleKey]];
+                        if (!action) {
+                            throw new GameError('Invalid action', `No action found for role ${roleKey}`);
+                        }
+                        await game.processNightAction(
+                            player.id,
+                            action,
+                            interaction.values[0]
+                        );
+                    }
+                    
                     await interaction.reply({
                         content: 'Your action has been recorded.',
                         ephemeral: true
                     });
+                }
+                // Handle other select menus
+                else if (interaction.customId.startsWith('day_')) {
+                    await dayPhaseHandler.handleSelect(interaction, game);
                 }
             } catch (error) {
                 logger.error('Error handling select menu interaction', { error });
@@ -406,16 +441,6 @@ client.on('interactionCreate', async interaction => {
         await handleCommandError(interaction, error);
     }
 });
-
-// Function to create a new game
-client.createGame = async (guildId, channelId, creatorId) => {
-    return await GameManager.createGame(client, guildId, channelId, creatorId);
-};
-
-// Function to end the current game
-client.endGame = async (guildId) => {
-    return await GameManager.cleanupGame(client, guildId);
-};
 
 // Add this before client.login
 const { initializeDatabase } = require('./utils/database');

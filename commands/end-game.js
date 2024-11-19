@@ -1,9 +1,8 @@
 // commands/end-game.js
 
 const { SlashCommandBuilder } = require('discord.js');
-const { GameError, handleCommandError } = require('../utils/error-handler');
+const { handleCommandError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
-const GameStateManager = require('../utils/gameStateManager');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -12,26 +11,30 @@ module.exports = {
 
     async execute(interaction) {
         try {
-            if (!interaction.guild) {
-                throw new GameError('Invalid context', 'This command can only be used in a server.');
-            }
-
             const game = interaction.client.games.get(interaction.guildId);
-            if (!game) {
-                throw new GameError('No game', 'There is no active game to end.');
-            }
-
-            // Check if user has permission to end game
-            if (!game.isGameCreatorOrAuthorized(interaction.user.id)) {
-                throw new GameError('Not authorized', 'Only the game creator or authorized users can end the game.');
-            }
-
-            await interaction.deferReply();
-            await interaction.client.endGame(interaction.guildId);
-            await interaction.editReply('Game has been ended and all resources have been cleaned up.');
             
+            if (!game) {
+                await interaction.reply({
+                    content: 'No active game to end.',
+                    ephemeral: true
+                });
+                return;
+            }
+
+            await game.shutdownGame();
+            
+            await interaction.reply({
+                content: 'Game ended successfully.',
+                ephemeral: false
+            });
+
+            logger.info('Game ended via command', {
+                guildId: interaction.guildId,
+                userId: interaction.user.id
+            });
+
         } catch (error) {
             await handleCommandError(interaction, error);
         }
-    }
+    },
 };

@@ -1,5 +1,5 @@
 const { SlashCommandBuilder } = require('discord.js');
-const { createGame, cleanupGame } = require('../utils/gameManager');
+const WerewolfGame = require('../game/WerewolfGame');
 const { createGameSetupButtons } = require('../utils/buttonCreator');
 const { createGameWelcomeEmbed } = require('../utils/embedCreator');
 const { handleCommandError } = require('../utils/error-handler');
@@ -12,19 +12,19 @@ module.exports = {
 
     async execute(interaction) {
         try {
-            // First cleanup any existing game
-            await cleanupGame(interaction.client, interaction.guildId);
+            // Get existing game if any
+            const existingGame = interaction.client.games.get(interaction.guildId);
+            if (existingGame) {
+                await existingGame.shutdownGame();
+            }
 
             // Create new game instance
-            const game = await createGame(
+            const game = await WerewolfGame.create(
                 interaction.client,
                 interaction.guildId,
                 interaction.channelId,
                 interaction.user.id
             );
-
-            // Store game instance
-            interaction.client.games.set(interaction.guildId, game);
 
             // Send welcome message with setup UI
             await interaction.reply({

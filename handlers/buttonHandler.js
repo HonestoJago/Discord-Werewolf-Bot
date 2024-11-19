@@ -1,216 +1,211 @@
-const logger = require('../utils/logger');
+const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const { GameError } = require('../utils/error-handler');
+const logger = require('../utils/logger');
+const WerewolfGame = require('../game/WerewolfGame');
+const { createRoleToggleButtons, createGameSetupButtons } = require('../utils/buttonCreator');
+const { createRoleInfoEmbed } = require('../utils/embedCreator');
 const ROLES = require('../constants/roles');
-const { EmbedBuilder, ButtonStyle } = require('discord.js');
-const GameManager = require('../utils/gameManager');
-const { createGameSetupButtons } = require('../utils/buttonCreator');
-const { createGameWelcomeEmbed } = require('../utils/embedCreator');
 
 async function handleJoinGame(interaction, game) {
     try {
-        // Add the player to the game
-        await game.addPlayer(interaction.user);
-        await interaction.reply({
-            content: 'You have joined the game!',
-            ephemeral: true
-        });
+        const isAlreadyInGame = game.players.has(interaction.user.id);
+        
+        if (isAlreadyInGame) {
+            // Remove player from game
+            game.players.delete(interaction.user.id);
+            await game.saveGameState(); // Save before replying
+            await interaction.reply({
+                content: `${interaction.user} has left the game! (${game.players.size} players remaining)`,
+                ephemeral: false
+            });
+        } else {
+            // Add player to game
+            await game.addPlayer(interaction.user);
+            // saveGameState is called inside addPlayer
+            await interaction.reply({
+                content: `${interaction.user} has joined the game! (${game.players.size} players total)`,
+                ephemeral: false
+            });
+        }
     } catch (error) {
-        logger.error('Error joining game', { error });
-        await interaction.reply({
-            content: error instanceof GameError ? error.userMessage : 'Failed to join the game.',
-            ephemeral: true
+        logger.error('Error in handleJoinGame', {
+            error: error.message,
+            userId: interaction.user.id
         });
+        throw error;
     }
 }
 
 async function handleToggleRole(interaction, game) {
     try {
-        // Check authorization
-        if (interaction.user.id !== game.gameCreatorId) {
-            await interaction.reply({
-                content: 'Only the game creator can modify roles.',
-                ephemeral: true
-            });
-            return;
+        if (!game.isGameCreatorOrAuthorized(interaction.user.id)) {
+            throw new GameError('Unauthorized', 'Only the game creator can modify roles.');
         }
 
-        // Extract role from customId (format: 'toggle_rolename')
         const role = interaction.customId.split('_')[1];
-        if (!Object.values(ROLES).includes(role)) {
-            await interaction.reply({
-                content: 'Invalid role selected.',
-                ephemeral: true
-            });
-            return;
-        }
-
-        const currentCount = game.selectedRoles.get(role) || 0;
+        const isAdding = interaction.customId.startsWith('add');
 
         try {
-            // Create new button components based on current message
-            const newComponents = interaction.message.components.map(row => {
-                const newRow = {
-                    type: 1,
-                    components: row.components.map(button => {
-                        // Convert to plain object if it's not already
-                        const buttonData = button.toJSON ? button.toJSON() : button;
-                        
-                        if (buttonData.custom_id === interaction.customId) {
-                            if (currentCount === 0) {
-                                game.addRole(role);
-                                return {
-                                    ...buttonData,
-                                    style: ButtonStyle.Primary
-                                };
-                            } else {
-                                game.removeRole(role);
-                                return {
-                                    ...buttonData,
-                                    style: ButtonStyle.Secondary
-                                };
-                            }
-                        }
-                        return buttonData;
-                    })
-                };
-                return newRow;
-            });
-
-            // Update the message with new components
-            await interaction.update({ components: newComponents });
-
+            if (isAdding) {
+                game.addRole(role);
+            } else {
+                if (game.selectedRoles.has(role)) {
+                    game.removeRole(role);
+                }
+            }
         } catch (error) {
-            logger.error('Error updating button', { error });
-            await interaction.reply({
-                content: error instanceof GameError ? error.userMessage : 'Failed to toggle role.',
-                ephemeral: true
+            logger.warn('Error toggling role', { 
+                error: error.message, 
+                role,
+                isAdding
             });
         }
-    } catch (error) {
-        logger.error('Error toggling role', { error });
-        await interaction.reply({
-            content: error instanceof GameError ? error.userMessage : 'Failed to toggle role.',
-            ephemeral: true
+
+        // Update with full game setup buttons, maintaining all buttons
+        await interaction.update({
+            components: createGameSetupButtons(game.selectedRoles)  // Pass selectedRoles here
         });
+        await game.saveGameState();
+
+    } catch (error) {
+        throw error;
     }
 }
 
 async function handleViewRoles(interaction, game) {
-    const playerCount = game.players.size;
-    const werewolfCount = Math.floor(playerCount / 4);
-    const villagerCount = Math.max(0, playerCount - werewolfCount - 1  // -1 for Seer
-        - (game.selectedRoles.get(ROLES.BODYGUARD) || 0)
-        - (game.selectedRoles.get(ROLES.CUPID) || 0)
-        - (game.selectedRoles.get(ROLES.HUNTER) || 0));
+    try {
+        const roleInfoEmbed = {
+            color: 0x0099ff,
+            title: 'Role Information',
+            fields: [
+                {
+                    name: '🐺 Werewolf',
+                    value: 'Vote each night to eliminate a player. Win when werewolves equal or outnumber villagers.',
+                    inline: false
+                },
+                {
+                    name: '👁️ Seer',
+                    value: 'Investigate one player each night to learn if they are a werewolf.',
+                    inline: false
+                },
+                {
+                    name: '🛡️ Bodyguard',
+                    value: 'Protect one player each night from werewolf attacks.',
+                    inline: false
+                },
+                {
+                    name: '💘 Cupid',
+                    value: 'Choose two players to be lovers at the start. If one dies, both die.',
+                    inline: false
+                },
+                {
+                    name: '🏹 Hunter',
+                    value: 'When killed, take one other player with you.',
+                    inline: false
+                },
+                {
+                    name: '🦹 Minion',
+                    value: 'Know the werewolves but unknown to them. Win with werewolves.',
+                    inline: false
+                },
+                {
+                    name: '🧙 Sorcerer',
+                    value: 'Each night, investigate one player to learn if they are the Seer. Win with werewolves.',
+                    inline: false
+                },
+                {
+                    name: '👥 Villager',
+                    value: 'Vote during the day to eliminate suspicious players.',
+                    inline: false
+                }
+            ]
+        };
 
-    const embed = new EmbedBuilder()
-        .setColor('#800000')
-        .setTitle('📜 Village Registry')
-        .setDescription('*The elder reviews the gathering...*')
-        .addFields(
-            { 
-                name: '🎭 Villagers Present', 
-                value: playerCount === 0 ? 
-                    '*The village square stands empty...*' :
-                    Array.from(game.players.values())
-                        .map(player => `• ${player.username}`)
-                        .join('\n'),
-                inline: false 
-            },
-            { 
-                name: '🌙 Basic Roles',
-                value: playerCount === 0 ?
-                    '*Waiting for villagers to gather...*' :
-                    `🐺 Werewolves: ${werewolfCount}\n` +
-                    `👁️ Seer: 1\n` +
-                    `👥 Villagers: ${villagerCount}`,
-                inline: true
-            },
-            { 
-                name: '⚔️ Optional Roles', 
-                value: Array.from(game.selectedRoles.entries())
-                    .filter(([role]) => ![ROLES.WEREWOLF, ROLES.SEER].includes(role))
-                    .map(([role, count]) => {
-                        const roleIcons = {
-                            [ROLES.BODYGUARD]: '🛡️',
-                            [ROLES.CUPID]: '💘',
-                            [ROLES.HUNTER]: '🏹'
-                        };
-                        return `${roleIcons[role]} ${role}: ${count}`;
-                    })
-                    .join('\n') || '*No optional roles selected*',
-                inline: true 
-            }
-        )
-        .setFooter({ text: 'May the fates be kind to the innocent...' });
-
-    await interaction.reply({
-        embeds: [embed],
-        ephemeral: true
-    });
+        await interaction.reply({
+            embeds: [roleInfoEmbed],
+            ephemeral: true
+        });
+    } catch (error) {
+        throw error;
+    }
 }
 
-async function handleStartGame(interaction, game) {
+async function handleViewSetup(interaction, game) {
     try {
-        // Check authorization
-        if (interaction.user.id !== game.gameCreatorId) {
-            await interaction.reply({
-                content: 'Only the game creator can start the game.',
-                ephemeral: true
-            });
-            return;
-        }
+        // Format selected roles with emojis
+        const roleEmojis = {
+            'bodyguard': '🛡️',
+            'cupid': '💘',
+            'hunter': '🏹',
+            'minion': '🦹',
+            'sorcerer': '🧙'
+        };
 
-        // Defer the reply immediately to prevent timeout
-        await interaction.deferReply({ ephemeral: true });
-        
-        try {
-            // Start the game
-            await game.startGame();
-            
-            // Edit the deferred reply
-            await interaction.editReply('Game started successfully!');
-        } catch (error) {
-            // If there's an error, edit the deferred reply with the error message
-            if (error instanceof GameError) {
-                await interaction.editReply(error.userMessage);
-            } else {
-                logger.error('Error starting game', { error });
-                await interaction.editReply('Failed to start game.');
+        const selectedRolesFormatted = Array.from(game.selectedRoles.keys())
+            .map(role => `${roleEmojis[role.toLowerCase()] || ''} ${role}`)
+            .join('\n');
+
+        const setupEmbed = {
+            color: 0x0099ff,
+            title: '🎮 Current Game Setup',
+            fields: [
+                {
+                    name: '👥 Players',
+                    value: game.players.size > 0 
+                        ? Array.from(game.players.values())
+                            .map(p => `• ${p.username}`)
+                            .join('\n')
+                        : 'No players yet',
+                    inline: true
+                },
+                {
+                    name: '🎭 Optional Roles',
+                    value: selectedRolesFormatted || 'None selected',
+                    inline: true
+                }
+            ],
+            footer: {
+                text: 'Toggle roles using the buttons below'
             }
-        }
+        };
+
+        await interaction.reply({
+            embeds: [setupEmbed],
+            ephemeral: true
+        });
     } catch (error) {
-        // Only try to reply if we haven't already
-        if (!interaction.replied && !interaction.deferred) {
-            await interaction.reply({
-                content: error instanceof GameError ? error.userMessage : 'Failed to start game.',
-                ephemeral: true
-            });
-        }
-        logger.error('Error in handleStartGame', { error });
+        throw error;
     }
 }
 
 async function handleResetRoles(interaction, game) {
-    if (interaction.user.id !== game.gameCreatorId) {
-        await interaction.reply({
-            content: 'Only the game creator can reset roles.',
-            ephemeral: true
-        });
-        return;
-    }
-
     try {
-        game.selectedRoles = new Map();
-        await interaction.reply({
-            content: 'All roles have been reset.',
-            ephemeral: true
+        if (!game.isGameCreatorOrAuthorized(interaction.user.id)) {
+            throw new GameError('Unauthorized', 'Only the game creator can reset roles.');
+        }
+
+        game.selectedRoles.clear();
+        await interaction.update({
+            components: createGameSetupButtons()
+        });
+        await game.saveGameState();
+    } catch (error) {
+        throw error;
+    }
+}
+
+async function handleStartGame(interaction, game) {
+    try {
+        if (!game.isGameCreatorOrAuthorized(interaction.user.id)) {
+            throw new GameError('Unauthorized', 'Only the game creator can start the game.');
+        }
+
+        await game.startGame();
+        await interaction.update({
+            components: [] // Remove all buttons after game starts
         });
     } catch (error) {
-        await interaction.reply({
-            content: error instanceof GameError ? error.userMessage : 'Failed to reset roles.',
-            ephemeral: true
-        });
+        throw error;
     }
 }
 
@@ -218,6 +213,7 @@ module.exports = {
     handleJoinGame,
     handleToggleRole,
     handleViewRoles,
-    handleStartGame,
-    handleResetRoles
+    handleViewSetup,
+    handleResetRoles,
+    handleStartGame
 };

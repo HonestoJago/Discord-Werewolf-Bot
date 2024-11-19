@@ -667,22 +667,15 @@ class WerewolfGame {
         try {
             await this.cleanupChannels();
             this.players.forEach(player => player.reset());
-            this.phase = PHASES.LOBBY;
-            this.round = 0;
-            this.votes.clear();
-            this.nightActions = {};
-            this.lovers.clear();
-            this.selectedRoles.clear();
-            this.gameOver = false;
-            this.lastProtectedPlayer = null;
-            this.pendingHunterRevenge = null;
-            this.nominatedPlayer = null;
-            this.nominator = null;
-            this.seconder = null;
-            this.votingOpen = false;
-
-            // Clear game start time
-            this.gameStartTime = null;
+            this.cleanup();  // Internal state cleanup
+            
+            // Remove from client's games collection
+            this.client.games.delete(this.guildId);
+            
+            // Clean up from database
+            await Game.destroy({ 
+                where: { guildId: this.guildId }
+            });
 
             logger.info('Game has been shut down and reset');
         } catch (error) {
@@ -801,104 +794,7 @@ class WerewolfGame {
         this.votingOpen = false;
     }
 
-    async checkWinConditions() {
-        // Don't check win conditions during setup phases
-        if (this.phase === PHASES.LOBBY || this.phase === PHASES.NIGHT_ZERO) {
-            return false;
-        }
-    
-        // If game is already over, don't check again
-        if (this.gameOver) {
-            return true;
-        }
-    
-        // Get all living players
-        const alivePlayers = this.getAlivePlayers();
-        
-        // Count living werewolves
-        const livingWerewolves = alivePlayers.filter(p => p.role === ROLES.WEREWOLF).length;
-        
-        // Count living villager team (everyone who's not a werewolf)
-        // Note: Minion counts as villager for parity calculation
-        const livingVillagerTeam = alivePlayers.filter(p => p.role !== ROLES.WEREWOLF).length;
-    
-        let winners = new Set();
-        let gameOver = false;
-    
-        // Calculate game stats
-        const gameStats = {
-            rounds: this.round,
-            totalPlayers: this.players.size,
-            eliminations: this.players.size - alivePlayers.length,
-            duration: this.getGameDuration(),
-            players: Array.from(this.players.values())
-        };
-    
-        // If all werewolves are dead, villagers win (except Minion)
-        if (livingWerewolves === 0) {
-            this.phase = PHASES.GAME_OVER;
-            this.gameOver = true;
-            // Add all non-werewolf and non-minion players to winners
-            this.players.forEach(player => {
-                if (player.role !== ROLES.WEREWOLF && player.role !== ROLES.MINION) {
-                    winners.add(player);
-                }
-            });
-            gameOver = true;
-        }
-    
-        // If werewolves reach parity with villager team, werewolves, minion, and sorcerer win
-        if (livingWerewolves >= livingVillagerTeam) {
-            this.phase = PHASES.GAME_OVER;
-            this.gameOver = true;
-            // Add all werewolf team players to winners
-            this.players.forEach(player => {
-                if (player.role === ROLES.WEREWOLF || 
-                    player.role === ROLES.MINION || 
-                    player.role === ROLES.SORCERER) {
-                    winners.add(player);
-                }
-            });
-            gameOver = true;
-        }
-    
-        if (gameOver) {
-            try {
-                // Try to find and disable any active voting messages
-                const channel = await this.client.channels.fetch(this.gameChannelId);
-                const messages = await channel.messages.fetch({ limit: 10 });
-                for (const message of messages.values()) {
-                    if (message.components?.length > 0) {
-                        await message.edit({ components: [] });
-                    }
-                }
-            } catch (error) {
-                logger.warn('Could not disable voting buttons', { error });
-            }
-
-            // Send game end message
-            await this.broadcastMessage({
-                embeds: [createGameEndEmbed(Array.from(winners), gameStats)]
-            });
-    
-            // Update player stats
-            await this.updatePlayerStats(winners);
-    
-            // Automatically clean up the game
-            await this.shutdownGame();
-            
-            // Remove from client's games collection
-            this.client.games.delete(this.guildId);
-            
-            // Clean up from database
-            const Game = require('../models/Game');
-            await Game.destroy({ where: { guildId: this.guildId } });
-        }
-    
-        return gameOver;
-    }
-
-    // Add this helper method to calculate game duration
+     // Add this helper method to calculate game duration
     getGameDuration() {
         const now = Date.now();
         const gameStart = this.gameStartTime || now; // Add gameStartTime property in constructor
@@ -1116,6 +1012,7 @@ class WerewolfGame {
             });
 
             const game = new WerewolfGame(client, guildId, channelId, creatorId);
+            client.games.set(guildId, game);
             await game.saveGameState();
 
             logger.info('Game instance created successfully', {

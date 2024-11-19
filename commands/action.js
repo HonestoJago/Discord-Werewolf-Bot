@@ -83,14 +83,28 @@ module.exports = {
                 return;
             }
 
-            // Correctly reference processNightAction through nightActionProcessor
-            await currentGame.processNightAction(interaction.user.id, action, targetId);
+            // Special handling for Cupid's Night Zero action
+            if (player.role === ROLES.CUPID && currentGame.phase === PHASES.NIGHT_ZERO) {
+                await currentGame.nightActionProcessor.processNightZeroAction(
+                    player.id,
+                    targetId
+                );
+            } else {
+                await currentGame.processNightAction(interaction.user.id, action, targetId);
+            }
 
-            // Only send the ephemeral reply, let NightActionProcessor handle the DM
-            await interaction.reply({ 
-                content: 'Action submitted.',
-                ephemeral: true 
-            });
+            // Reply based on action type
+            if (action === 'investigate') {
+                await interaction.reply({ 
+                    content: 'Investigation complete. Check your DMs for the results.',
+                    ephemeral: true 
+                });
+            } else {
+                await interaction.reply({ 
+                    content: 'Action submitted.',
+                    ephemeral: true 
+                });
+            }
 
             logger.info('Night action submitted', { 
                 userId: interaction.user.id, 
