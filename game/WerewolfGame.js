@@ -14,6 +14,7 @@ const PlayerStats = require('../models/Player');
 const Game = require('../models/Game');
 const { createGameEndButtons } = require('../utils/buttonCreator');
 const GameStateManager = require('../utils/gameStateManager');
+const PlayerStateManager = require('./PlayerStateManager');
 
 // Define roles and their properties in a configuration object
 const ROLE_CONFIG = {
@@ -109,6 +110,8 @@ class WerewolfGame {
             sorcerer: { investigations: [] },
             bodyguard: { protections: [] }
         };
+
+        this.playerStateManager = new PlayerStateManager(this);
     }
 
     /**
@@ -967,7 +970,7 @@ class WerewolfGame {
         const livingWerewolves = alivePlayers.filter(p => p.role === ROLES.WEREWOLF).length;
         
         // Count living villager team (everyone who's not a werewolf)
-        // Note: Minion counts as villager for parity calculation
+        // Note: Minion and sorcerer count as villager for parity calculation
         const livingVillagerTeam = alivePlayers.filter(p => p.role !== ROLES.WEREWOLF).length;
     
         let winners = new Set();
@@ -982,21 +985,29 @@ class WerewolfGame {
             players: Array.from(this.players.values())
         };
     
-        // If all werewolves are dead, villagers win (except Minion)
-        if (livingWerewolves === 0) {
+        // If no players are alive, it's a draw - no winners
+        if (alivePlayers.length === 0) {
             this.phase = PHASES.GAME_OVER;
             this.gameOver = true;
-            // Add all non-werewolf and non-minion players to winners
+            gameOver = true;
+            // winners remains empty - no one wins
+        }
+        // If all werewolves are dead, villagers win
+        else if (livingWerewolves === 0) {
+            this.phase = PHASES.GAME_OVER;
+            this.gameOver = true;
+            // Add all non-werewolf and non-minion and non-sorcerer players to winners
             this.players.forEach(player => {
-                if (player.role !== ROLES.WEREWOLF && player.role !== ROLES.MINION) {
+                if (player.role !== ROLES.WEREWOLF && 
+                    player.role !== ROLES.MINION && 
+                    player.role !== ROLES.SORCERER) {
                     winners.add(player);
                 }
             });
             gameOver = true;
         }
-    
-        // If werewolves reach parity with villager team, werewolves, minion, and sorcerer win
-        if (livingWerewolves >= livingVillagerTeam) {
+        // If werewolves reach parity with villager team, werewolves win
+        else if (livingWerewolves >= livingVillagerTeam) {
             this.phase = PHASES.GAME_OVER;
             this.gameOver = true;
             // Add all werewolf team players to winners
@@ -1012,7 +1023,18 @@ class WerewolfGame {
     
         if (gameOver) {
             try {
-                // Try to find and disable any active voting messages
+                // Clear all game state first
+                this.nominatedPlayer = null;
+                this.nominator = null;
+                this.seconder = null;
+                this.votingOpen = false;
+                this.votes.clear();
+                if (this.nominationTimeout) {
+                    clearTimeout(this.nominationTimeout);
+                    this.nominationTimeout = null;
+                }
+    
+                // Then disable UI and send final message
                 const channel = await this.client.channels.fetch(this.gameChannelId);
                 const messages = await channel.messages.fetch({ limit: 10 });
                 for (const message of messages.values()) {
@@ -1020,27 +1042,22 @@ class WerewolfGame {
                         await message.edit({ components: [] });
                     }
                 }
+    
+                // Send game end message
+                await this.broadcastMessage({
+                    embeds: [createGameEndEmbed(Array.from(winners), gameStats)]
+                });
+    
+                // Update player stats
+                await this.updatePlayerStats(winners);
+    
+                // Finally clean up
+                await this.shutdownGame();
             } catch (error) {
-                logger.warn('Could not disable voting buttons', { error });
+                logger.error('Error in game end sequence', { error });
+                // Still try to shutdown
+                await this.shutdownGame();
             }
-
-            // Send game end message
-            await this.broadcastMessage({
-                embeds: [createGameEndEmbed(Array.from(winners), gameStats)]
-            });
-    
-            // Update player stats
-            await this.updatePlayerStats(winners);
-    
-            // Automatically clean up the game
-            await this.shutdownGame();
-            
-            // Remove from client's games collection
-            this.client.games.delete(this.guildId);
-            
-            // Clean up from database
-            const Game = require('../models/Game');
-            await Game.destroy({ where: { guildId: this.guildId } });
         }
     
         return gameOver;

@@ -278,12 +278,14 @@ class NightActionProcessor {
                 if (action.action === 'protect') {
                     const target = this.game.players.get(action.target);
                     if (target) {
-                        // Update protection state atomically
-                        target.isProtected = true;
-                        this.game.lastProtectedPlayer = target.id;
-                        
-                        // Save state before any external operations
-                        await this.game.saveGameState();
+                        // Use PlayerStateManager for protection state
+                        await this.game.playerStateManager.changePlayerState(target.id, 
+                            { 
+                                isProtected: true,
+                                lastProtectedPlayer: target.id 
+                            },
+                            { reason: 'Bodyguard protection' }
+                        );
                         
                         logger.info('Bodyguard protected player', { targetId: target.id });
                     }
@@ -302,16 +304,19 @@ class NightActionProcessor {
             throw new GameError('Invalid target', 'Target player not found or is already dead');
         }
 
-        // Mark target as dead
-        target.isAlive = false;
+        // PlayerStateManager will handle moving to dead channel automatically
+        await this.game.playerStateManager.changePlayerState(target.id, 
+            { isAlive: false },
+            { 
+                reason: 'Hunter revenge',
+                skipHunterRevenge: true // Prevent infinite loop
+            }
+        );
 
         // Send message to the game channel
         await this.game.broadcastMessage({
             embeds: [createHunterRevengeEmbed(hunter.username, target.username)]
         });
-
-        // Move target to dead channel
-        await this.game.moveToDeadChannel(target);
 
         logger.info('Hunter took revenge', {
             hunterId: hunter.id,
@@ -324,16 +329,26 @@ class NightActionProcessor {
         if (this.game.pendingHunterRevenge) {
             const hunter = this.game.players.get(this.game.pendingHunterRevenge);
             if (hunter) {
-                hunter.isAlive = false;
-                await this.game.moveToDeadChannel(hunter);
-                await this.game.handleLoversDeath(hunter);
+                // PlayerStateManager will handle moving to dead channel automatically
+                await this.game.playerStateManager.changePlayerState(hunter.id, 
+                    { isAlive: false },
+                    { 
+                        reason: 'Hunter death without revenge',
+                        skipLoverDeath: true // Hunter's death without revenge doesn't trigger lover death
+                    }
+                );
             }
             this.game.pendingHunterRevenge = null;
         }
 
-        // Reset protections
+        // Reset protections using PlayerStateManager
         for (const player of this.game.players.values()) {
-            player.isProtected = false;
+            if (player.isProtected) {
+                await this.game.playerStateManager.changePlayerState(player.id, 
+                    { isProtected: false },
+                    { reason: 'Night phase end' }
+                );
+            }
         }
 
         // Track phase advance for timing test
@@ -755,9 +770,7 @@ class NightActionProcessor {
                         hasLovers: !!this.game.lovers.get(action.target)
                     });
 
-                    if (!target?.isAlive) {
-                        continue;
-                    }
+                    if (!target?.isAlive) continue;
 
                     if (target.isProtected) {
                         if (!this.protectionMessageSent) {
@@ -775,24 +788,24 @@ class NightActionProcessor {
                         return;
                     }
 
-                    // Mark target as dead and update state
-                    target.isAlive = false;
-                    await this.game.saveGameState();
+                    // Use PlayerStateManager for death
+                    await this.game.playerStateManager.changePlayerState(target.id, 
+                        { isAlive: false },
+                        { 
+                            reason: 'Killed by werewolves',
+                            skipHunterRevenge: target.role === ROLES.HUNTER
+                        }
+                    );
 
-                    // Handle external operations
                     await this.game.broadcastMessage({
                         embeds: [{
                             color: 0x800000,
                             title: '🐺 A Grim Discovery',
-                            description: 
-                                `*As dawn breaks, the village finds **${target.username}** dead, their body savagely mauled...*\n\n` +
-                                `The werewolves have claimed another victim.`,
+                            description: `*As dawn breaks, the village finds **${target.username}** dead, their body savagely mauled...*\n\n` +
+                                       `The werewolves have claimed another victim.`,
                             footer: { text: 'The hunt continues...' }
                         }]
                     });
-                    
-                    await this.game.moveToDeadChannel(target);
-                    await this.handleLoversDeath(target);
                 }
             }
 
@@ -803,12 +816,8 @@ class NightActionProcessor {
             }
 
         } catch (error) {
-            // Restore previous state on error
             this.restoreFromSnapshot(snapshot);
-            logger.error('Error processing werewolf attacks', { 
-                error: error.message,
-                stack: error.stack 
-            });
+            logger.error('Error processing werewolf attacks', { error });
             if (!this.game.checkWinConditions()) {
                 await this.game.advanceToDay();
             }
@@ -1087,16 +1096,19 @@ class NightActionProcessor {
                 return;
             }
 
-            // Mark lover as dead
-            lover.isAlive = false;
+            // Use PlayerStateManager to handle lover death
+            await this.game.playerStateManager.changePlayerState(lover.id, 
+                { isAlive: false },
+                { 
+                    reason: 'Lover death',
+                    skipLoverDeath: true // Prevent infinite loop
+                }
+            );
 
             // Send heartbreak message
             await this.game.broadcastMessage({
                 embeds: [createLoverDeathEmbed(lover.username)]
             });
-
-            // Move lover to dead channel
-            await this.game.moveToDeadChannel(lover);
 
             logger.info('Lover died of heartbreak', {
                 originalDeadPlayer: deadPlayer.username,
@@ -1113,6 +1125,8 @@ class NightActionProcessor {
     }
 
     async processNightZeroAction(playerId, targetId) {
+        const snapshot = this.createNightSnapshot();
+        
         try {
             // Validate the action
             if (!this.game.expectedNightActions.has(playerId)) {
@@ -1134,9 +1148,12 @@ class NightActionProcessor {
                 throw new GameError('Invalid target', 'You cannot choose yourself as a lover.');
             }
 
-            // Use new state management method for lovers
-            this.updateLoverState(cupid.id, lover.id);
-            
+            // Use PlayerStateManager for ALL state changes
+            await this.game.playerStateManager.changePlayerState(cupid.id, 
+                { lovers: targetId },
+                { reason: 'Cupid action' }
+            );
+
             // Create new completed actions set
             const newCompletedActions = new Set(this.game.completedNightActions);
             newCompletedActions.add(playerId);
@@ -1171,6 +1188,8 @@ class NightActionProcessor {
             await this.game.advanceToDay();
 
         } catch (error) {
+            // Restore previous state on error
+            this.restoreFromSnapshot(snapshot);
             logger.error('Error processing Night Zero action', { error });
             throw error;
         }

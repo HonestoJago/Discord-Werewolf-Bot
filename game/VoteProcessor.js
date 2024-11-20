@@ -306,51 +306,57 @@ class VoteProcessor {
             }
 
             // Handle guilty verdict atomically
-            const eliminated = true;
-            const resultsEmbed = createVoteResultsEmbed(
-                target,
-                voteCounts,
-                eliminated,
-                playerVotes
-            );
+            if (voteCounts.guilty > voteCounts.innocent) {
+                const eliminated = true;
+                const resultsEmbed = createVoteResultsEmbed(
+                    target,
+                    voteCounts,
+                    eliminated,
+                    playerVotes
+                );
 
-            const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
-            await channel.send({ embeds: [resultsEmbed] });
+                const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
+                await channel.send({ embeds: [resultsEmbed] });
 
-            // Handle elimination and special cases
-            if (eliminated) {
-                const isWerewolf = target.role === ROLES.WEREWOLF;
-                await this.game.broadcastMessage({
-                    embeds: [{
-                        color: isWerewolf ? 0x008000 : 0x800000,
-                        title: isWerewolf ? '🐺 A Wolf Among Us!' : '❌ An Innocent Soul',
-                        description: isWerewolf ?
-                            `*The village's suspicions were correct! **${target.username}** was indeed a Werewolf!*` :
-                            `*Alas, **${target.username}** was not a Werewolf. The real beasts still lurk among you...*`,
-                        footer: { text: isWerewolf ? 'But are there more?' : 'Choose more carefully next time...' }
-                    }]
-                });
+                // Handle elimination and special cases
+                if (eliminated) {
+                    const isWerewolf = target.role === ROLES.WEREWOLF;
+                    await this.game.broadcastMessage({
+                        embeds: [{
+                            color: isWerewolf ? 0x008000 : 0x800000,
+                            title: isWerewolf ? '🐺 A Wolf Among Us!' : '❌ An Innocent Soul',
+                            description: isWerewolf ?
+                                `*The village's suspicions were correct! **${target.username}** was indeed a Werewolf!*` :
+                                `*Alas, **${target.username}** was not a Werewolf. The real beasts still lurk among you...*`,
+                            footer: { text: isWerewolf ? 'But are there more?' : 'Choose more carefully next time...' }
+                        }]
+                    });
 
-                // Handle Hunter's revenge BEFORE marking as dead
-                if (target.role === ROLES.HUNTER) {
-                    this.game.pendingHunterRevenge = target.id;
-                    await this.handleHunterRevenge(target);
-                    return;
-                }
+                    // Handle Hunter's revenge BEFORE marking as dead
+                    if (target.role === ROLES.HUNTER) {
+                        this.game.pendingHunterRevenge = target.id;
+                        await this.handleHunterRevenge(target);
+                        return;
+                    }
 
-                // For non-Hunter players, handle elimination
-                target.isAlive = false;
-                await this.game.moveToDeadChannel(target);
-                await this.game.nightActionProcessor.handleLoversDeath(target);
+                    // For non-Hunter players, use PlayerStateManager
+                    await this.game.playerStateManager.changePlayerState(target.id, 
+                        { isAlive: false },
+                        { 
+                            reason: 'Eliminated by vote',
+                            skipHunterRevenge: target.role === ROLES.HUNTER // Skip if we're handling Hunter specially
+                        }
+                    );
 
-                // Clear voting state and save
-                this.clearVotingState();
-                await this.game.saveGameState();
+                    // Clear voting state and save
+                    this.clearVotingState();
+                    await this.game.saveGameState();
 
-                // Check win conditions and advance phase
-                const gameOver = await this.game.checkWinConditions();
-                if (!gameOver) {
-                    await this.game.advanceToNight();
+                    // Check win conditions and advance phase
+                    const gameOver = await this.game.checkWinConditions();
+                    if (!gameOver) {
+                        await this.game.advanceToNight();
+                    }
                 }
             }
 
@@ -438,17 +444,24 @@ class VoteProcessor {
                 throw new GameError('Invalid target', 'You must choose a living player.');
             }
 
-            // Prepare all state changes first
-            const stateChanges = {
-                hunterAlive: false,
-                targetAlive: false,
-                pendingRevenge: null
-            };
+            // Use PlayerStateManager for both deaths
+            await this.game.playerStateManager.changePlayerState(hunterId, 
+                { isAlive: false },
+                { 
+                    reason: 'Hunter revenge death',
+                    skipLoverDeath: true // Hunter's revenge death doesn't trigger lover death
+                }
+            );
 
-            // Apply all state changes atomically
-            hunter.isAlive = stateChanges.hunterAlive;
-            target.isAlive = stateChanges.targetAlive;
-            this.game.pendingHunterRevenge = stateChanges.pendingRevenge;
+            await this.game.playerStateManager.changePlayerState(targetId,
+                { isAlive: false },
+                { 
+                    reason: 'Hunter revenge target',
+                    skipHunterRevenge: true // Prevent infinite loop
+                }
+            );
+
+            this.game.pendingHunterRevenge = null;
 
             // Save state before any external operations
             await this.game.saveGameState();
@@ -465,11 +478,7 @@ class VoteProcessor {
                 }]
             });
 
-            // Move players to dead channel
-            await this.game.moveToDeadChannel(hunter);
-            await this.game.moveToDeadChannel(target);
-
-            // Handle lover deaths
+            // Handle lover deaths through PlayerStateManager
             await this.game.nightActionProcessor.handleLoversDeath(target);
 
             // Check win conditions

@@ -238,6 +238,40 @@ function createSeerRevealEmbed(target, isWerewolf) {
 }
 
 function createGameEndEmbed(winners, gameStats) {
+    // If no winners, it's a draw
+    if (winners.length === 0) {
+        return {
+            color: 0x808080, // Gray color for draw
+            title: '☠️ Total Destruction!',
+            description: 
+                '```diff\n! MUTUAL DESTRUCTION\n```\n' +
+                '*The village lies in ruins, with no survivors to tell the tale...*',
+            fields: [
+                {
+                    name: '💀 The Fallen',
+                    value: Array.from(gameStats.players)
+                        .map(p => `\`${p.username}\` *(${p.role})*`)
+                        .join('\n') || 'None',
+                    inline: false
+                },
+                {
+                    name: '📊 Game Statistics',
+                    value: '```diff\n' +
+                        `+ Rounds: ${gameStats.rounds}\n` +
+                        `+ Players: ${gameStats.totalPlayers}\n` +
+                        `- Deaths: ${gameStats.eliminations}\n` +
+                        `+ Duration: ${gameStats.duration}\n` +
+                        '```',
+                    inline: false
+                }
+            ],
+            footer: { 
+                text: 'A cautionary tale of suspicion and revenge...' 
+            }
+        };
+    }
+
+    // For games with winners, use existing logic
     const isWerewolfWin = winners.some(player => 
         player.role === ROLES.WEREWOLF || 
         player.role === ROLES.MINION || 
@@ -247,14 +281,14 @@ function createGameEndEmbed(winners, gameStats) {
     
     // Group winners and others differently for werewolf win
     const victoriousTeam = allPlayers.filter(p => 
-        p.role === ROLES.WEREWOLF || 
-        p.role === ROLES.MINION || 
-        p.role === ROLES.SORCERER
+        isWerewolfWin ? 
+            (p.role === ROLES.WEREWOLF || p.role === ROLES.MINION || p.role === ROLES.SORCERER) :
+            (p.role !== ROLES.WEREWOLF && p.role !== ROLES.MINION && p.role !== ROLES.SORCERER)
     );
     const defeatedTeam = allPlayers.filter(p => 
-        p.role !== ROLES.WEREWOLF && 
-        p.role !== ROLES.MINION && 
-        p.role !== ROLES.SORCERER
+        isWerewolfWin ? 
+            (p.role !== ROLES.WEREWOLF && p.role !== ROLES.MINION && p.role !== ROLES.SORCERER) :
+            (p.role === ROLES.WEREWOLF || p.role === ROLES.MINION || p.role === ROLES.SORCERER)
     );
     
     return {
@@ -285,13 +319,13 @@ function createGameEndEmbed(winners, gameStats) {
                 {
                     name: '👑 The Victorious Village',
                     value: '```yaml\n' +
-                        defeatedTeam.map(p => `${p.username} (${p.role})`).join('\n') +
+                        victoriousTeam.map(p => `${p.username} (${p.role})`).join('\n') +
                         '\n```',
                     inline: false
                 },
                 {
                     name: '⚰️ The Slain Wolves',
-                    value: victoriousTeam.map(p => `\`${p.username}\` *(${p.role})*`).join('\n') || 'None',
+                    value: defeatedTeam.map(p => `\`${p.username}\` *(${p.role})*`).join('\n') || 'None',
                     inline: false
                 }
             ]),
