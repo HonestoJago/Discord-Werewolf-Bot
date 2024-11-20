@@ -22,6 +22,146 @@ class NightActionProcessor {
     }
 
     /**
+     * Creates a snapshot of the current night action state
+     * @returns {Object} Snapshot of current state
+     */
+    createNightSnapshot() {
+        return {
+            phase: this.game.phase,
+            round: this.game.round,
+            nightActions: { ...this.game.nightActions },
+            expectedActions: new Set(this.game.expectedNightActions),
+            completedActions: new Set(this.game.completedNightActions),
+            lastProtectedPlayer: this.game.lastProtectedPlayer,
+            pendingHunterRevenge: this.game.pendingHunterRevenge,
+            // Deep copy of player states
+            playerStates: new Map(
+                Array.from(this.game.players.entries()).map(([id, player]) => [
+                    id,
+                    {
+                        isAlive: player.isAlive,
+                        isProtected: player.isProtected,
+                        role: player.role
+                    }
+                ])
+            ),
+            // Copy investigation history
+            roleHistory: {
+                seer: { investigations: [...(this.game.roleHistory.seer?.investigations || [])] },
+                sorcerer: { investigations: [...(this.game.roleHistory.sorcerer?.investigations || [])] }
+            }
+        };
+    }
+
+    /**
+     * Restores night action state from a snapshot
+     * @param {Object} snapshot - State snapshot to restore
+     */
+    restoreFromSnapshot(snapshot) {
+        this.game.phase = snapshot.phase;
+        this.game.round = snapshot.round;
+        this.game.nightActions = { ...snapshot.nightActions };
+        this.game.expectedNightActions = new Set(snapshot.expectedActions);
+        this.game.completedNightActions = new Set(snapshot.completedActions);
+        this.game.lastProtectedPlayer = snapshot.lastProtectedPlayer;
+        this.game.pendingHunterRevenge = snapshot.pendingHunterRevenge;
+
+        // Restore player states
+        for (const [playerId, state] of snapshot.playerStates) {
+            const player = this.game.players.get(playerId);
+            if (player) {
+                player.isAlive = state.isAlive;
+                player.isProtected = state.isProtected;
+                player.role = state.role;
+            }
+        }
+
+        // Restore investigation history
+        this.game.roleHistory = {
+            seer: { investigations: [...snapshot.roleHistory.seer.investigations] },
+            sorcerer: { investigations: [...snapshot.roleHistory.sorcerer.investigations] }
+        };
+    }
+
+    /**
+     * Atomically processes a night action
+     * @param {string} playerId - ID of the player performing the action
+     * @param {string} action - Type of action being performed
+     * @param {string} targetId - ID of the target player
+     */
+    async processNightAction(playerId, action, targetId) {
+        const snapshot = this.createNightSnapshot();
+        
+        try {
+            const player = this.game.players.get(playerId);
+            if (!player) {
+                throw new GameError('Invalid player', 'You are not authorized to perform this action.');
+            }
+
+            // Handle Hunter's revenge immediately if applicable
+            if (action === 'hunter_revenge' && player.id === this.game.pendingHunterRevenge) {
+                await this.processHunterRevenge(player, this.game.players.get(targetId));
+                return;
+            }
+
+            // Validate night action
+            if (!this.game.expectedNightActions.has(playerId)) {
+                logger.warn('Unexpected night action', {
+                    playerId,
+                    action,
+                    expectedActions: Array.from(this.game.expectedNightActions)
+                });
+                throw new GameError('Invalid Action', 'You are not expected to take an action at this time.');
+            }
+
+            if (!player.isAlive) {
+                throw new GameError('Dead players cannot perform actions', 'Dead players cannot perform actions.');
+            }
+
+            if (this.game.phase !== PHASES.NIGHT && this.game.phase !== PHASES.NIGHT_ZERO) {
+                throw new GameError('Wrong phase', 'Night actions can only be performed during night phases');
+            }
+
+            // Validate target exists and is alive
+            const targetPlayer = this.game.players.get(targetId);
+            if (!targetPlayer || !targetPlayer.isAlive) {
+                throw new GameError('Invalid target', 'Target player not found or is dead');
+            }
+
+            // Update state atomically
+            this.updateNightActionState(playerId, {
+                action,
+                target: targetId,
+                completed: true
+            });
+
+            // Save state before any external operations
+            await this.game.saveGameState();
+
+            // Handle immediate investigations
+            if (action === 'investigate' || action === 'dark_investigate') {
+                await this.handleImmediateInvestigation(player, targetPlayer, action);
+            }
+
+            // Send confirmation
+            await this.sendActionConfirmation(player, action);
+
+            logger.info('Night action collected', { playerId, action, targetId });
+
+            // Check if all actions are complete
+            if (this.checkAllActionsComplete()) {
+                await this.processNightActions();
+            }
+
+        } catch (error) {
+            // Restore previous state on error
+            this.restoreFromSnapshot(snapshot);
+            logger.error('Error processing night action', { error });
+            throw error;
+        }
+    }
+
+    /**
      * Updates night action state atomically to maintain consistency
      * @param {string} playerId - The ID of the player performing the action
      * @param {Object} actionData - Data about the night action
@@ -94,95 +234,6 @@ class NightActionProcessor {
         this.game.lovers = newLovers;
     }
 
-    async processNightAction(playerId, action, targetId) {
-        try {
-            const player = this.game.players.get(playerId);
-            if (!player) {
-                throw new GameError('You are not authorized to perform this action', 'You are not authorized to perform this action.');
-            }
-
-            // Handle Hunter's revenge immediately
-            if (action === 'hunter_revenge' && player.id === this.game.pendingHunterRevenge) {
-                this.updateNightActionState(playerId, {
-                    action,
-                    target: targetId,
-                    completed: true
-                });
-
-                await this.processHunterRevenge(player, this.game.players.get(targetId));
-                return; // Return early after processing revenge
-            }
-
-            // Add validation for required night actions
-            if (!this.game.expectedNightActions.has(playerId)) {
-                logger.warn('Unexpected night action', {
-                    playerId,
-                    action,
-                    expectedActions: Array.from(this.game.expectedNightActions)
-                });
-                throw new GameError('Invalid Action', 'You are not expected to take an action at this time.');
-            }
-
-            // Regular night action validation
-            if (!player.isAlive) {
-                throw new GameError('Dead players cannot perform actions', 'Dead players cannot perform actions.');
-            }
-
-            if (this.game.phase !== PHASES.NIGHT && this.game.phase !== PHASES.NIGHT_ZERO) {
-                throw new GameError('Wrong phase', 'Night actions can only be performed during night phases');
-            }
-
-            // Validate target exists and is alive
-            const targetPlayer = this.game.players.get(targetId);
-            if (!targetPlayer || !targetPlayer.isAlive) {
-                throw new GameError('Invalid target', 'Target player not found or is dead');
-            }
-
-            // Validate action based on phase and role
-            this.validateNightAction(player, action, targetId);
-
-            // Check if action was already submitted
-            if (this.game.completedNightActions.has(playerId)) {
-                throw new GameError('Action already submitted', 'You have already submitted your action for this night.');
-            }
-
-            // Handle immediate investigations
-            if (action === 'investigate' || action === 'dark_investigate') {
-                const investigator = this.game.players.get(playerId);
-                const target = this.game.players.get(targetId);
-                await this.handleImmediateInvestigation(investigator, target, action);
-            }
-
-            // Update state
-            this.updateNightActionState(playerId, {
-                action,
-                target: targetId,
-                completed: true
-            });
-
-            // Send confirmation
-            await this.sendActionConfirmation(player, action);
-
-            logger.info('Night action collected', { playerId, action, targetId });
-
-            // Check completion and process if all done
-            if (this.checkAllActionsComplete()) {
-                await this.processNightActions();
-            }
-
-        } catch (error) {
-            logger.error('Error processing night action', { 
-                error: error.message, 
-                stack: error.stack, 
-                playerId,
-                action,
-                targetId,
-                phase: this.game.phase
-            });
-            throw error;
-        }
-    }
-
     async processNightActions() {
         try {
             // Process other night actions...
@@ -220,15 +271,29 @@ class NightActionProcessor {
     }
 
     async processBodyguardProtection() {
-        for (const [playerId, action] of Object.entries(this.game.nightActions)) {
-            if (action.action === 'protect') {
-                const target = this.game.players.get(action.target);
-                if (target) {
-                    target.isProtected = true;
-                    this.game.lastProtectedPlayer = target.id;
-                    logger.info('Bodyguard protected player', { targetId: target.id });
+        const snapshot = this.createNightSnapshot();
+        
+        try {
+            for (const [playerId, action] of Object.entries(this.game.nightActions)) {
+                if (action.action === 'protect') {
+                    const target = this.game.players.get(action.target);
+                    if (target) {
+                        // Update protection state atomically
+                        target.isProtected = true;
+                        this.game.lastProtectedPlayer = target.id;
+                        
+                        // Save state before any external operations
+                        await this.game.saveGameState();
+                        
+                        logger.info('Bodyguard protected player', { targetId: target.id });
+                    }
                 }
             }
+        } catch (error) {
+            // Restore previous state on error
+            this.restoreFromSnapshot(snapshot);
+            logger.error('Error processing bodyguard protection', { error });
+            throw error;
         }
     }
 
@@ -671,7 +736,12 @@ class NightActionProcessor {
         return maxValue;
     }
 
+    /**
+     * Atomically processes werewolf attacks
+     */
     async processWerewolfAttacks() {
+        const snapshot = this.createNightSnapshot();
+        
         try {
             for (const [playerId, action] of Object.entries(this.game.nightActions)) {
                 if (action.action === 'attack') {
@@ -699,47 +769,17 @@ class NightActionProcessor {
                         continue;
                     }
 
-                    // Handle Hunter case
+                    // Handle Hunter case atomically
                     if (target.role === ROLES.HUNTER) {
-                        this.game.pendingHunterRevenge = target.id;
-                        logger.info('Waiting for Hunter\'s revenge action', {
-                            hunterId: target.id,
-                            hunterName: target.username
-                        });
-                        
-                        // Create dropdown for Hunter's revenge
-                        const validTargets = Array.from(this.game.players.values())
-                            .filter(p => p.isAlive && p.id !== target.id)
-                            .map(p => ({
-                                label: p.username,
-                                value: p.id,
-                                description: `Take ${p.username} with you`
-                            }));
-
-                        const selectMenu = new StringSelectMenuBuilder()
-                            .setCustomId('hunter_revenge')
-                            .setPlaceholder('Choose your target')
-                            .addOptions(validTargets);
-
-                        const row = new ActionRowBuilder().addComponents(selectMenu);
-
-                        // Send DM to Hunter with dropdown
-                        await target.sendDM({
-                            embeds: [createHunterRevengeEmbed()],
-                            components: [row]
-                        });
-
-                        // Send mysterious message to village
-                        await this.game.broadcastMessage({
-                            embeds: [createHunterTensionEmbed(false)]
-                        });
-
-                        // Don't advance phase yet - wait for Hunter's revenge
+                        await this.handleHunterNightDeath(target);
                         return;
                     }
 
-                    // Mark target as dead and move to dead channel
+                    // Mark target as dead and update state
                     target.isAlive = false;
+                    await this.game.saveGameState();
+
+                    // Handle external operations
                     await this.game.broadcastMessage({
                         embeds: [{
                             color: 0x800000,
@@ -752,19 +792,7 @@ class NightActionProcessor {
                     });
                     
                     await this.game.moveToDeadChannel(target);
-
-                    // Handle lover death after target is fully processed
-                    const loverId = this.game.lovers.get(target.id);
-                    if (loverId) {
-                        const lover = this.game.players.get(loverId);
-                        if (lover?.isAlive) {
-                            lover.isAlive = false;
-                            await this.game.broadcastMessage({
-                                embeds: [createLoverDeathEmbed(lover.username)]
-                            });
-                            await this.game.moveToDeadChannel(lover);
-                        }
-                    }
+                    await this.handleLoversDeath(target);
                 }
             }
 
@@ -775,6 +803,8 @@ class NightActionProcessor {
             }
 
         } catch (error) {
+            // Restore previous state on error
+            this.restoreFromSnapshot(snapshot);
             logger.error('Error processing werewolf attacks', { 
                 error: error.message,
                 stack: error.stack 
@@ -787,14 +817,171 @@ class NightActionProcessor {
         }
     }
 
+    /**
+     * Atomically handles Hunter's death during night phase
+     * @param {Player} hunter - The Hunter player
+     */
+    async handleHunterNightDeath(hunter) {
+        const snapshot = this.createNightSnapshot();
+        
+        try {
+            this.game.pendingHunterRevenge = hunter.id;
+            
+            // Create dropdown for Hunter's revenge
+            const validTargets = Array.from(this.game.players.values())
+                .filter(p => p.isAlive && p.id !== hunter.id)
+                .map(p => ({
+                    label: p.username,
+                    value: p.id,
+                    description: `Take ${p.username} with you`
+                }));
+
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('hunter_revenge')
+                .setPlaceholder('Choose your target')
+                .addOptions(validTargets);
+
+            const row = new ActionRowBuilder().addComponents(selectMenu);
+
+            // Save state before external operations
+            await this.game.saveGameState();
+
+            // Send DM to Hunter with dropdown
+            await hunter.sendDM({
+                embeds: [createHunterRevengeEmbed()],
+                components: [row]
+            });
+
+            // Send mysterious message to village
+            await this.game.broadcastMessage({
+                embeds: [createHunterTensionEmbed(false)]
+            });
+
+        } catch (error) {
+            // Restore previous state on error
+            this.restoreFromSnapshot(snapshot);
+            logger.error('Error handling Hunter night death', { error });
+            throw error;
+        }
+    }
+
+    /**
+     * Atomically handles immediate investigation results
+     * @param {Player} investigator - The investigating player
+     * @param {Player} target - The target player
+     * @param {string} action - The type of investigation
+     */
+    async handleImmediateInvestigation(investigator, target, action) {
+        const snapshot = this.createNightSnapshot();
+        
+        try {
+            if (!target) {
+                throw new GameError('Invalid target', 'Target player not found.');
+            }
+
+            let result, embed;
+            if (action === 'investigate') {
+                const isWerewolf = target.role === ROLES.WEREWOLF;
+                embed = createSeerRevealEmbed(target, isWerewolf);
+                result = isWerewolf;
+
+                // Update investigation history
+                this.updateInvestigationHistory({
+                    investigatorId: investigator.id,
+                    targetId: target.id,
+                    result: isWerewolf,
+                    type: 'seer'
+                });
+
+                logger.info('Seer investigation completed', {
+                    seerId: investigator.id,
+                    targetId: target.id,
+                    targetAlive: target.isAlive,
+                    result: isWerewolf ? 'werewolf' : 'not werewolf'
+                });
+            } else if (action === 'dark_investigate') {
+                const isSeer = target.role === ROLES.SEER;
+                embed = createSorcererRevealEmbed(target, isSeer);
+                result = isSeer;
+
+                // Update investigation history
+                this.updateInvestigationHistory({
+                    investigatorId: investigator.id,
+                    targetId: target.id,
+                    result: isSeer,
+                    type: 'sorcerer'
+                });
+
+                logger.info('Sorcerer investigation completed', {
+                    sorcererId: investigator.id,
+                    targetId: target.id,
+                    targetAlive: target.isAlive,
+                    result: isSeer ? 'seer' : 'not seer'
+                });
+            }
+
+            // Save state before sending DM
+            await this.game.saveGameState();
+
+            // Send result to investigator
+            await investigator.sendDM({ embeds: [embed] });
+
+        } catch (error) {
+            // Restore previous state on error
+            this.restoreFromSnapshot(snapshot);
+            logger.error('Error handling investigation', { error });
+            throw error;
+        }
+    }
+
+    /**
+     * Atomically handles Night Zero setup and initial role reveals
+     */
     async handleNightZero() {
+        const snapshot = this.createNightSnapshot();
+        
         try {
             logger.info('Starting Night Zero phase');
 
-            // Get werewolves and send them their team info first
+            // Prepare all initial state changes
+            const stateChanges = {
+                phase: PHASES.NIGHT_ZERO,
+                round: 0,
+                initialVisions: new Map(),
+                roleReveals: new Map()
+            };
+
+            // Get werewolves and prepare their team info
             const werewolves = this.game.getPlayersByRole(ROLES.WEREWOLF);
             const werewolfNames = werewolves.map(w => w.username).join(', ');
             
+            // Prepare Seer's initial vision
+            const seer = this.game.getPlayerByRole(ROLES.SEER);
+            if (seer?.isAlive) {
+                const validTargets = Array.from(this.game.players.values()).filter(
+                    p => p.id !== seer.id && p.isAlive && p.role !== ROLES.WEREWOLF
+                );
+                
+                if (validTargets.length > 0) {
+                    const randomTarget = validTargets[Math.floor(Math.random() * validTargets.length)];
+                    const isWerewolf = randomTarget.role === ROLES.WEREWOLF;
+                    
+                    stateChanges.initialVisions.set(seer.id, {
+                        targetId: randomTarget.id,
+                        isWerewolf: isWerewolf
+                    });
+                }
+            }
+
+            // Apply state changes atomically
+            this.game.phase = stateChanges.phase;
+            this.game.round = stateChanges.round;
+
+            // Save state before external operations
+            await this.game.saveGameState();
+
+            // Now handle external operations (DMs and reveals)
+            // Send werewolf team info
             for (const werewolf of werewolves) {
                 await werewolf.sendDM({
                     embeds: [{
@@ -810,7 +997,7 @@ class NightActionProcessor {
 
             // Handle Minion's werewolf reveal
             const minion = this.game.getPlayerByRole(ROLES.MINION);
-            if (minion && minion.isAlive) {
+            if (minion?.isAlive) {
                 await minion.sendDM({
                     embeds: [createMinionRevealEmbed(werewolves)]
                 });
@@ -822,100 +1009,50 @@ class NightActionProcessor {
                 });
             }
 
-            // Handle Seer's initial revelation
-            const seer = this.game.getPlayerByRole(ROLES.SEER);
-            logger.info('Found Seer for Night Zero', {
-                seerFound: !!seer,
-                seerAlive: seer?.isAlive,
-                seerUsername: seer?.username
-            });
-
-            if (seer && seer.isAlive) {
-                try {
-                    const validTargets = Array.from(this.game.players.values()).filter(
-                        p => p.id !== seer.id && p.isAlive && p.role !== ROLES.WEREWOLF
-                    );
+            // Handle Seer's initial vision
+            if (seer?.isAlive) {
+                const vision = stateChanges.initialVisions.get(seer.id);
+                if (vision) {
+                    const target = this.game.players.get(vision.targetId);
                     
-                    if (validTargets.length > 0) {
-                        const randomPlayer = validTargets[Math.floor(Math.random() * validTargets.length)];
-                        const isWerewolf = randomPlayer.role === ROLES.WEREWOLF;
-                        
-                        // Use updateInvestigationHistory for Night Zero vision too
-                        this.updateInvestigationHistory({
-                            investigatorId: seer.id,
-                            targetId: randomPlayer.id,
-                            result: isWerewolf,
-                            type: 'seer'
-                        });
-                        
-                        await seer.sendDM({
-                            embeds: [createSeerRevealEmbed(randomPlayer, isWerewolf)]
-                        });
-                        
-                        logger.info('Seer received initial vision', {
-                            seerId: seer.id,
-                            targetId: randomPlayer.id,
-                            isWerewolf: isWerewolf,
-                            targetRole: randomPlayer.role
-                        });
-                    }
-                } catch (error) {
-                    logger.error('Error sending Seer vision', { error });
+                    // Update investigation history atomically
+                    this.updateInvestigationHistory({
+                        investigatorId: seer.id,
+                        targetId: vision.targetId,
+                        result: vision.isWerewolf,
+                        type: 'seer',
+                        isInitialVision: true
+                    });
+                    
+                    await seer.sendDM({
+                        embeds: [createSeerRevealEmbed(target, vision.isWerewolf)]
+                    });
+                    
+                    logger.info('Seer received initial vision', {
+                        seerId: seer.id,
+                        targetId: target.id,
+                        isWerewolf: vision.isWerewolf,
+                        targetRole: target.role
+                    });
                 }
             }
 
-            // Handle Cupid's action if present
+            // Handle Cupid if present
             const cupid = this.game.getPlayerByRole(ROLES.CUPID);
-            logger.info('Found Cupid for Night Zero', {
-                cupidFound: !!cupid,
-                cupidAlive: cupid?.isAlive,
-                cupidUsername: cupid?.username
-            });
-
             if (cupid?.isAlive) {
-                try {
-                    // Add Cupid to expected actions
-                    this.game.expectedNightActions.add(cupid.id);
-
-                    // Create dropdown for Cupid's lover selection
-                    const validTargets = Array.from(this.game.players.values())
-                        .filter(p => p.isAlive && p.id !== cupid.id);
-
-                    const selectMenu = new StringSelectMenuBuilder()
-                        .setCustomId('night_action_cupid')
-                        .setPlaceholder('Select your lover')
-                        .addOptions(
-                            validTargets.map(target => ({
-                                label: target.username,
-                                value: target.id,
-                                description: `Choose ${target.username} as your lover`
-                            }))
-                        );
-
-                    const row = new ActionRowBuilder().addComponents(selectMenu);
-                    const embed = createNightActionEmbed(ROLES.CUPID);
-
-                    await cupid.sendDM({ 
-                        embeds: [embed], 
-                        components: [row] 
-                    });
-
-                    logger.info('Sent Cupid action prompt with dropdown', { 
-                        username: cupid.username,
-                        validTargetCount: validTargets.length,
-                        hasComponents: true
-                    });
-                } catch (error) {
-                    logger.error('Error sending Cupid prompt', { error });
-                }
+                // Add Cupid to expected actions
+                this.game.expectedNightActions.add(cupid.id);
+                await this.setupCupidAction(cupid);
             } else {
-                // If no Cupid or Cupid is not alive, proceed to Day phase
-                logger.info('No Cupid present or Cupid not alive, proceeding to Day phase');
+                // If no Cupid, proceed to Day phase
                 await this.game.advanceToDay();
             }
 
-            logger.info('Game started successfully');
+            logger.info('Night Zero setup completed successfully');
+
         } catch (error) {
+            // Restore previous state on error
+            this.restoreFromSnapshot(snapshot);
             logger.error('Error during Night Zero', { error });
             // Even if there's an error, try to advance to Day phase
             await this.game.advanceToDay();
@@ -1039,56 +1176,6 @@ class NightActionProcessor {
         }
     }
 
-    // Add this new helper method
-    async handleImmediateInvestigation(investigator, target, action) {
-        if (!target) {
-            throw new GameError('Invalid target', 'Target player not found.');
-        }
-
-        let result, embed;
-        if (action === 'investigate') {
-            const isWerewolf = target.role === ROLES.WEREWOLF;
-            embed = createSeerRevealEmbed(target, isWerewolf);
-            result = isWerewolf ? 'werewolf' : 'not werewolf';
-
-            // Use same state management method for Seer investigations
-            this.updateInvestigationHistory({
-                investigatorId: investigator.id,
-                targetId: target.id,
-                result: isWerewolf,
-                type: 'seer'  // Add type to differentiate
-            });
-
-            logger.info('Seer investigation completed', {
-                seerId: investigator.id,
-                targetId: target.id,
-                targetAlive: target.isAlive,
-                result
-            });
-        } else if (action === 'dark_investigate') {
-            const isSeer = target.role === ROLES.SEER;
-            embed = createSorcererRevealEmbed(target, isSeer);
-            result = isSeer ? 'seer' : 'not seer';
-
-            // Use same state management method for Sorcerer
-            this.updateInvestigationHistory({
-                investigatorId: investigator.id,
-                targetId: target.id,
-                result: isSeer,
-                type: 'sorcerer'
-            });
-
-            logger.info('Sorcerer investigation completed', {
-                sorcererId: investigator.id,
-                targetId: target.id,
-                targetAlive: target.isAlive,
-                result
-            });
-        }
-
-        await investigator.sendDM({ embeds: [embed] });
-    }
-
     /**
      * Checks if all expected night actions have been completed
      * @returns {boolean} True if all actions are complete
@@ -1116,6 +1203,54 @@ class NightActionProcessor {
     async sendActionConfirmation(player, action) {
         if (action !== 'investigate' && action !== 'dark_investigate') {
             await player.sendDM('Your action has been recorded. Wait for the night phase to end to see the results.');
+        }
+    }
+
+    /**
+     * Sets up Cupid's action during Night Zero
+     * @param {Player} cupid - The Cupid player
+     */
+    async setupCupidAction(cupid) {
+        const snapshot = this.createNightSnapshot();
+        
+        try {
+            // Create dropdown for Cupid's lover selection
+            const validTargets = Array.from(this.game.players.values())
+                .filter(p => p.isAlive && p.id !== cupid.id)
+                .map(p => ({
+                    label: p.username,
+                    value: p.id,
+                    description: `Choose ${p.username} as your lover`
+                }));
+
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('night_action_cupid')
+                .setPlaceholder('Select your lover')
+                .addOptions(validTargets);
+
+            const row = new ActionRowBuilder().addComponents(selectMenu);
+            const embed = createNightActionEmbed(ROLES.CUPID);
+
+            // Save state before external operations
+            await this.game.saveGameState();
+
+            // Send DM to Cupid with dropdown
+            await cupid.sendDM({ 
+                embeds: [embed], 
+                components: [row] 
+            });
+
+            logger.info('Sent Cupid action prompt', { 
+                cupidId: cupid.id,
+                cupidName: cupid.username,
+                validTargetCount: validTargets.length
+            });
+
+        } catch (error) {
+            // Restore previous state on error
+            this.restoreFromSnapshot(snapshot);
+            logger.error('Error setting up Cupid action', { error });
+            throw error;
         }
     }
 }
