@@ -25,12 +25,23 @@ module.exports = {
                 throw new GameError('Not authorized', 'Only the game creator can advance phases.');
             }
 
+            // Add phase validation
+            if (currentGame.phase === PHASES.NIGHT && currentGame.expectedNightActions.size > 0) {
+                throw new GameError(
+                    'Actions pending',
+                    'Cannot advance phase while night actions are pending.'
+                );
+            }
+
             // Defer reply since we might need to do a lot of processing
             await interaction.deferReply({ ephemeral: true });
 
             const currentPhase = currentGame.phase;
             const channel = await interaction.client.channels.fetch(currentGame.gameChannelId);
             
+            // Save state before transition
+            await currentGame.saveGameState();
+
             switch (currentPhase) {
                 case PHASES.DAY:
                     await currentGame.advanceToNight();
@@ -44,6 +55,9 @@ module.exports = {
                 default:
                     throw new GameError('Invalid phase', 'Cannot advance from the current game phase.');
             }
+
+            // Save state after transition
+            await currentGame.saveGameState();
 
             // Log the phase change
             logger.info('Phase manually advanced', { 

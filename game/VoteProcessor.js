@@ -378,6 +378,13 @@ class VoteProcessor {
         if (!this.game.checkWinConditions()) {
             await this.game.advanceToNight();
         }
+
+        logger.info('Hunter\'s revenge completed', {
+            hunterId: hunter.id,
+            hunterName: hunter.username,
+            targetId: target.id,
+            targetName: target.username
+        });
     }
 
     async clearNomination(reason, broadcast = true) {

@@ -223,42 +223,13 @@ const Game = sequelize.define('Game', {
 
     // Role-specific history and state
     roleHistory: {
-        type: DataTypes.JSON,
-        allowNull: false,
-        defaultValue: {},
-        // {
-        //     seer: {
-        //         investigations: [
-        //             { 
-        //                 seerId: string,
-        //                 targetId: string,
-        //                 round: number,
-        //                 result: boolean,
-        //                 timestamp: number
-        //             }
-        //         ]
-        //     },
-        //     sorcerer: {  // Add Sorcerer history
-        //         investigations: [
-        //             {
-        //                 sorcererId: string,
-        //                 targetId: string,
-        //                 round: number,
-        //                 result: boolean,  // true = is seer
-        //                 timestamp: number
-        //             }
-        //         ]
-        //     },
-        //     bodyguard: {
-        //         protections: [
-        //             {
-        //                 round: number,
-        //                 targetId: string,
-        //                 successful: boolean
-        //             }
-        //         ]
-        //     }
-        // }
+        type: DataTypes.JSONB,
+        defaultValue: {
+            seer: { investigations: [] },
+            sorcerer: { investigations: [] },
+            bodyguard: { protections: [] }
+        },
+        allowNull: false
     },
 
     // Track all actions and their outcomes for history/stats

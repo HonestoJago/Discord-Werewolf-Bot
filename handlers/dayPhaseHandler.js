@@ -132,11 +132,10 @@ module.exports = {
                         return;
                     }
                 } catch (error) {
-                    logger.error('Error processing vote', { error });
-                    await interaction.reply({
-                        content: 'Failed to process your vote.',
-                        ephemeral: true
-                    });
+                    // Ignore unknown interaction errors
+                    if (error.code !== 10062) {
+                        logger.error('Error processing vote', { error });
+                    }
                 }
             } else if (action === 'second') {
                 try {

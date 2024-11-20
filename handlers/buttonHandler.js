@@ -200,9 +200,18 @@ async function handleStartGame(interaction, game) {
         }
 
         await game.startGame();
-        await interaction.update({
-            components: [] // Remove all buttons after game starts
-        });
+        try {
+            await interaction.update({
+                components: [] // Remove all buttons after game starts
+            });
+        } catch (error) {
+            // Ignore unknown interaction errors after game start
+            if (error.code !== 10062) {
+                throw error;
+            }
+            // Otherwise just log it
+            logger.debug('Interaction expired after game start - this is normal');
+        }
     } catch (error) {
         throw error;
     }

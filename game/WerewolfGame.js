@@ -102,6 +102,13 @@ class WerewolfGame {
 
         // Add game start time for duration tracking
         this.gameStartTime = null;
+
+        // Initialize roleHistory with proper structure
+        this.roleHistory = {
+            seer: { investigations: [] },
+            sorcerer: { investigations: [] },
+            bodyguard: { protections: [] }
+        };
     }
 
     /**
@@ -192,6 +199,13 @@ class WerewolfGame {
                     role: p.role
                 }))
             });
+    
+            // Reset roleHistory for new game
+            this.roleHistory = {
+                seer: { investigations: [] },
+                sorcerer: { investigations: [] },
+                bodyguard: { protections: [] }
+            };
     
             // Assign roles and create channels
             await this.assignRoles();
@@ -792,6 +806,13 @@ class WerewolfGame {
         this.nominator = null;
         this.seconder = null;
         this.votingOpen = false;
+
+        // Reset roleHistory
+        this.roleHistory = {
+            seer: { investigations: [] },
+            sorcerer: { investigations: [] },
+            bodyguard: { protections: [] }
+        };
     }
 
      // Add this helper method to calculate game duration

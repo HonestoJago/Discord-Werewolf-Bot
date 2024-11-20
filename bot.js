@@ -431,6 +431,30 @@ client.on('interactionCreate', async interaction => {
                 else if (interaction.customId.startsWith('day_')) {
                     await dayPhaseHandler.handleSelect(interaction, game);
                 }
+                else if (interaction.customId === 'hunter_revenge') {
+                    await interaction.deferReply({ ephemeral: true });
+
+                    const hunterId = interaction.user.id;
+                    const targetId = interaction.values[0];
+
+                    try {
+                        // Process Hunter's Revenge
+                        await game.voteProcessor.processHunterRevenge(hunterId, targetId);
+
+                        // Inform the user
+                        await interaction.editReply({
+                            content: 'Your revenge has been executed. Both you and your target have been eliminated.',
+                            ephemeral: true
+                        });
+                    } catch (error) {
+                        // Handle errors
+                        await interaction.editReply({
+                            content: `There was an error processing your revenge: ${error.message}`,
+                            ephemeral: true
+                        });
+                        logger.error('Error processing Hunter\'s Revenge', { error });
+                    }
+                }
             } catch (error) {
                 logger.error('Error handling select menu interaction', { error });
                 await handleCommandError(interaction, error);
