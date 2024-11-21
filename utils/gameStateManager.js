@@ -229,6 +229,18 @@ class GameStateManager {
                     playerCount: game.players.size
                 });
 
+                // If in night phase, explicitly handle night action restoration
+                if (savedState.phase === PHASES.NIGHT) {
+                    game.expectedNightActions = new Set(savedState.nightState.expectedActions || []);
+                    game.completedNightActions = new Set(savedState.nightState.completedActions || []);
+                    game.nightActions = savedState.nightState.pendingActions || {};
+                    
+                    // Send night action prompts to players who haven't completed their actions
+                    if (game.expectedNightActions.size > 0) {
+                        await game.nightActionProcessor.handleNightActions();
+                    }
+                }
+
                 return game;
             } catch (error) {
                 logger.error('Error during game state restoration', {
@@ -357,29 +369,22 @@ class GameStateManager {
         try {
             const channel = await game.client.channels.fetch(game.gameChannelId);
 
-            // For Day phase, always create fresh UI
+            // For Day phase, restore nomination state first
             if (game.phase === PHASES.DAY) {
-                try {
-                    const channel = await game.client.channels.fetch(game.gameChannelId);
+                await game.restoreNominationState();
 
-                    // First send the day phase status
+                // Then create fresh UI components
+                try {
                     await channel.send({
                         embeds: [createDayPhaseEmbed(game.players)]
                     });
 
-                    // Always create fresh nomination UI
-                    await dayPhaseHandler.createDayPhaseUI(channel, game.players);
-                    logger.info('Recreated nomination UI');
-
-                    // If there's an active vote, just log it
-                    if (game.votingOpen && game.nominatedPlayer && game.nominator && game.seconder) {
-                        logger.info('Active vote in progress', {
-                            target: game.players.get(game.nominatedPlayer).username,
-                            nominator: game.players.get(game.nominator).username,
-                            seconder: game.players.get(game.seconder).username,
-                            currentVotes: Array.from(game.votes.entries())
-                        });
+                    // Create nomination UI only if no active nomination
+                    if (!game.nominatedPlayer) {
+                        await dayPhaseHandler.createDayPhaseUI(channel, game.players);
                     }
+                    
+                    logger.info('Recreated day phase UI');
                 } catch (error) {
                     logger.error('Failed to recreate day phase UI', { error });
                 }
@@ -522,44 +527,79 @@ class GameStateManager {
     static async cleanupChannels(game) {
         try {
             const guild = await game.client.guilds.fetch(game.guildId);
-            const botMember = await guild.members.fetch(game.client.user.id);
+            let channelsDeleted = 0;
             
-            // Check for required permissions
-            if (!botMember.permissions.has('ManageChannels')) {
-                throw new GameError('Missing Permissions', 'Bot needs Manage Channels permission to cleanup game channels.');
-            }
-
-            // Delete werewolf channel
-            if (game.werewolfChannel) {
+            // Only delete the specific werewolf channel for this game
+            if (game.werewolfChannel?.id) {
                 try {
-                    await game.werewolfChannel.delete()
+                    const channel = await guild.channels.fetch(game.werewolfChannel.id)
                         .catch(error => {
-                            if (error.code === 50001) { // Missing Access
-                                return game.werewolfChannel.delete({ force: true });
+                            if (error.code === 10003) { // Unknown Channel
+                                logger.info('Werewolf channel already deleted', { 
+                                    channelId: game.werewolfChannel.id 
+                                });
+                                return null;
                             }
                             throw error;
                         });
+                    
+                    if (channel) {
+                        await channel.delete();
+                        channelsDeleted++;
+                        logger.info('Deleted werewolf channel', { 
+                            channelId: game.werewolfChannel.id 
+                        });
+                    }
                 } catch (error) {
-                    logger.error('Error deleting werewolf channel', { error });
+                    if (error.code !== 10003) { // Only log if not "Unknown Channel"
+                        logger.error('Failed to delete werewolf channel', { 
+                            error,
+                            channelId: game.werewolfChannel.id
+                        });
+                    }
                 }
             }
 
-            // Delete dead channel
-            if (game.deadChannel) {
+            // Similar handling for dead channel
+            if (game.deadChannel?.id) {
                 try {
-                    await game.deadChannel.delete()
+                    const channel = await guild.channels.fetch(game.deadChannel.id)
                         .catch(error => {
-                            if (error.code === 50001) { // Missing Access
-                                return game.deadChannel.delete({ force: true });
+                            if (error.code === 10003) {
+                                logger.info('Dead channel already deleted', { 
+                                    channelId: game.deadChannel.id 
+                                });
+                                return null;
                             }
                             throw error;
                         });
+
+                    if (channel) {
+                        await channel.delete();
+                        channelsDeleted++;
+                        logger.info('Deleted dead channel', { 
+                            channelId: game.deadChannel.id 
+                        });
+                    }
                 } catch (error) {
-                    logger.error('Error deleting dead channel', { error });
+                    if (error.code !== 10003) {
+                        logger.error('Failed to delete dead channel', { 
+                            error,
+                            channelId: game.deadChannel.id
+                        });
+                    }
                 }
             }
+
+            logger.info('Game channels cleanup completed', {
+                guildId: game.guildId,
+                werewolfChannelId: game.werewolfChannel?.id,
+                deadChannelId: game.deadChannel?.id,
+                channelsDeleted
+            });
+
         } catch (error) {
-            logger.error('Error cleaning up channels', { error });
+            logger.error('Error in channel cleanup', { error });
             throw error;
         }
     }

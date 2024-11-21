@@ -299,17 +299,45 @@ client.on('interactionCreate', async interaction => {
                         });
                     }
                 } else if (action === 'delete') {
-                    await Game.destroy({ where: { guildId } });
-                    await interaction.message.edit({
-                        embeds: [{
-                            color: 0xff0000,
-                            title: '🗑️ Game Deleted',
-                            description: 'The unfinished game has been deleted.'
-                        }],
-                        components: []
-                    });
+                    try {
+                        const savedGame = await Game.findByPk(guildId);
+                        if (savedGame) {
+                            // Create minimal temp game just for channel cleanup
+                            const tempGame = {
+                                client,
+                                guildId,
+                                werewolfChannel: { id: savedGame.werewolfChannelId },
+                                deadChannel: { id: savedGame.deadChannelId }
+                            };
+
+                            // Clean up channels
+                            await GameStateManager.cleanupChannels(tempGame);
+
+                            // Delete from database
+                            await Game.destroy({ where: { guildId } });
+                            
+                            await interaction.message.edit({
+                                embeds: [{
+                                    color: 0xff0000,
+                                    title: '🗑️ Game Deleted',
+                                    description: 'The unfinished game and its channels have been deleted.'
+                                }],
+                                components: []
+                            });
+                        }
+                    } catch (error) {
+                        logger.error('Error handling game deletion', { error, guildId });
+                        await interaction.message.edit({
+                            embeds: [{
+                                color: 0xff0000,
+                                title: '❌ Error',
+                                description: 'Failed to delete the game. Please try again.'
+                            }],
+                            components: []
+                        });
+                    }
+                    return;
                 }
-                return;
             }
 
             // Handle regular game buttons

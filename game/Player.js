@@ -1,6 +1,7 @@
 // game/Player.js
 
 const { PermissionsBitField } = require('discord.js');
+const GameStateManager = require('../utils/gameStateManager');
 const logger = require('../utils/logger'); // Importing logger
 const { GameError } = require('../utils/error-handler'); // Importing GameError
 const ROLES = require('../constants/roles');  // Add this import

@@ -21,10 +21,25 @@ module.exports = {
                 return;
             }
 
+            // Check if user is game creator or authorized
+            if (!game.isGameCreatorOrAuthorized(interaction.user.id)) {
+                await interaction.reply({
+                    content: 'Only the game creator can end the game.',
+                    ephemeral: true
+                });
+                return;
+            }
+
+            // Log channel IDs before cleanup
+            logger.info('Ending game with channels', {
+                werewolfChannelId: game.werewolfChannel?.id,
+                deadChannelId: game.deadChannel?.id
+            });
+
             await game.shutdownGame();
             
             await interaction.reply({
-                content: 'Game ended successfully.',
+                content: 'Game ended successfully. All game channels have been cleaned up.',
                 ephemeral: false
             });
 
@@ -34,6 +49,11 @@ module.exports = {
             });
 
         } catch (error) {
+            logger.error('Error ending game', {
+                error,
+                guildId: interaction.guildId,
+                userId: interaction.user.id
+            });
             await handleCommandError(interaction, error);
         }
     },

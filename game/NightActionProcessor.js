@@ -1,3 +1,4 @@
+const GameStateManager = require('../utils/gameStateManager');
 const { ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
 const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
@@ -136,7 +137,7 @@ class NightActionProcessor {
             });
 
             // Save state before any external operations
-            await this.game.saveGameState();
+            await GameStateManager.saveGameState(this.game);
 
             // Handle immediate investigations
             if (action === 'investigate' || action === 'dark_investigate') {
@@ -458,14 +459,21 @@ class NightActionProcessor {
      * Handles all night actions including Night Zero actions.
      */
     async handleNightActions() {
+        const snapshot = this.createNightSnapshot();
+        
         try {
             logger.info('Handling night actions', { phase: this.game.phase });
 
-            // Send night transition embed FIRST
+            // Send night transition message
             const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
             await channel.send({
                 embeds: [createNightTransitionEmbed(this.game.players)]
             });
+
+            // Clear any existing night actions
+            this.game.expectedNightActions.clear();
+            this.game.completedNightActions.clear();
+            this.game.nightActions = {};
 
             // Identify all players with night actions
             const nightRoles = [ROLES.WEREWOLF, ROLES.SEER, ROLES.BODYGUARD, ROLES.SORCERER];
@@ -473,46 +481,84 @@ class NightActionProcessor {
                 nightRoles.includes(player.role) && player.isAlive
             );
 
-            logger.info('Identified night action players', { players: nightPlayers.map(p => p.username) });
+            logger.info('Identified night action players', { 
+                players: nightPlayers.map(p => ({
+                    username: p.username,
+                    role: p.role
+                }))
+            });
 
             // Add night players to expectedNightActions
             nightPlayers.forEach(player => {
                 this.game.expectedNightActions.add(player.id);
             });
 
-            // Send DM prompts with dropdown menus to night action players
+            // Save state before sending DMs
+            await GameStateManager.saveGameState(this.game);
+
+            // Send role reminders and action prompts to all night action players
             for (const player of nightPlayers) {
-                const validTargets = this.getValidTargetsForRole(player);
-                const selectMenu = new StringSelectMenuBuilder()
-                    .setCustomId(`night_action_${player.role.toLowerCase()}`)
-                    .setPlaceholder('Select your target')
-                    .addOptions(
-                        validTargets.map(target => ({
-                            label: target.username,
-                            value: target.id,
-                            description: `Target ${target.username}`
-                        }))
-                    );
+                try {
+                    // Send role-specific reminder
+                    if (player.role === ROLES.WEREWOLF) {
+                        const werewolves = this.game.getPlayersByRole(ROLES.WEREWOLF);
+                        const werewolfNames = werewolves.map(w => w.username).join(', ');
+                        await player.sendDM({
+                            embeds: [{
+                                color: 0x800000,
+                                title: '🐺 Night Phase Begins',
+                                description: werewolves.length > 1 ?
+                                    `*Your pack consists of: **${werewolfNames}***\nChoose your prey wisely...` :
+                                    '*You are the lone wolf. Choose your prey carefully...*'
+                            }]
+                        });
+                    }
 
-                const row = new ActionRowBuilder().addComponents(selectMenu);
-                const embed = createNightActionEmbed(player.role);
+                    // Create and send action dropdown
+                    const validTargets = this.getValidTargetsForRole(player);
+                    const selectMenu = new StringSelectMenuBuilder()
+                        .setCustomId(`night_action_${player.role.toLowerCase()}`)
+                        .setPlaceholder('Select your target')
+                        .addOptions(
+                            validTargets.map(target => ({
+                                label: target.username,
+                                value: target.id,
+                                description: `Target ${target.username}`
+                            }))
+                        );
 
-                await player.sendDM({ 
-                    embeds: [embed], 
-                    components: [row] 
-                });
+                    const row = new ActionRowBuilder().addComponents(selectMenu);
+                    const embed = createNightActionEmbed(player.role);
 
-                logger.info(`Sent ${player.role} action prompt`, { 
-                    username: player.username 
-                });
+                    await player.sendDM({ 
+                        embeds: [embed], 
+                        components: [row] 
+                    });
+
+                    logger.info(`Sent ${player.role} action prompt`, { 
+                        username: player.username,
+                        role: player.role,
+                        validTargetCount: validTargets.length
+                    });
+
+                } catch (error) {
+                    logger.error(`Error sending night action prompt to ${player.username}`, { error });
+                    // Continue with other players even if one fails
+                }
             }
 
-            logger.info('Night action prompts sent, waiting for actions', {
-                expectedActions: Array.from(this.game.expectedNightActions)
+            logger.info('Night action prompts sent', {
+                expectedActions: Array.from(this.game.expectedNightActions),
+                playerCount: nightPlayers.length
             });
 
         } catch (error) {
-            logger.error('Error handling night actions', { error });
+            // Restore previous state on error
+            this.restoreFromSnapshot(snapshot);
+            logger.error('Error handling night actions', { 
+                error: error.message,
+                stack: error.stack 
+            });
             throw error;
         }
     }
@@ -853,7 +899,7 @@ class NightActionProcessor {
             const row = new ActionRowBuilder().addComponents(selectMenu);
 
             // Save state before external operations
-            await this.game.saveGameState();
+            await GameStateManager.saveGameState(this.game);
 
             // Send DM to Hunter with dropdown
             await hunter.sendDM({
@@ -930,7 +976,7 @@ class NightActionProcessor {
             }
 
             // Save state before sending DM
-            await this.game.saveGameState();
+            await GameStateManager.saveGameState(this.game);
 
             // Send result to investigator
             await investigator.sendDM({ embeds: [embed] });
@@ -952,44 +998,10 @@ class NightActionProcessor {
         try {
             logger.info('Starting Night Zero phase');
 
-            // Prepare all initial state changes
-            const stateChanges = {
-                phase: PHASES.NIGHT_ZERO,
-                round: 0,
-                initialVisions: new Map(),
-                roleReveals: new Map()
-            };
-
             // Get werewolves and prepare their team info
             const werewolves = this.game.getPlayersByRole(ROLES.WEREWOLF);
             const werewolfNames = werewolves.map(w => w.username).join(', ');
             
-            // Prepare Seer's initial vision
-            const seer = this.game.getPlayerByRole(ROLES.SEER);
-            if (seer?.isAlive) {
-                const validTargets = Array.from(this.game.players.values()).filter(
-                    p => p.id !== seer.id && p.isAlive && p.role !== ROLES.WEREWOLF
-                );
-                
-                if (validTargets.length > 0) {
-                    const randomTarget = validTargets[Math.floor(Math.random() * validTargets.length)];
-                    const isWerewolf = randomTarget.role === ROLES.WEREWOLF;
-                    
-                    stateChanges.initialVisions.set(seer.id, {
-                        targetId: randomTarget.id,
-                        isWerewolf: isWerewolf
-                    });
-                }
-            }
-
-            // Apply state changes atomically
-            this.game.phase = stateChanges.phase;
-            this.game.round = stateChanges.round;
-
-            // Save state before external operations
-            await this.game.saveGameState();
-
-            // Now handle external operations (DMs and reveals)
             // Send werewolf team info
             for (const werewolf of werewolves) {
                 await werewolf.sendDM({
@@ -1004,44 +1016,45 @@ class NightActionProcessor {
                 });
             }
 
-            // Handle Minion's werewolf reveal
-            const minion = this.game.getPlayerByRole(ROLES.MINION);
-            if (minion?.isAlive) {
-                await minion.sendDM({
-                    embeds: [createMinionRevealEmbed(werewolves)]
-                });
-                
-                logger.info('Sent werewolf information to Minion', {
-                    minionId: minion.id,
-                    minionName: minion.username,
-                    werewolfCount: werewolves.length
-                });
+            // Only check for minion if it's an active role
+            if (this.game.selectedRoles.has(ROLES.MINION)) {
+                const minion = this.game.getPlayerByRole(ROLES.MINION);
+                if (minion?.isAlive) {
+                    await minion.sendDM({
+                        embeds: [createMinionRevealEmbed(werewolves)]
+                    });
+                }
             }
 
             // Handle Seer's initial vision
+            const seer = this.game.getPlayerByRole(ROLES.SEER);
             if (seer?.isAlive) {
-                const vision = stateChanges.initialVisions.get(seer.id);
-                if (vision) {
-                    const target = this.game.players.get(vision.targetId);
+                const validTargets = Array.from(this.game.players.values()).filter(
+                    p => p.id !== seer.id && p.isAlive && p.role !== ROLES.WEREWOLF
+                );
+                
+                if (validTargets.length > 0) {
+                    const randomTarget = validTargets[Math.floor(Math.random() * validTargets.length)];
+                    const isWerewolf = randomTarget.role === ROLES.WEREWOLF;
                     
                     // Update investigation history atomically
                     this.updateInvestigationHistory({
                         investigatorId: seer.id,
-                        targetId: vision.targetId,
-                        result: vision.isWerewolf,
+                        targetId: randomTarget.id,
+                        result: isWerewolf,
                         type: 'seer',
                         isInitialVision: true
                     });
                     
                     await seer.sendDM({
-                        embeds: [createSeerRevealEmbed(target, vision.isWerewolf)]
+                        embeds: [createSeerRevealEmbed(randomTarget, isWerewolf)]
                     });
                     
                     logger.info('Seer received initial vision', {
                         seerId: seer.id,
-                        targetId: target.id,
-                        isWerewolf: vision.isWerewolf,
-                        targetRole: target.role
+                        targetId: randomTarget.id,
+                        isWerewolf: isWerewolf,
+                        targetRole: randomTarget.role
                     });
                 }
             }
@@ -1062,7 +1075,12 @@ class NightActionProcessor {
         } catch (error) {
             // Restore previous state on error
             this.restoreFromSnapshot(snapshot);
-            logger.error('Error during Night Zero', { error });
+            logger.error('Error during Night Zero', { 
+                error: error.message,
+                stack: error.stack,
+                phase: this.game.phase,
+                round: this.game.round
+            });
             // Even if there's an error, try to advance to Day phase
             await this.game.advanceToDay();
         }
@@ -1251,7 +1269,7 @@ class NightActionProcessor {
             const embed = createNightActionEmbed(ROLES.CUPID);
 
             // Save state before external operations
-            await this.game.saveGameState();
+            await GameStateManager.saveGameState(this.game);
 
             // Send DM to Cupid with dropdown
             await cupid.sendDM({ 

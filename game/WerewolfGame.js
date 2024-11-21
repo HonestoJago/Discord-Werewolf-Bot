@@ -6,7 +6,13 @@ const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');  // Direct import of frozen object
 const PHASES = require('../constants/phases'); // Direct import of frozen object
-const { createDayPhaseEmbed, createVoteResultsEmbed, createGameEndEmbed } = require('../utils/embedCreator');
+const { 
+    createDayPhaseEmbed, 
+    createVoteResultsEmbed, 
+    createGameEndEmbed,
+    createDayTransitionEmbed, 
+    createNightTransitionEmbed
+} = require('../utils/embedCreator');
 const NightActionProcessor = require('./NightActionProcessor');
 const VoteProcessor = require('./VoteProcessor');
 const dayPhaseHandler = require('../handlers/dayPhaseHandler');
@@ -95,7 +101,7 @@ class WerewolfGame {
         // Set up periodic state saving
         this.stateSaveInterval = setInterval(async () => {
             try {
-                await this.saveGameState();
+                await GameStateManager.saveGameState(this);
             } catch (error) {
                 logger.error('Error in periodic state save', { error });
             }
@@ -115,20 +121,72 @@ class WerewolfGame {
     }
 
     /**
+     * Creates a snapshot of the current game state
+     * @returns {Object} Complete snapshot of game state
+     */
+    createGameSnapshot() {
+        return {
+            phase: this.phase,
+            players: new Map(Array.from(this.players.entries()).map(([id, player]) => [
+                id,
+                {
+                    id: player.id,
+                    isAlive: player.isAlive,
+                    isProtected: player.isProtected,
+                    role: player.role
+                }
+            ])),
+            round: this.round,
+            gameStartTime: this.gameStartTime,
+            lastProtectedPlayer: this.lastProtectedPlayer,
+            pendingHunterRevenge: this.pendingHunterRevenge,
+            lovers: new Map(this.lovers),
+            selectedRoles: new Map(this.selectedRoles),
+            completedNightActions: new Set(this.completedNightActions),
+            expectedNightActions: new Set(this.expectedNightActions),
+            nightActions: { ...this.nightActions },
+            roleHistory: {
+                seer: { investigations: [...(this.roleHistory?.seer?.investigations || [])] },
+                sorcerer: { investigations: [...(this.roleHistory?.sorcerer?.investigations || [])] },
+                bodyguard: { protections: [...(this.roleHistory?.bodyguard?.protections || [])] }
+            }
+        };
+    }
+
+    /**
+     * Restores game state from a snapshot
+     * @param {Object} snapshot - Game state snapshot to restore
+     */
+    async restoreFromSnapshot(snapshot) {
+        this.phase = snapshot.phase;
+        this.players = new Map(Array.from(snapshot.players.entries()).map(([id, playerData]) => [
+            id,
+            Object.assign(new Player(playerData.id, playerData.username, this.client), playerData)
+        ]));
+        this.round = snapshot.round;
+        this.gameStartTime = snapshot.gameStartTime;
+        this.lastProtectedPlayer = snapshot.lastProtectedPlayer;
+        this.pendingHunterRevenge = snapshot.pendingHunterRevenge;
+        this.lovers = new Map(snapshot.lovers);
+        this.selectedRoles = new Map(snapshot.selectedRoles);
+        this.completedNightActions = new Set(snapshot.completedNightActions);
+        this.expectedNightActions = new Set(snapshot.expectedNightActions);
+        this.nightActions = { ...snapshot.nightActions };
+        this.roleHistory = {
+            seer: { investigations: [...snapshot.roleHistory.seer.investigations] },
+            sorcerer: { investigations: [...snapshot.roleHistory.sorcerer.investigations] },
+            bodyguard: { protections: [...snapshot.roleHistory.bodyguard.protections] }
+        };
+    }
+
+    /**
      * Adds a player to the game.
      * @param {User} user - Discord user object.
      * @returns {Player} - The added player.
      */
     async addPlayer(user) {
-        logger.info('Adding player', { 
-            phase: this.phase,
-            isLobby: this.phase === PHASES.LOBBY 
-        });
+        const snapshot = this.createGameSnapshot();
         
-        if (this.phase !== PHASES.LOBBY) {
-            throw new GameError('Cannot join', 'The game has already started. You cannot join at this time.');
-        }
-
         try {
             logger.info('Attempting to add player', { 
                 userId: user.id, 
@@ -136,28 +194,39 @@ class WerewolfGame {
                 isLobby: this.phase === PHASES.LOBBY 
             });
 
-            // Synchronize addition to prevent race conditions
+            if (this.phase !== PHASES.LOBBY) {
+                throw new GameError('Cannot join', 'The game has already started. You cannot join at this time.');
+            }
+
             if (this.players.has(user.id)) {
                 throw new GameError('Player already in game', 'You are already in the game.');
             }
 
+            // Create and add new player atomically
             const player = new Player(user.id, user.username, this.client);
             this.players.set(user.id, player);
 
-            // Save game state after adding player
-            await this.saveGameState();
+            // Save state after adding player
+            await GameStateManager.saveGameState(this);
+
             logger.info('Player added to the game', { 
                 playerId: user.id, 
                 username: user.username,
                 currentPhase: this.phase 
             });
+
             return player;
+
         } catch (error) {
+            // Restore previous state on error
+            await this.restoreFromSnapshot(snapshot);
+            
             logger.error('Error adding player to game', { 
                 error, 
                 userId: user.id,
                 currentPhase: this.phase 
             });
+            
             throw error;
         }
     }
@@ -166,7 +235,10 @@ class WerewolfGame {
      * Starts the game after validating configurations.
      */
     async startGame() {
+        const snapshot = this.createGameSnapshot();
+        
         try {
+            // Initial validations
             if (this.phase !== PHASES.LOBBY) {
                 throw new GameError('Game already started', 'The game has already started.');
             }
@@ -174,96 +246,103 @@ class WerewolfGame {
                 throw new GameError('Not enough players', 'Not enough players to start the game. Minimum 4 players required.');
             }
     
-            // Initialize selectedRoles if not exists
-            if (!this.selectedRoles) {
-                this.selectedRoles = new Map();
-            }
-    
-            // Set phase BEFORE role assignment
+            // Initialize state atomically
             this.phase = PHASES.NIGHT_ZERO;
             this.round = 0;
             this.gameStartTime = Date.now();
-    
-            logger.info('Initial game state before saves', {
-                phase: this.phase,
-                playerCount: this.players.size,
-                playerRoles: Array.from(this.players.values()).map(p => ({
-                    username: p.username,
-                    role: p.role
-                }))
-            });
-    
-            // Save #1 - After phase change
-            await this.saveGameState();
-            logger.info('Game state saved after phase change', {
-                phase: this.phase,
-                playerRoles: Array.from(this.players.values()).map(p => ({
-                    username: p.username,
-                    role: p.role
-                }))
-            });
-    
-            // Reset roleHistory for new game
             this.roleHistory = {
                 seer: { investigations: [] },
                 sorcerer: { investigations: [] },
                 bodyguard: { protections: [] }
             };
     
-            // Assign roles and create channels
-            await this.assignRoles();
+            // Save initial state
+            await GameStateManager.saveGameState(this);
             
-            // Save #2 - After role assignment
-            await this.saveGameState();
-            logger.info('Game state saved after role assignment', {
+            logger.info('Game initialization complete', {
                 phase: this.phase,
-                playerRoles: Array.from(this.players.values()).map(p => ({
-                    username: p.username,
-                    role: p.role
-                }))
+                playerCount: this.players.size,
+                selectedRoles: Array.from(this.selectedRoles.entries())
             });
     
-            await this.createPrivateChannels();
-            
-            // Save #3 - After channel creation
-            await this.saveGameState();
-            logger.info('Game state saved after channel creation', {
-                phase: this.phase,
-                channels: {
-                    werewolf: this.werewolfChannel?.id,
-                    dead: this.deadChannel?.id
+            try {
+                // Assign roles - this is a critical operation
+                await this.assignRoles();
+                await GameStateManager.saveGameState(this);
+    
+                // Create channels - another critical operation
+                await this.createPrivateChannels();
+                await GameStateManager.saveGameState(this);
+    
+                // Send initial game message
+                await this.broadcastMessage({
+                    embeds: [{
+                        color: 0x800000,
+                        title: '🌕 Night Zero Begins 🐺',
+                        description: 
+                            '*The first night has begun. Special roles will receive their instructions via DM...*\n\n' +
+                            'Night Zero will progress automatically once all actions are completed.',
+                        footer: { text: 'May wisdom and strategy guide you...' }
+                    }]
+                });
+    
+                // Initialize Night Zero
+                await this.nightActionProcessor.handleNightZero();
+    
+                logger.info('Game started successfully', {
+                    phase: this.phase,
+                    playerCount: this.players.size,
+                    werewolfChannelId: this.werewolfChannel?.id,
+                    deadChannelId: this.deadChannel?.id
+                });
+    
+            } catch (error) {
+                // If any critical operation fails, clean up channels directly
+                try {
+                    if (this.werewolfChannel) {
+                        await this.werewolfChannel.delete()
+                            .catch(error => {
+                                if (error.code === 50001) { // Missing Access
+                                    return this.werewolfChannel.delete({ force: true });
+                                }
+                                throw error;
+                            });
+                    }
+                    if (this.deadChannel) {
+                        await this.deadChannel.delete()
+                            .catch(error => {
+                                if (error.code === 50001) { // Missing Access
+                                    return this.deadChannel.delete({ force: true });
+                                }
+                                throw error;
+                            });
+                    }
+                } catch (channelError) {
+                    logger.error('Error cleaning up channels after failed start', { channelError });
                 }
-            });
+                throw error; // Re-throw to trigger main error handler
+            }
     
-            // Send initial game message
-            await this.broadcastMessage({
-                embeds: [{
-                    color: 0x800000,
-                    title: '🌕 Night Zero Begins 🐺',
-                    description: 
-                        '*The first night has begun. Special roles will receive their instructions via DM...*\n\n' +
-                        'Night Zero will progress automatically once all actions are completed.',
-                    footer: { text: 'May wisdom and strategy guide you...' }
-                }]
-            });
-    
-            // Initialize Night Zero - this will handle Seer's vision and Cupid's action
-            await this.nightActionProcessor.handleNightZero();
-    
-            logger.info('Game started successfully');
         } catch (error) {
-            // Reset phase if anything fails
-            this.phase = PHASES.LOBBY;
-            await this.saveGameState(); // Save the reversion to LOBBY
-            logger.error('Error starting game', { error });
+            // Restore previous state and revert to LOBBY
+            await this.restoreFromSnapshot(snapshot);
+            this.phase = PHASES.LOBBY; // Ensure we're back in LOBBY phase
+            await GameStateManager.saveGameState(this); // Save the reverted state
+            
+            logger.error('Error starting game', { 
+                error,
+                playerCount: this.players.size,
+                selectedRoles: Array.from(this.selectedRoles.entries())
+            });
+            
             throw error;
         }
-    }
-
-    /**
+    }    /**
      * Assigns roles to all players based on selectedRoles configuration.
      */
     async assignRoles() {
+        const snapshot = this.createGameSnapshot();
+        
         try {
             // Get all players as an array
             const players = Array.from(this.players.values());
@@ -274,307 +353,353 @@ class WerewolfGame {
                 selectedRoles: Array.from(this.selectedRoles.entries())
             });
             
-            // Create array of roles based on selectedRoles
-            let roles = [];
+            // Calculate roles array atomically
+            const roleAssignments = this.calculateRoleAssignments(playerCount);
             
-            // Add werewolves
-            const werewolfCount = Math.max(1, Math.floor(playerCount / 4));
-            roles.push(...Array(werewolfCount).fill(ROLES.WEREWOLF));
-            
-            // Add one seer
-            roles.push(ROLES.SEER);
-    
-            // Add optional roles if they were selected
-            if (this.selectedRoles.get(ROLES.BODYGUARD)) {
-                roles.push(ROLES.BODYGUARD);
-            }
-            if (this.selectedRoles.get(ROLES.CUPID)) {
-                roles.push(ROLES.CUPID);
-            }
-            if (this.selectedRoles.get(ROLES.HUNTER)) {
-                roles.push(ROLES.HUNTER);
-            }
-            if (this.selectedRoles.get(ROLES.MINION)) {
-                roles.push(ROLES.MINION);
-            }
-            if (this.selectedRoles.get(ROLES.SORCERER)) {
-                roles.push(ROLES.SORCERER);
-            }
-            
-            // Add validation for werewolf team size
-            const werewolfTeamSize = werewolfCount + 
-                (this.selectedRoles.get(ROLES.MINION) || 0) + 
-                (this.selectedRoles.get(ROLES.SORCERER) || 0);
-                
-            // Original validation (commented out for testing)
-    /*
-    if (werewolfTeamSize > Math.floor(playerCount / 3)) {
-        throw new GameError(
-            'Too many evil roles',
-            'Too many werewolf-aligned roles selected for the player count. Remove some optional roles.'
-        );
-    }
-    */
-
-    // More lenient validation for testing
-        const maxEvilTeamSize = playerCount <= 4 ? 2 : Math.floor(playerCount / 3);
-        if (werewolfTeamSize > maxEvilTeamSize) {
-        throw new GameError(
-            'Too many evil roles',
-            'Too many werewolf-aligned roles selected for the player count. Remove some optional roles.'
-            );
-     }
-            
-            // Validate total roles before adding villagers
-            if (roles.length > playerCount) {
+            // Validate role distribution before making any assignments
+            if (roleAssignments.length !== playerCount) {
                 throw new GameError(
-                    'Too many roles', 
-                    `Cannot start game: ${roles.length} roles selected for ${playerCount} players. ` +
-                    'Please remove some optional roles.'
+                    'Role count mismatch', 
+                    `Role count (${roleAssignments.length}) doesn't match player count (${playerCount})`
                 );
             }
-            
-            // Fill remaining slots with villagers
-            const villagerCount = playerCount - roles.length;
-            roles.push(...Array(villagerCount).fill(ROLES.VILLAGER));
-            
-            // Log roles before shuffling
-            logger.info('Roles before assignment', { 
-                roles,
-                playerCount,
-                werewolfCount,
-                villagerCount
-            });
-            
+
             // Shuffle roles
-            for (let i = roles.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [roles[i], roles[j]] = [roles[j], roles[i]];
-            }
+            const shuffledRoles = this.shuffleArray([...roleAssignments]);
             
-            // Assign roles to players
+            // Create temporary map for new role assignments
+            const newRoleAssignments = new Map();
+            
+            // Assign roles atomically
             for (let i = 0; i < players.length; i++) {
                 const player = players[i];
-                const role = roles[i];
+                const role = shuffledRoles[i];
                 
-                // Log before assignment
-                logger.info('Assigning role', { 
-                    playerId: player.id, 
-                    playerName: player.username, 
-                    role: role 
+                newRoleAssignments.set(player.id, {
+                    playerId: player.id,
+                    role: role,
+                    username: player.username
                 });
+            }
+
+            // Apply all role assignments atomically
+            for (const [playerId, assignment] of newRoleAssignments) {
+                const player = this.players.get(playerId);
+                await player.assignRole(assignment.role);  // This will send the initial role card DM
                 
-                await player.assignRole(role);
-                
-                // If werewolf, add to werewolf channel
-                if (role === ROLES.WEREWOLF && this.werewolfChannel) {
-                    await this.werewolfChannel.permissionOverwrites.create(player.id, {
+                // If werewolf, prepare for werewolf channel access
+                if (assignment.role === ROLES.WEREWOLF && this.werewolfChannel) {
+                    await this.werewolfChannel.permissionOverwrites.create(playerId, {
                         ViewChannel: true,
                         SendMessages: true
                     });
                 }
             }
-            
+
+            // Save state after successful assignment
+            await GameStateManager.saveGameState(this);
+
             logger.info('Roles assigned successfully', {
                 playerCount,
-                werewolfCount,
-                roles: roles.reduce((acc, role) => {
+                roleDistribution: shuffledRoles.reduce((acc, role) => {
                     acc[role] = (acc[role] || 0) + 1;
                     return acc;
                 }, {})
             });
-            
+
         } catch (error) {
+            // Restore previous state on error
+            await this.restoreFromSnapshot(snapshot);
+            
             logger.error('Error in assignRoles', { 
                 error: error.message,
                 stack: error.stack,
-                players: Array.from(this.players.values()).map(p => ({
-                    id: p.id,
-                    username: p.username
-                }))
+                playerCount: this.players.size,
+                selectedRoles: Array.from(this.selectedRoles.entries())
             });
+            
             throw error;
         }
     }
+
+/**
+ * Calculates role assignments based on player count and selected roles
+ * @param {number} playerCount - Number of players
+ * @returns {string[]} Array of role assignments
+ */
+calculateRoleAssignments(playerCount) {
+    const roles = [];
     
+    // Add required roles first
+    const werewolfCount = Math.max(1, Math.floor(playerCount / 4));
+    roles.push(...Array(werewolfCount).fill(ROLES.WEREWOLF));
+    roles.push(ROLES.SEER);
+
+    // Add optional roles
+    if (this.selectedRoles.get(ROLES.BODYGUARD)) roles.push(ROLES.BODYGUARD);
+    if (this.selectedRoles.get(ROLES.CUPID)) roles.push(ROLES.CUPID);
+    if (this.selectedRoles.get(ROLES.HUNTER)) roles.push(ROLES.HUNTER);
+    if (this.selectedRoles.get(ROLES.MINION)) roles.push(ROLES.MINION);
+    if (this.selectedRoles.get(ROLES.SORCERER)) roles.push(ROLES.SORCERER);
+
+    // Validate werewolf team size
+    const werewolfTeamSize = werewolfCount + 
+        (this.selectedRoles.get(ROLES.MINION) ? 1 : 0) + 
+        (this.selectedRoles.get(ROLES.SORCERER) ? 1 : 0);
+
+    // NOTE: Using lenient calculation for testing purposes
+    // For a more balanced game, use this stricter calculation:
+    // const maxEvilTeamSize = Math.floor(playerCount / 4);  // 25% of players
+    // OR for very strict balance:
+    // const maxEvilTeamSize = Math.max(1, Math.floor((playerCount - 1) / 4));  // ~20% of players
+    // Current lenient calculation allows up to 33% evil team size
+    const maxEvilTeamSize = playerCount <= 4 ? 2 : Math.floor(playerCount / 3);
+    
+    if (werewolfTeamSize > maxEvilTeamSize) {
+        throw new GameError(
+            'Too many evil roles',
+            'Too many werewolf-aligned roles selected for the player count. Remove some optional roles.'
+        );
+    }
+
+    // Fill remaining slots with villagers
+    const villagerCount = playerCount - roles.length;
+    roles.push(...Array(villagerCount).fill(ROLES.VILLAGER));
+
+    return roles;
+}    /**
+     * Shuffles an array using Fisher-Yates algorithm
+     * @param {Array} array - Array to shuffle
+     * @returns {Array} Shuffled array
+     */
+    shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+    }
 
     /**
      * Creates private channels for werewolves and dead players.
      */
     async createPrivateChannels() {
+        const snapshot = this.createGameSnapshot();
+        const createdChannels = { dead: null, werewolf: null };
+        
         try {
             const guild = await this.client.guilds.fetch(this.guildId);
-            const gameChannel = await guild.channels.fetch(this.gameChannelId);
             
-            // Get category ID from environment variables
+            // Validate category ID
             const categoryId = process.env.WEREWOLF_CATEGORY_ID;
             if (!categoryId) {
                 throw new GameError('Config Error', 'WEREWOLF_CATEGORY_ID not set in environment variables');
             }
 
-            // Fetch the category
+            // Validate category exists
             const category = await guild.channels.fetch(categoryId);
             if (!category) {
                 throw new GameError('Config Error', 'Could not find the specified category');
             }
 
-            // Create Dead channel with default permissions denying view access
-            this.deadChannel = await guild.channels.create({
-                name: 'dead-players',
-                type: 0,  // 0 is text channel
-                parent: categoryId,
-                permissionOverwrites: [
-                    {
-                        id: guild.id,
-                        deny: ['ViewChannel', 'SendMessages']  // Everyone can't see or send by default
-                    },
-                    {
-                        id: this.client.user.id,
-                        allow: ['ViewChannel', 'SendMessages', 'ManageChannels']
-                    }
-                ]
-            });
-
-            // Create Werewolf channel
-            this.werewolfChannel = await guild.channels.create({
-                name: 'werewolf-channel',
-                type: 0,  // 0 is text channel
-                parent: categoryId,
-                permissionOverwrites: [
-                    {
-                        id: guild.id,
-                        deny: ['ViewChannel']
-                    },
-                    {
-                        id: this.client.user.id,
-                        allow: ['ViewChannel', 'SendMessages', 'ManageChannels']
-                    }
-                ]
-            });
-
-            // Add werewolves to the channel after creation
-            const werewolves = this.getPlayersByRole(ROLES.WEREWOLF);
-            for (const werewolf of werewolves) {
-                await this.werewolfChannel.permissionOverwrites.create(werewolf.id, {
-                    ViewChannel: true,
-                    SendMessages: true
+            // Create both channels atomically
+            try {
+                // Create Dead channel
+                createdChannels.dead = await guild.channels.create({
+                    name: 'dead-players',
+                    type: 0,
+                    parent: categoryId,
+                    permissionOverwrites: [
+                        {
+                            id: guild.id,
+                            deny: ['ViewChannel', 'SendMessages']
+                        },
+                        {
+                            id: this.client.user.id,
+                            allow: ['ViewChannel', 'SendMessages', 'ManageChannels']
+                        }
+                    ]
                 });
+
+                // Create Werewolf channel
+                createdChannels.werewolf = await guild.channels.create({
+                    name: 'werewolf-channel',
+                    type: 0,
+                    parent: categoryId,
+                    permissionOverwrites: [
+                        {
+                            id: guild.id,
+                            deny: ['ViewChannel']
+                        },
+                        {
+                            id: this.client.user.id,
+                            allow: ['ViewChannel', 'SendMessages', 'ManageChannels']
+                        }
+                    ]
+                });
+
+                // Only update game state if both channels were created successfully
+                this.deadChannel = createdChannels.dead;
+                this.werewolfChannel = createdChannels.werewolf;
+
+                // Add werewolves to the channel
+                const werewolves = this.getPlayersByRole(ROLES.WEREWOLF);
+                const permissionPromises = werewolves.map(werewolf => 
+                    this.werewolfChannel.permissionOverwrites.create(werewolf.id, {
+                        ViewChannel: true,
+                        SendMessages: true
+                    })
+                );
+
+                // Wait for all permission updates to complete
+                await Promise.all(permissionPromises);
+
+                // Save state after successful channel creation and permission setup
+                await GameStateManager.saveGameState(this);
+
+                logger.info('Private channels created successfully', {
+                    categoryId,
+                    werewolfChannelId: this.werewolfChannel.id,
+                    deadChannelId: this.deadChannel.id,
+                    werewolfCount: werewolves.length
+                });
+
+            } catch (error) {
+                // If any part fails, clean up any channels that were created
+                if (createdChannels.dead) {
+                    await createdChannels.dead.delete().catch(err => 
+                        logger.error('Error cleaning up dead channel', { err })
+                    );
+                }
+                if (createdChannels.werewolf) {
+                    await createdChannels.werewolf.delete().catch(err => 
+                        logger.error('Error cleaning up werewolf channel', { err })
+                    );
+                }
+                throw error;
             }
 
-            logger.info('Private channels created successfully', {
-                categoryId,
-                werewolfChannelId: this.werewolfChannel.id,
-                deadChannelId: this.deadChannel.id
-            });
         } catch (error) {
-            logger.error('Error creating private channels', { error });
-            throw new GameError('Channel Creation Failed', 'Failed to create necessary channels. Make sure the bot has proper permissions and the category ID is correct.');
+            // Restore previous state
+            await this.restoreFromSnapshot(snapshot);
+            
+            logger.error('Error creating private channels', { 
+                error: error.message,
+                stack: error.stack,
+                guildId: this.guildId,
+                categoryId: process.env.WEREWOLF_CATEGORY_ID
+            });
+            
+            throw new GameError(
+                'Channel Creation Failed', 
+                'Failed to create necessary channels. Make sure the bot has proper permissions and the category ID is correct.'
+            );
         }
     }
 
        /**
      * Advances the game to the Night phase.
      */
-    async advanceToNight() {
+       async advanceToNight() {
+        const snapshot = this.createGameSnapshot();
+        
         try {
-            // Guard against multiple transitions
-            if (this.phase === PHASES.NIGHT) {
-                logger.warn('Already in Night phase, skipping transition');
-                return;
-            }
+            this.phase = PHASES.NIGHT;
+            this.round++;
     
-            // Directly reset nomination state WITHOUT calling clearNomination
-            this.nominatedPlayer = null;
-            this.nominator = null;
-            this.seconder = null;
-            this.votingOpen = false;
-            this.votes.clear();
+            // Clear any existing timeouts
             if (this.nominationTimeout) {
                 clearTimeout(this.nominationTimeout);
                 this.nominationTimeout = null;
             }
     
-            // Set phase first
-            this.phase = PHASES.NIGHT;
-            this.round += 1;
-            
-            // Reset night action tracking
-            this.completedNightActions.clear();
-            this.expectedNightActions.clear();
-            this.nightActions = {};
-
-            // Save state after all changes
-            await this.saveGameState();
-
-            // Delegate night action handling to NightActionProcessor
+            // Save state before any external operations
+            await GameStateManager.saveGameState(this);
+    
+            // Initialize night actions through processor
+            // Remove the transition message from here since it's handled in handleNightActions
             await this.nightActionProcessor.handleNightActions();
-
+    
             logger.info(`Game advanced to Night ${this.round}`, {
                 phase: this.phase,
                 round: this.round,
-                stateAfterSave: await Game.findByPk(this.guildId) // Add this to verify state
+                playerCount: this.players.size,
+                livingPlayers: this.getAlivePlayers().length
             });
-
+    
         } catch (error) {
-            logger.error('Error advancing to Night phase', { error, stack: error.stack });
-            throw error;
+            // Restore previous state on error
+            await this.restoreFromSnapshot(snapshot);
+            
+            logger.error('Error advancing to Night phase', { 
+                error: error.message,
+                stack: error.stack,
+                currentPhase: this.phase,
+                round: this.round
+            });
+            
+            throw new GameError(
+                'Phase Transition Failed',
+                'Failed to advance to Night phase. The game state has been restored.'
+            );
         }
     }
 
-    /**
-     * Completes the current phase and transitions automatically or relies on manual advance.
-     */
-    async completePhase() {
-        try {
-            switch (this.phase) {
-                case PHASES.DAY:
-                    await this.advanceToNight();
-                    break;
-                case PHASES.NIGHT:
-                    await this.advanceToDay();
-                    break;
-                default:
-                    logger.warn('Attempted to complete an unhandled phase:', { phase: this.phase });
-            }
-        } catch (error) {
-            logger.error('Error in completePhase', { error });
-            throw error;
-        }
-    }
-
-    /**
+      /**
      * Moves a player to the Dead channel.
      * @param {Player} player - The player to move.
      */
-    async moveToDeadChannel(player) {
+      async moveToDeadChannel(player) {
+        const snapshot = this.createGameSnapshot();
+        
         try {
             if (!this.deadChannel) {
                 logger.warn('Dead channel is not set');
                 return;
             }
     
-            // Add to dead channel
-            await this.deadChannel.permissionOverwrites.create(player.id, {
-                ViewChannel: true,
-                SendMessages: true,
-                ReadMessageHistory: true
-            });
+            // Group all permission changes to apply atomically
+            const permissionUpdates = [
+                // Add to dead channel
+                this.deadChannel.permissionOverwrites.create(player.id, {
+                    ViewChannel: true,
+                    SendMessages: true,
+                    ReadMessageHistory: true
+                })
+            ];
     
-            // If player was a werewolf, remove them from werewolf channel
+            // Remove from werewolf channel if applicable
             if (player.role === ROLES.WEREWOLF && this.werewolfChannel) {
-                await this.werewolfChannel.permissionOverwrites.delete(player.id);
-                logger.info('Removed dead werewolf from werewolf channel', { 
-                    playerId: player.id,
-                    username: player.username 
-                });
+                permissionUpdates.push(
+                    this.werewolfChannel.permissionOverwrites.delete(player.id)
+                );
             }
     
-            await this.deadChannel.send(`**${player.username}** has joined the dead chat.`);
-            await player.sendDM('You have died! You can now speak with other dead players in the #dead-players channel.');
-            
-            logger.info('Player moved to Dead channel', { playerId: player.id });
+            // Apply all permission changes atomically
+            await Promise.all(permissionUpdates);
+    
+            // Save state before external operations
+            await GameStateManager.saveGameState(this);
+    
+            // Send notifications
+            await Promise.all([
+                this.deadChannel.send(`**${player.username}** has joined the dead chat.`),
+                player.sendDM('You have died! You can now speak with other dead players in the #dead-players channel.')
+            ]);
+    
+            logger.info('Player moved to Dead channel', { 
+                playerId: player.id,
+                wasWerewolf: player.role === ROLES.WEREWOLF 
+            });
+    
         } catch (error) {
-            logger.error('Error moving player to Dead channel', { error, playerId: player.id });
+            await this.restoreFromSnapshot(snapshot);
+            logger.error('Error moving player to Dead channel', { 
+                error: error.message,
+                stack: error.stack,
+                playerId: player.id 
+            });
+            throw error;
         }
     }
 
@@ -583,21 +708,31 @@ class WerewolfGame {
      * @param {string|object} message - The message or embed to send.
      */
     async broadcastMessage(message) {
+        const snapshot = this.createGameSnapshot();
+        
         try {
             const channel = await this.client.channels.fetch(this.gameChannelId);
             if (!channel) {
-                logger.error('Game channel not found', { gameChannelId: this.gameChannelId });
                 throw new GameError('Channel Not Found', 'The game channel does not exist.');
             }
+    
             await channel.send(message);
-            logger.info('Broadcast message sent', { message: typeof message === 'string' ? message : 'Embed object' });
+            
+            logger.info('Broadcast message sent', { 
+                messageType: typeof message === 'string' ? 'text' : 'embed',
+                channelId: this.gameChannelId
+            });
+    
         } catch (error) {
-            logger.error('Error broadcasting message', { error });
-            // Throw wrapped error to allow proper handling
+            await this.restoreFromSnapshot(snapshot);
+            logger.error('Error broadcasting message', { 
+                error: error.message,
+                stack: error.stack,
+                channelId: this.gameChannelId 
+            });
             throw new GameError('Broadcast Failed', 'Failed to send message to game channel.');
         }
     }
-
     /**
      * Retrieves a single player by role.
      * @param {string} role - The role to search for.
@@ -647,29 +782,84 @@ class WerewolfGame {
     }
     
     /**
-     * Completes the Night phase and transitions to Day phase.
+     * Advances the game to the Day phase.
      */
     async advanceToDay() {
+        const snapshot = this.createGameSnapshot();
+        
         try {
+            // Guard against multiple transitions
             if (this.phase === PHASES.DAY) {
                 logger.warn('Already in Day phase, skipping transition');
                 return;
             }
-    
-            this.phase = PHASES.DAY;
-            this.round += 1;
-            await this.saveGameState();
-    
+
+            // Validate current phase
+            if (this.phase !== PHASES.NIGHT && this.phase !== PHASES.NIGHT_ZERO) {
+                throw new GameError('Invalid phase transition', 
+                    `Cannot transition to Day from ${this.phase}`);
+            }
+
+            // Update state atomically
+            const stateUpdates = {
+                phase: PHASES.DAY,
+                // Reset voting state
+                nominatedPlayer: null,
+                nominator: null,
+                seconder: null,
+                votingOpen: false,
+                votes: new Map(),
+                // Reset night action state
+                completedNightActions: new Set(),
+                expectedNightActions: new Set(),
+                nightActions: {},
+                // Clear any protection
+                lastProtectedPlayer: null
+            };
+
+            // Apply all state updates atomically
+            Object.assign(this, stateUpdates);
+
+            // Clear any existing timeouts
+            if (this.nominationTimeout) {
+                clearTimeout(this.nominationTimeout);
+                this.nominationTimeout = null;
+            }
+
+            // Save state before any external operations
+            await GameStateManager.saveGameState(this);
+
+            // Send day transition message
+            await this.broadcastMessage({
+                embeds: [createDayTransitionEmbed()]
+            });
+
+            // Create day phase UI
             const channel = await this.client.channels.fetch(this.gameChannelId);
             await dayPhaseHandler.createDayPhaseUI(channel, this.players);
-    
+
             logger.info('Advanced to Day phase', {
+                round: this.round,
                 phase: this.phase,
+                playerCount: this.players.size,
+                livingPlayers: this.getAlivePlayers().length
+            });
+
+        } catch (error) {
+            // Restore previous state on error
+            await this.restoreFromSnapshot(snapshot);
+            
+            logger.error('Error advancing to Day phase', { 
+                error: error.message,
+                stack: error.stack,
+                currentPhase: this.phase,
                 round: this.round
             });
-        } catch (error) {
-            logger.error('Error advancing to Day phase', { error });
-            throw error;
+            
+            throw new GameError(
+                'Phase Transition Failed',
+                'Failed to advance to Day phase. The game state has been restored.'
+            );
         }
     }
 
@@ -677,145 +867,292 @@ class WerewolfGame {
      * Shuts down the game, cleaning up channels and resetting state.
      */
     async shutdownGame() {
-        // Clear any existing nomination before shutting down
-        if (this.nominatedPlayer) {
-            await this.voteProcessor.clearNomination('Game is ending.');
-        }
+        const snapshot = this.createGameSnapshot();
+        
         try {
-            await this.cleanupChannels();
-            this.players.forEach(player => player.reset());
-            this.cleanup();  // Internal state cleanup
-            
+            // Clean up channels first - this is external and needs to happen before state changes
+            await GameStateManager.cleanupChannels(this).catch(error => {
+                logger.error('Error cleaning up channels during shutdown', { error });
+                // Continue with shutdown even if channel cleanup fails
+            });
+
+            // Clear any existing nomination first
+            if (this.nominatedPlayer) {
+                await this.voteProcessor.clearNomination('Game is ending.');
+            }
+
+            // Update state atomically
+            const shutdownState = {
+                // Reset all collections
+                players: new Map(),
+                votes: new Map(),
+                nightActions: {},
+                lovers: new Map(),
+                selectedRoles: new Map(),
+                completedNightActions: new Set(),
+                expectedNightActions: new Set(),
+
+                // Clear channels
+                werewolfChannel: null,
+                deadChannel: null,
+
+                // Reset game state
+                phase: PHASES.GAME_OVER,
+                round: 0,
+                gameOver: true,
+                gameStartTime: null,
+                lastProtectedPlayer: null,
+                pendingHunterRevenge: null,
+
+                // Clear voting state
+                nominatedPlayer: null,
+                nominator: null,
+                seconder: null,
+                votingOpen: false,
+                nominationTimeout: null,
+
+                // Reset role history
+                roleHistory: {
+                    seer: { investigations: [] },
+                    sorcerer: { investigations: [] },
+                    bodyguard: { protections: [] }
+                }
+            };
+
+            // Clear intervals and timeouts
+            if (this.stateSaveInterval) {
+                clearInterval(this.stateSaveInterval);
+                this.stateSaveInterval = null;
+            }
+            if (this.nominationTimeout) {
+                clearTimeout(this.nominationTimeout);
+                this.nominationTimeout = null;
+            }
+
+            // Apply shutdown state atomically
+            Object.assign(this, shutdownState);
+
+            // Save final state
+            await GameStateManager.saveGameState(this);
+
             // Remove from client's games collection
             this.client.games.delete(this.guildId);
-            
+
             // Clean up from database
             await Game.destroy({ 
                 where: { guildId: this.guildId }
             });
 
-            logger.info('Game has been shut down and reset');
+            logger.info('Game shut down successfully', {
+                guildId: this.guildId,
+                gameChannelId: this.gameChannelId
+            });
+
         } catch (error) {
-            logger.error('Error shutting down the game', { error });
+            // Restore previous state on error
+            await this.restoreFromSnapshot(snapshot);
+            
+            logger.error('Error shutting down game', { 
+                error: error.message,
+                stack: error.stack,
+                guildId: this.guildId,
+                phase: this.phase
+            });
+            
+            // Even if restore fails, try emergency cleanup
+            try {
+                await GameStateManager.cleanupChannels(this);
+                this.client.games.delete(this.guildId);
+                await Game.destroy({ 
+                    where: { guildId: this.guildId }
+                });
+            } catch (cleanupError) {
+                logger.error('Emergency cleanup failed', { cleanupError });
+            }
+            
             throw error;
         }
     }
 
-    /**
-     * Cleans up private channels after the game ends.
-     */
-    async cleanupChannels() {
-        try {
-            if (this.werewolfChannel) {
-                try {
-                    await this.werewolfChannel.delete();
-                    logger.info('Werewolf channel deleted successfully');
-                } catch (error) {
-                    logger.error('Error deleting werewolf channel', { error });
-                }
-            }
-
-            if (this.deadChannel) {
-                try {
-                    await this.deadChannel.delete();
-                    logger.info('Dead channel deleted successfully');
-                } catch (error) {
-                    logger.error('Error deleting dead channel', { error });
-                }
-            }
-
-            // Clear the references
-            this.werewolfChannel = null;
-            this.deadChannel = null;
-        } catch (error) {
-            logger.error('Error in cleanupChannels', { error });
-            throw error;
-        }
-    }
-
+  
     /**
      * Adds a role to the selected roles configuration
      * @param {string} role - The role to add
      */
-    addRole(role) {
-        if (!ROLE_CONFIG[role]) {
-            throw new GameError('Invalid role', `${role} is not a valid optional role.`);
+    async addRole(role) {
+        const snapshot = this.createGameSnapshot();
+        
+        try {
+            if (!ROLE_CONFIG[role]) {
+                throw new GameError('Invalid role', `${role} is not a valid optional role.`);
+            }
+    
+            const currentCount = this.selectedRoles.get(role) || 0;
+            const maxCount = typeof ROLE_CONFIG[role].maxCount === 'function' 
+                ? ROLE_CONFIG[role].maxCount(this.players.size)
+                : ROLE_CONFIG[role].maxCount;
+    
+            if (currentCount >= maxCount) {
+                throw new GameError('Role limit reached', `Cannot add more ${role} roles.`);
+            }
+    
+            // Update state atomically
+            this.selectedRoles.set(role, currentCount + 1);
+            
+            // Save state before external operations
+            await GameStateManager.saveGameState(this);
+    
+            logger.info(`Added ${role} role`, { currentCount: currentCount + 1 });
+    
+        } catch (error) {
+            await this.restoreFromSnapshot(snapshot);
+            logger.error('Error adding role', { 
+                error: error.message,
+                stack: error.stack,
+                role,
+                currentCount: this.selectedRoles.get(role)
+            });
+            throw error;
         }
-
-        const currentCount = this.selectedRoles.get(role) || 0;
-        const maxCount = typeof ROLE_CONFIG[role].maxCount === 'function' 
-            ? ROLE_CONFIG[role].maxCount(this.players.size)
-            : ROLE_CONFIG[role].maxCount;
-
-        if (currentCount >= maxCount) {
-            throw new GameError('Role limit reached', `Cannot add more ${role} roles.`);
-        }
-
-        this.selectedRoles.set(role, currentCount + 1);
-        logger.info(`Added ${role} role`, { currentCount: currentCount + 1 });
     }
 
     /**
      * Removes a role from the selected roles configuration
      * @param {string} role - The role to remove
      */
-    removeRole(role) {
-        const currentCount = this.selectedRoles.get(role) || 0;
-        if (currentCount <= 0) {
-            throw new GameError('No role to remove', `There are no ${role} roles to remove.`);
+    async removeRole(role) {
+        const snapshot = this.createGameSnapshot();
+        
+        try {
+            const currentCount = this.selectedRoles.get(role) || 0;
+            if (currentCount <= 0) {
+                throw new GameError('No role to remove', `There are no ${role} roles to remove.`);
+            }
+    
+            // Update state atomically
+            const newCount = currentCount - 1;
+            if (newCount === 0) {
+                this.selectedRoles.delete(role);
+            } else {
+                this.selectedRoles.set(role, newCount);
+            }
+    
+            // Save state before external operations
+            await GameStateManager.saveGameState(this);
+    
+            logger.info(`Removed ${role} role`, { 
+                oldCount: currentCount,
+                newCount: this.selectedRoles.get(role) || 0 
+            });
+    
+        } catch (error) {
+            await this.restoreFromSnapshot(snapshot);
+            logger.error('Error removing role', { 
+                error: error.message,
+                stack: error.stack,
+                role,
+                currentCount: this.selectedRoles.get(role)
+            });
+            throw error;
         }
-
-        this.selectedRoles.set(role, currentCount - 1);
-        if (this.selectedRoles.get(role) === 0) {
-            this.selectedRoles.delete(role);
-        }
-        logger.info(`Removed ${role} role`, { currentCount: currentCount - 1 });
     }
 
-    cleanup() {
-        // Clear any intervals
-        if (this.stateSaveInterval) {
-            clearInterval(this.stateSaveInterval);
-            this.stateSaveInterval = null;
+    /**
+     * Cleans up and resets all game state.
+     */
+    async cleanup() {
+        const snapshot = this.createGameSnapshot();
+        
+        try {
+            // Clear all intervals and timeouts atomically
+            const timers = {
+                stateSaveInterval: this.stateSaveInterval,
+                nominationTimeout: this.nominationTimeout,
+                nightActionTimeout: this.nightActionTimeout
+            };
+
+            Object.entries(timers).forEach(([key, timer]) => {
+                if (timer) {
+                    if (key.includes('Interval')) {
+                        clearInterval(timer);
+                    } else {
+                        clearTimeout(timer);
+                    }
+                }
+            });
+
+            // Create clean state object atomically
+            const cleanState = {
+                // Clear collections
+                players: new Map(),
+                votes: new Map(),
+                nightActions: {},
+                lovers: new Map(),
+                selectedRoles: new Map(),
+                completedNightActions: new Set(),
+                expectedNightActions: new Set(),
+
+                // Reset timers
+                stateSaveInterval: null,
+                nominationTimeout: null,
+                nightActionTimeout: null,
+
+                // Reset game state
+                phase: PHASES.LOBBY,
+                round: 0,
+                gameOver: false,
+                lastProtectedPlayer: null,
+                pendingHunterRevenge: null,
+
+                // Reset voting state
+                nominatedPlayer: null,
+                nominator: null,
+                seconder: null,
+                votingOpen: false,
+
+                // Reset role history
+                roleHistory: {
+                    seer: { investigations: [] },
+                    sorcerer: { investigations: [] },
+                    bodyguard: { protections: [] }
+                }
+            };
+
+            // Apply clean state atomically
+            Object.assign(this, cleanState);
+
+            // Save clean state
+            await GameStateManager.saveGameState(this);
+
+            logger.info('Game state cleaned up successfully', {
+                phase: this.phase,
+                gameOver: this.gameOver,
+                collections: {
+                    players: this.players.size,
+                    votes: this.votes.size,
+                    lovers: this.lovers.size,
+                    selectedRoles: this.selectedRoles.size,
+                    completedActions: this.completedNightActions.size,
+                    expectedActions: this.expectedNightActions.size
+                }
+            });
+
+        } catch (error) {
+            // Restore previous state on error
+            await this.restoreFromSnapshot(snapshot);
+            
+            logger.error('Error during cleanup', { 
+                error: error.message,
+                stack: error.stack,
+                phase: this.phase,
+                gameOver: this.gameOver
+            });
+            
+            throw new GameError(
+                'Cleanup Failed',
+                'Failed to clean up game state. The game state has been restored.'
+            );
         }
-
-        // Clear any timeouts
-        if (this.nominationTimeout) {
-            clearTimeout(this.nominationTimeout);
-            this.nominationTimeout = null;
-        }
-
-        if (this.nightActionTimeout) {
-            clearTimeout(this.nightActionTimeout);
-            this.nightActionTimeout = null;
-        }
-
-        // Clear game state
-        this.players.clear();
-        this.votes.clear();
-        this.nightActions = {};
-        this.lovers.clear();
-        this.selectedRoles.clear();
-        this.completedNightActions.clear();
-        this.expectedNightActions.clear();
-
-        // Reset other properties
-        this.phase = PHASES.LOBBY;
-        this.round = 0;
-        this.gameOver = false;
-        this.lastProtectedPlayer = null;
-        this.pendingHunterRevenge = null;
-        this.nominatedPlayer = null;
-        this.nominator = null;
-        this.seconder = null;
-        this.votingOpen = false;
-
-        // Reset roleHistory
-        this.roleHistory = {
-            seer: { investigations: [] },
-            sorcerer: { investigations: [] },
-            bodyguard: { protections: [] }
-        };
     }
 
      // Add this helper method to calculate game duration
@@ -833,7 +1170,16 @@ class WerewolfGame {
         return `${minutes}m`;
     }
 
+    /**
+     * Updates player statistics after game end
+     * @param {Set<Player>} winners - Set of winning players
+     */
     async updatePlayerStats(winners) {
+        const snapshot = this.createGameSnapshot();
+        const updatedStats = new Map();
+        const MAX_RETRIES = 3;
+        const RETRY_DELAY = 1000; // 1 second
+    
         try {
             logger.info('Starting to update player stats', { 
                 playerCount: this.players.size,
@@ -844,51 +1190,104 @@ class WerewolfGame {
                 }))
             });
     
-            for (const [playerId, player] of this.players) {
+            // Retry wrapper function
+            const retryOperation = async (operation, retries = MAX_RETRIES) => {
                 try {
-                    const discordId = playerId.toString();
-                    let stats = await PlayerStats.findByPk(discordId);
-                    if (!stats) {
-                        stats = await PlayerStats.create({
-                            discordId,
-                            username: player.username
-                        });
-                    }
-    
-                    // Update games played
-                    await stats.increment('gamesPlayed');
-                    
-                    // Check if this player is in the winners Set
-                    const isWinner = Array.from(winners).some(w => w.id === player.id);
-                    if (isWinner) {
-                        await stats.increment('gamesWon');
-                    }
-    
-                    // Update role-specific count
-                    const roleField = `times${player.role.charAt(0).toUpperCase() + player.role.slice(1)}`;
-                    await stats.increment(roleField);
-    
-                    logger.info('Updated stats for player', { 
-                        discordId,
-                        username: player.username,
-                        role: player.role,
-                        won: isWinner
-                    });
+                    return await operation();
                 } catch (error) {
-                    logger.error('Error updating individual player stats', {
-                        playerId,
-                        error: error.message
+                    if (retries > 0 && error.message.includes('SQLITE_BUSY')) {
+                        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+                        return retryOperation(operation, retries - 1);
+                    }
+                    throw error;
+                }
+            };
+    
+            // Process players in sequence rather than parallel
+            for (const [playerId, player] of this.players) {
+                const discordId = playerId.toString();
+                const isWinner = Array.from(winners).some(w => w.id === player.id);
+                
+                try {
+                    await retryOperation(async () => {
+                        // Use a managed transaction
+                        await PlayerStats.sequelize.transaction(async (t) => {
+                            const [stats] = await PlayerStats.findOrCreate({
+                                where: { discordId },
+                                defaults: {
+                                    username: player.username,
+                                    gamesPlayed: 0,
+                                    gamesWon: 0,
+                                    // ... other defaults ...
+                                },
+                                transaction: t,
+                                lock: true
+                            });
+    
+                            // Update stats within transaction
+                            await stats.increment('gamesPlayed', { transaction: t });
+                            if (isWinner) {
+                                await stats.increment('gamesWon', { transaction: t });
+                            }
+    
+                            const roleField = `times${player.role.charAt(0).toUpperCase() + player.role.slice(1)}`;
+                            await stats.increment(roleField, { transaction: t });
+    
+                            // Track successful update
+                            updatedStats.set(discordId, {
+                                username: player.username,
+                                role: player.role,
+                                isWinner
+                            });
+                        });
                     });
+                } catch (playerError) {
+                    logger.error('Error updating individual player stats', {
+                        error: playerError,
+                        playerId,
+                        username: player.username
+                    });
+                    // Continue with other players even if one fails
                 }
             }
-        } catch (error) {
-            logger.error('Error in updatePlayerStats', { 
-                error: error.message,
-                stack: error.stack 
+    
+            logger.info('Player stats updated successfully', {
+                updatedPlayers: Array.from(updatedStats.entries()).map(([id, data]) => ({
+                    id,
+                    username: data.username,
+                    role: data.role,
+                    won: data.isWinner
+                }))
             });
+    
+            // If we updated some but not all players, log a warning
+            if (updatedStats.size < this.players.size) {
+                logger.warn('Some player stats updates failed', {
+                    totalPlayers: this.players.size,
+                    successfulUpdates: updatedStats.size
+                });
+            }
+    
+            // Return true if we updated at least some players
+            return updatedStats.size > 0;
+    
+        } catch (error) {
+            await this.restoreFromSnapshot(snapshot);
+            
+            logger.error('Error updating player stats', { 
+                error: error.message,
+                stack: error.stack,
+                successfulUpdates: Array.from(updatedStats.entries()).map(([id, data]) => ({
+                    id,
+                    username: data.username,
+                    role: data.role
+                }))
+            });
+            
+            // Don't throw - just return false to indicate failure
+            return false;
         }
     }
-    // Add to the class
 
     getPhase() {
         return this.phase;
@@ -902,23 +1301,8 @@ class WerewolfGame {
     isGameCreatorOrAuthorized(userId) {
         return userId === this.gameCreatorId || this.authorizedIds.includes(userId);
     }
-    /**
-     * Saves the current game state to the database
-     */
-    async saveGameState() {
-        try {
-            await GameStateManager.saveGameState(this);
-            logger.info('Game state saved via manager', { 
-                guildId: this.guildId,
-                phase: this.phase
-            });
-        } catch (error) {
-            logger.error('Error saving game state', { error });
-            throw error;
-        }
-    }
 
-     // Add static create method
+    // Add static create method
     static async create(client, guildId, channelId, creatorId) {
         try {
             logger.info('Creating new game instance', {
@@ -929,7 +1313,7 @@ class WerewolfGame {
 
             const game = new WerewolfGame(client, guildId, channelId, creatorId);
             client.games.set(guildId, game);
-            await game.saveGameState();
+            await GameStateManager.saveGameState(game);
 
             logger.info('Game instance created successfully', {
                 guildId,
@@ -953,114 +1337,144 @@ class WerewolfGame {
      * @returns {boolean} - True if the game is over, else False.
      */
     async checkWinConditions() {
-        // Don't check win conditions during setup phases
-        if (this.phase === PHASES.LOBBY || this.phase === PHASES.NIGHT_ZERO) {
-            return false;
-        }
-    
-        // If game is already over, don't check again
-        if (this.gameOver) {
-            return true;
-        }
-    
-        // Get all living players
-        const alivePlayers = this.getAlivePlayers();
+        const snapshot = this.createGameSnapshot();
         
-        // Count living werewolves
-        const livingWerewolves = alivePlayers.filter(p => p.role === ROLES.WEREWOLF).length;
-        
-        // Count living villager team (everyone who's not a werewolf)
-        // Note: Minion and sorcerer count as villager for parity calculation
-        const livingVillagerTeam = alivePlayers.filter(p => p.role !== ROLES.WEREWOLF).length;
-    
-        let winners = new Set();
-        let gameOver = false;
-    
-        // Calculate game stats
-        const gameStats = {
-            rounds: this.round,
-            totalPlayers: this.players.size,
-            eliminations: this.players.size - alivePlayers.length,
-            duration: this.getGameDuration(),
-            players: Array.from(this.players.values())
-        };
-    
-        // If no players are alive, it's a draw - no winners
-        if (alivePlayers.length === 0) {
-            this.phase = PHASES.GAME_OVER;
-            this.gameOver = true;
-            gameOver = true;
-            // winners remains empty - no one wins
-        }
-        // If all werewolves are dead, villagers win
-        else if (livingWerewolves === 0) {
-            this.phase = PHASES.GAME_OVER;
-            this.gameOver = true;
-            // Add all non-werewolf and non-minion and non-sorcerer players to winners
-            this.players.forEach(player => {
-                if (player.role !== ROLES.WEREWOLF && 
-                    player.role !== ROLES.MINION && 
-                    player.role !== ROLES.SORCERER) {
-                    winners.add(player);
-                }
-            });
-            gameOver = true;
-        }
-        // If werewolves reach parity with villager team, werewolves win
-        else if (livingWerewolves >= livingVillagerTeam) {
-            this.phase = PHASES.GAME_OVER;
-            this.gameOver = true;
-            // Add all werewolf team players to winners
-            this.players.forEach(player => {
-                if (player.role === ROLES.WEREWOLF || 
-                    player.role === ROLES.MINION || 
-                    player.role === ROLES.SORCERER) {
-                    winners.add(player);
-                }
-            });
-            gameOver = true;
-        }
-    
-        if (gameOver) {
-            try {
-                // Clear all game state first
-                this.nominatedPlayer = null;
-                this.nominator = null;
-                this.seconder = null;
-                this.votingOpen = false;
-                this.votes.clear();
-                if (this.nominationTimeout) {
-                    clearTimeout(this.nominationTimeout);
-                    this.nominationTimeout = null;
-                }
-    
-                // Then disable UI and send final message
-                const channel = await this.client.channels.fetch(this.gameChannelId);
-                const messages = await channel.messages.fetch({ limit: 10 });
-                for (const message of messages.values()) {
-                    if (message.components?.length > 0) {
-                        await message.edit({ components: [] });
-                    }
-                }
-    
-                // Send game end message
-                await this.broadcastMessage({
-                    embeds: [createGameEndEmbed(Array.from(winners), gameStats)]
-                });
-    
-                // Update player stats
-                await this.updatePlayerStats(winners);
-    
-                // Finally clean up
-                await this.shutdownGame();
-            } catch (error) {
-                logger.error('Error in game end sequence', { error });
-                // Still try to shutdown
-                await this.shutdownGame();
+        try {
+            // Don't check win conditions during setup phases
+            if (this.phase === PHASES.LOBBY || this.phase === PHASES.NIGHT_ZERO) {
+                return false;
             }
+
+            // If game is already over, don't check again
+            if (this.gameOver) {
+                return true;
+            }
+
+            // Get all living players
+            const alivePlayers = this.getAlivePlayers();
+            
+            // Count living werewolves and villager team members
+            const livingWerewolves = alivePlayers.filter(p => p.role === ROLES.WEREWOLF).length;
+            const livingVillagerTeam = alivePlayers.filter(p => p.role !== ROLES.WEREWOLF).length;
+
+            let winners = new Set();
+            let gameOver = false;
+
+            // Calculate game stats atomically
+            const gameStats = {
+                rounds: this.round,
+                totalPlayers: this.players.size,
+                eliminations: this.players.size - alivePlayers.length,
+                duration: this.getGameDuration(),
+                players: Array.from(this.players.values())
+            };
+
+            // Determine win condition atomically
+            if (alivePlayers.length === 0) {
+                // Draw - no winners
+                gameOver = true;
+                this.phase = PHASES.GAME_OVER;
+                this.gameOver = true;
+            } 
+            else if (livingWerewolves === 0) {
+                // Village team wins
+                gameOver = true;
+                this.phase = PHASES.GAME_OVER;
+                this.gameOver = true;
+                
+                // Add all non-evil team players to winners
+                this.players.forEach(player => {
+                    if (player.role !== ROLES.WEREWOLF && 
+                        player.role !== ROLES.MINION && 
+                        player.role !== ROLES.SORCERER) {
+                        winners.add(player);
+                    }
+                });
+            }
+            else if (livingWerewolves >= livingVillagerTeam) {
+                // Werewolf team wins
+                gameOver = true;
+                this.phase = PHASES.GAME_OVER;
+                this.gameOver = true;
+                
+                // Add all evil team players to winners
+                this.players.forEach(player => {
+                    if (player.role === ROLES.WEREWOLF || 
+                        player.role === ROLES.MINION || 
+                        player.role === ROLES.SORCERER) {
+                        winners.add(player);
+                    }
+                });
+            }
+
+            if (gameOver) {
+                try {
+                    // Clear all game state atomically
+                    const endGameUpdates = {
+                        nominatedPlayer: null,
+                        nominator: null,
+                        seconder: null,
+                        votingOpen: false,
+                        votes: new Map(),
+                        nominationTimeout: null,
+                        phase: PHASES.GAME_OVER,
+                        gameOver: true
+                    };
+
+                    // Apply all end game updates atomically
+                    Object.assign(this, endGameUpdates);
+
+                    // Save state before external operations
+                    await GameStateManager.saveGameState(this);
+
+                    // Disable UI components
+                    const channel = await this.client.channels.fetch(this.gameChannelId);
+                    const messages = await channel.messages.fetch({ limit: 10 });
+                    await Promise.all(messages.map(message => {
+                        if (message.components?.length > 0) {
+                            return message.edit({ components: [] });
+                        }
+                    }));
+
+                    // Send game end message
+                    await this.broadcastMessage({
+                        embeds: [createGameEndEmbed(Array.from(winners), gameStats)]
+                    });
+
+                    // Update player stats
+                    await this.updatePlayerStats(winners);
+
+                    // Clean up game resources
+                    await this.shutdownGame();
+
+                } catch (error) {
+                    // If end game sequence fails, restore state and try cleanup
+                    await this.restoreFromSnapshot(snapshot);
+                    logger.error('Error in game end sequence', { 
+                        error: error.message,
+                        stack: error.stack 
+                    });
+                    await this.shutdownGame().catch(err => 
+                        logger.error('Error in emergency shutdown', { err })
+                    );
+                }
+            }
+
+            return gameOver;
+
+        } catch (error) {
+            // Restore state on any error
+            await this.restoreFromSnapshot(snapshot);
+            
+            logger.error('Error checking win conditions', { 
+                error: error.message,
+                stack: error.stack,
+                phase: this.phase,
+                round: this.round
+            });
+            
+            throw error;
         }
-    
-        return gameOver;
     }
 };
 

@@ -1,3 +1,4 @@
+const GameStateManager = require('../utils/gameStateManager');
 const logger = require('../utils/logger');
 const { GameError } = require('../utils/error-handler');
 const ROLES = require('../constants/roles');
@@ -82,7 +83,7 @@ class PlayerStateManager {
             }
 
             // Single save point after all changes
-            await this.game.saveGameState();
+            await GameStateManager.saveGameState(this.game);
 
             logger.info('Player state changed', {
                 playerId,
