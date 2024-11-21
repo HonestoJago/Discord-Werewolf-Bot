@@ -472,13 +472,14 @@ class NightActionProcessor {
 
             // Clear any existing night actions
             this.game.expectedNightActions.clear();
-            this.game.completedNightActions.clear();
             this.game.nightActions = {};
 
-            // Identify all players with night actions
+            // Identify all players with night actions who haven't completed them yet
             const nightRoles = [ROLES.WEREWOLF, ROLES.SEER, ROLES.BODYGUARD, ROLES.SORCERER];
             const nightPlayers = Array.from(this.game.players.values()).filter(player => 
-                nightRoles.includes(player.role) && player.isAlive
+                nightRoles.includes(player.role) && 
+                player.isAlive && 
+                !this.game.completedNightActions.has(player.id)
             );
 
             logger.info('Identified night action players', { 
@@ -488,7 +489,7 @@ class NightActionProcessor {
                 }))
             });
 
-            // Add night players to expectedNightActions
+            // Add only pending night players to expectedNightActions
             nightPlayers.forEach(player => {
                 this.game.expectedNightActions.add(player.id);
             });
@@ -496,7 +497,7 @@ class NightActionProcessor {
             // Save state before sending DMs
             await this.game.saveGameState();
 
-            // Send role reminders and action prompts to all night action players
+            // Send prompts only to players who haven't acted
             for (const player of nightPlayers) {
                 try {
                     // Send role-specific reminder
@@ -514,7 +515,7 @@ class NightActionProcessor {
                         });
                     }
 
-                    // Create and send action dropdown
+                    // Create and send action dropdown only if player hasn't completed action
                     const validTargets = this.getValidTargetsForRole(player);
                     const selectMenu = new StringSelectMenuBuilder()
                         .setCustomId(`night_action_${player.role.toLowerCase()}`)
@@ -555,10 +556,7 @@ class NightActionProcessor {
         } catch (error) {
             // Restore previous state on error
             this.restoreFromSnapshot(snapshot);
-            logger.error('Error handling night actions', { 
-                error: error.message,
-                stack: error.stack 
-            });
+            logger.error('Error handling night actions', { error });
             throw error;
         }
     }

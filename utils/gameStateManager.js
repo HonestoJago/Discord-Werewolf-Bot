@@ -151,20 +151,6 @@ class GameStateManager {
                 game.werewolfChannel = channels.werewolfChannel;
                 game.deadChannel = channels.deadChannel;
 
-                // Verify all players still exist in guild
-                for (const playerData of Object.values(savedState.players || {})) {
-                    try {
-                        await guild.members.fetch(playerData.discordId);
-                    } catch (error) {
-                        logger.warn('Player no longer in guild', {
-                            playerId: playerData.discordId,
-                            username: playerData.username
-                        });
-                        // Continue with restoration, but mark this player as disconnected
-                        playerData.disconnected = true;
-                    }
-                }
-
                 // Restore players
                 for (const [playerId, playerData] of Object.entries(savedState.players)) {
                     const player = new Player(
@@ -183,18 +169,26 @@ class GameStateManager {
                     game.players.set(playerId, player);
                 }
 
-                // Restore voting state
-                if (savedState.votingState) {
-                    Object.assign(game, savedState.votingState);
-                    game.votes = new Map(Object.entries(savedState.votingState.votes || {}));
-                }
-
                 // Restore night state
-                if (savedState.nightState) {
-                    game.expectedNightActions = new Set(savedState.nightState.expectedActions || []);
+                if (savedState.phase === PHASES.NIGHT) {
+                    // Restore completed and expected actions
                     game.completedNightActions = new Set(savedState.nightState.completedActions || []);
+                    game.expectedNightActions = new Set(savedState.nightState.expectedActions || []);
                     game.nightActions = savedState.nightState.pendingActions || {};
                     game.lastProtectedPlayer = savedState.nightState.lastProtectedPlayer;
+                }
+
+                // Only send night action prompts once, and only to players who haven't acted
+                if (savedState.phase === PHASES.NIGHT) {
+                    const pendingPlayers = Array.from(savedState.nightState.expectedActions || [])
+                        .filter(id => !game.completedNightActions.has(id));
+                    
+                    if (pendingPlayers.length > 0) {
+                        logger.info('Restored night action prompts', {
+                            pendingPlayers
+                        });
+                        // Don't call handleNightActions here - we'll do it after UI restoration
+                    }
                 }
 
                 // Restore special roles
@@ -243,18 +237,6 @@ class GameStateManager {
                     playerCount: game.players.size
                 });
 
-                // If in night phase, explicitly handle night action restoration
-                if (savedState.phase === PHASES.NIGHT) {
-                    game.expectedNightActions = new Set(savedState.nightState.expectedActions || []);
-                    game.completedNightActions = new Set(savedState.nightState.completedActions || []);
-                    game.nightActions = savedState.nightState.pendingActions || {};
-                    
-                    // Send night action prompts to players who haven't completed their actions
-                    if (game.expectedNightActions.size > 0) {
-                        await game.nightActionProcessor.handleNightActions();
-                    }
-                }
-
                 // After restoring all basic state, check for pending Hunter revenge
                 if (game.pendingHunterRevenge) {
                     const hunter = game.players.get(game.pendingHunterRevenge);
@@ -290,6 +272,16 @@ class GameStateManager {
                             hunterId: hunter.id,
                             hunterName: hunter.username
                         });
+                    }
+                }
+
+                // Only now handle night actions if needed
+                if (savedState.phase === PHASES.NIGHT) {
+                    const pendingPlayers = Array.from(game.expectedNightActions)
+                        .filter(id => !game.completedNightActions.has(id));
+                    
+                    if (pendingPlayers.length > 0) {
+                        await game.nightActionProcessor.handleNightActions();
                     }
                 }
 
@@ -440,16 +432,29 @@ class GameStateManager {
                 } catch (error) {
                     logger.error('Failed to recreate day phase UI', { error });
                 }
-            } else if (game.phase === PHASES.NIGHT) {
-                // For night phase, use NightActionProcessor to recreate prompts
-                await game.nightActionProcessor.handleNightActions();
-                logger.info('Recreated night action prompts');
             }
 
-            // Notify players with complete state
+            // Send a single restoration message to the game channel
+            await channel.send({
+                embeds: [{
+                    color: 0x0099ff,
+                    title: '🔄 Game State Restored',
+                    description: 
+                        'The game has been restored to its previous state.\n\n' +
+                        `**Phase:** ${game.phase}\n` +
+                        `**Round:** ${game.round}\n` +
+                        `**Players Alive:** ${game.getAlivePlayers().length}/${game.players.size}`
+                }]
+            });
+
+            // Send a single notification to each player
             for (const player of game.players.values()) {
                 try {
                     const roleSpecificInfo = await this.getRoleSpecificInfo(game, player);
+                    const hasPendingAction = game.phase === PHASES.NIGHT && 
+                        game.expectedNightActions.has(player.id) && 
+                        !game.completedNightActions.has(player.id);
+
                     await player.sendDM({
                         embeds: [{
                             color: 0x0099ff,
@@ -460,8 +465,7 @@ class GameStateManager {
                                 `Your role: ${player.role}\n` +
                                 (player.isAlive ? 'You are alive' : 'You are dead') +
                                 (roleSpecificInfo ? `\n\n${roleSpecificInfo}` : '') +
-                                (game.phase === PHASES.NIGHT && game.expectedNightActions.has(player.id) ?
-                                    '\n\nYou have a pending night action to complete.' : '') +
+                                (hasPendingAction ? '\n\nYou have a pending night action to complete.' : '') +
                                 (game.votingOpen && player.isAlive ? 
                                     '\n\nThere is an active vote in progress.' : '')
                         }]
@@ -474,19 +478,6 @@ class GameStateManager {
                     });
                 }
             }
-
-            // Send restoration confirmation to channel
-            await channel.send({
-                embeds: [{
-                    color: 0x0099ff,
-                    title: '🔄 Game State Restored',
-                    description: 
-                        'The game has been restored to its previous state.\n\n' +
-                        `**Phase:** ${game.phase}\n` +
-                        `**Round:** ${game.round}\n` +
-                        `**Players Alive:** ${game.getAlivePlayers().length}/${game.players.size}`
-                }]
-            });
 
         } catch (error) {
             logger.error('Error restoring UI state', { error });
