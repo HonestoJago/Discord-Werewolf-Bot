@@ -1476,6 +1476,23 @@ calculateRoleAssignments(playerCount) {
             throw error;
         }
     }
+
+    /**
+     * Saves the current game state
+     */
+    async saveGameState() {
+        try {
+            await GameStateManager.saveGameState(this);
+        } catch (error) {
+            logger.error('Error saving game state', { 
+                error: error.message,
+                stack: error.stack,
+                phase: this.phase,
+                round: this.round
+            });
+            throw error;
+        }
+    }
 };
 
 module.exports = WerewolfGame;

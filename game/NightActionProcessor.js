@@ -137,7 +137,7 @@ class NightActionProcessor {
             });
 
             // Save state before any external operations
-            await GameStateManager.saveGameState(this.game);
+            await this.game.saveGameState();
 
             // Handle immediate investigations
             if (action === 'investigate' || action === 'dark_investigate') {
@@ -494,7 +494,7 @@ class NightActionProcessor {
             });
 
             // Save state before sending DMs
-            await GameStateManager.saveGameState(this.game);
+            await this.game.saveGameState();
 
             // Send role reminders and action prompts to all night action players
             for (const player of nightPlayers) {
@@ -899,7 +899,7 @@ class NightActionProcessor {
             const row = new ActionRowBuilder().addComponents(selectMenu);
 
             // Save state before external operations
-            await GameStateManager.saveGameState(this.game);
+            await this.game.saveGameState();
 
             // Send DM to Hunter with dropdown
             await hunter.sendDM({
@@ -976,7 +976,7 @@ class NightActionProcessor {
             }
 
             // Save state before sending DM
-            await GameStateManager.saveGameState(this.game);
+            await this.game.saveGameState();
 
             // Send result to investigator
             await investigator.sendDM({ embeds: [embed] });
@@ -1269,7 +1269,7 @@ class NightActionProcessor {
             const embed = createNightActionEmbed(ROLES.CUPID);
 
             // Save state before external operations
-            await GameStateManager.saveGameState(this.game);
+            await this.game.saveGameState();
 
             // Send DM to Cupid with dropdown
             await cupid.sendDM({ 

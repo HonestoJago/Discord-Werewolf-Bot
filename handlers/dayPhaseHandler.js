@@ -1,5 +1,4 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } = require('discord.js');
-const GameStateManager = require('../utils/gameStateManager');
 const logger = require('../utils/logger');
 const { handleCommandError, GameError } = require('../utils/error-handler');
 const { createDayPhaseEmbed, createNominationEmbed, createVotingEmbed, createDayTransitionEmbed } = require('../utils/embedCreator');
@@ -51,6 +50,9 @@ module.exports = {
             
             // Use voteProcessor to handle the nomination
             await currentGame.voteProcessor.nominate(interaction.user.id, targetId);
+
+            // Instead of calling GameStateManager directly, use the game instance
+            await currentGame.saveGameState();
 
             // Create second button
             const secondButton = new ButtonBuilder()

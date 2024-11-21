@@ -1,13 +1,13 @@
-const logger = require('./logger');
-const Game = require('../models/Game');
 const Player = require('../game/Player');
+console.log('Player class:', Player);
+const Game = require('../models/Game');
 const { GameError } = require('./error-handler');
-const { DiscordAPIError } = require('discord.js');
+const { DiscordAPIError, ButtonBuilder, ActionRowBuilder, ButtonStyle, StringSelectMenuBuilder } = require('discord.js');
+const logger = require('./logger');
 const PHASES = require('../constants/phases');
 const ROLES = require('../constants/roles');
-const { createDayPhaseEmbed } = require('../utils/embedCreator');
+const { createDayPhaseEmbed, createHunterRevengeEmbed, createHunterTensionEmbed } = require('./embedCreator');
 const dayPhaseHandler = require('../handlers/dayPhaseHandler');
-const { ButtonBuilder, ActionRowBuilder, ButtonStyle } = require('discord.js');
 
 class GameStateManager {
     /**
@@ -112,6 +112,8 @@ class GameStateManager {
             if (!savedState) {
                 throw new GameError('No saved game found', 'No saved game state found for this server.');
             }
+            
+            console.log('Saved state:', savedState);
 
             logger.info('Found saved game state', {
                 guildId,
@@ -164,9 +166,21 @@ class GameStateManager {
                 }
 
                 // Restore players
-                for (const playerData of Object.values(savedState.players || {})) {
-                    const player = Player.fromJSON(playerData, client);
-                    game.players.set(player.id, player);
+                for (const [playerId, playerData] of Object.entries(savedState.players)) {
+                    const player = new Player(
+                        playerData.discordId,
+                        playerData.username,
+                        client,
+                        playerData.discriminator
+                    );
+                    
+                    player.role = playerData.role;
+                    player.isAlive = playerData.isAlive;
+                    player.isProtected = playerData.isProtected;
+                    player.lastAction = playerData.lastAction;
+                    player.actionTarget = playerData.actionTarget;
+
+                    game.players.set(playerId, player);
                 }
 
                 // Restore voting state
@@ -238,6 +252,44 @@ class GameStateManager {
                     // Send night action prompts to players who haven't completed their actions
                     if (game.expectedNightActions.size > 0) {
                         await game.nightActionProcessor.handleNightActions();
+                    }
+                }
+
+                // After restoring all basic state, check for pending Hunter revenge
+                if (game.pendingHunterRevenge) {
+                    const hunter = game.players.get(game.pendingHunterRevenge);
+                    if (hunter) {
+                        // Re-create and send the Hunter's revenge UI
+                        const validTargets = Array.from(game.players.values())
+                            .filter(p => p.isAlive && p.id !== hunter.id)
+                            .map(p => ({
+                                label: p.username,
+                                value: p.id,
+                                description: `Take ${p.username} with you`
+                            }));
+
+                        const selectMenu = new StringSelectMenuBuilder()
+                            .setCustomId('hunter_revenge')
+                            .setPlaceholder('Choose your target')
+                            .addOptions(validTargets);
+
+                        const row = new ActionRowBuilder().addComponents(selectMenu);
+
+                        // Send DM to Hunter with dropdown
+                        await hunter.sendDM({
+                            embeds: [createHunterRevengeEmbed()],
+                            components: [row]
+                        });
+
+                        // Send mysterious message to village
+                        await game.broadcastMessage({
+                            embeds: [createHunterTensionEmbed(true)]
+                        });
+
+                        logger.info('Restored Hunter revenge UI', {
+                            hunterId: hunter.id,
+                            hunterName: hunter.username
+                        });
                     }
                 }
 

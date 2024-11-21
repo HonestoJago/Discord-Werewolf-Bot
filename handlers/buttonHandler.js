@@ -5,6 +5,7 @@ const WerewolfGame = require('../game/WerewolfGame');
 const { createRoleToggleButtons, createGameSetupButtons } = require('../utils/buttonCreator');
 const { createRoleInfoEmbed } = require('../utils/embedCreator');
 const ROLES = require('../constants/roles');
+const GameStateManager = require('../utils/gameStateManager');
 
 async function handleJoinGame(interaction, game) {
     try {
@@ -62,7 +63,7 @@ async function handleToggleRole(interaction, game) {
 
         // Update with full game setup buttons, maintaining all buttons
         await interaction.update({
-            components: createGameSetupButtons(game.selectedRoles)  // Pass selectedRoles here
+            components: createGameSetupButtons(game.selectedRoles)
         });
         await game.saveGameState();
 

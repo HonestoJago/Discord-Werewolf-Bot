@@ -98,7 +98,7 @@ class VoteProcessor {
             }, this.game.NOMINATION_WAIT_TIME);
 
             // Save state before broadcasting
-            await GameStateManager.saveGameState(this.game);
+            await this.game.saveGameState();
 
             // Broadcast nomination
             await this.game.broadcastMessage({
@@ -157,7 +157,7 @@ class VoteProcessor {
             this.game.votes.clear();
 
             // Save state before broadcasting
-            await GameStateManager.saveGameState(this.game);
+            await this.game.saveGameState();
 
             logger.info('Nomination seconded', {
                 seconder: seconder.username,
@@ -214,7 +214,7 @@ class VoteProcessor {
             this.game.votes.set(voterId, isGuilty);
 
             // Save state after vote is recorded
-            await GameStateManager.saveGameState(this.game);
+            await this.game.saveGameState();
 
             // Check if all votes are in
             const eligibleVoters = Array.from(this.game.players.values())
@@ -311,7 +311,7 @@ class VoteProcessor {
 
                 // Clear voting state
                 this.clearVotingState();
-                await GameStateManager.saveGameState(this.game);
+                await this.game.saveGameState();
 
                 // Refresh the day phase UI
                 const dayChannel = await this.game.client.channels.fetch(this.game.gameChannelId);
@@ -370,7 +370,7 @@ class VoteProcessor {
 
                     // Clear voting state and save
                     this.clearVotingState();
-                    await GameStateManager.saveGameState(this.game);
+                    await this.game.saveGameState();
 
                     // Check win conditions and advance phase
                     const gameOver = await this.game.checkWinConditions();
@@ -430,7 +430,7 @@ class VoteProcessor {
 
             // Clear voting state and save
             this.clearVotingState();
-            await GameStateManager.saveGameState(this.game);
+            await this.game.saveGameState();
         } catch (error) {
             logger.error('Error setting up Hunter revenge', { error });
             throw error;
@@ -484,7 +484,7 @@ class VoteProcessor {
             this.game.pendingHunterRevenge = null;
 
             // Save state before any external operations
-            await GameStateManager.saveGameState(this.game);
+            await this.game.saveGameState();
 
             // Now handle external operations (these can't be rolled back but at least state is consistent)
             await this.game.broadcastMessage({
@@ -523,7 +523,7 @@ class VoteProcessor {
             this.game.pendingHunterRevenge = gameSnapshot.pendingRevenge;
             this.game.phase = gameSnapshot.phase;
             
-            await GameStateManager.saveGameState(this.game);
+            await this.game.saveGameState();
             
             logger.error('Error processing Hunter revenge', { error });
             throw error;
@@ -553,7 +553,7 @@ class VoteProcessor {
                 }
 
                 // Save state before broadcasting
-                await GameStateManager.saveGameState(this.game);
+                await this.game.saveGameState();
 
                 // Only broadcast if explicitly requested
                 if (broadcast) {
@@ -590,7 +590,7 @@ class VoteProcessor {
             this.game.votes.clear();
 
             // Save state before broadcasting
-            await GameStateManager.saveGameState(this.game);
+            await this.game.saveGameState();
 
             // Notify players to nominate again
             await this.game.broadcastMessage({
