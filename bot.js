@@ -249,147 +249,81 @@ client.on('interactionCreate', async interaction => {
             await command.execute(interaction, game);
         } 
         else if (interaction.isButton()) {
-            // Check if this is a game restoration button
-            if (interaction.customId.startsWith('restore_') || interaction.customId.startsWith('delete_')) {
-                const [action, guildId] = interaction.customId.split('_');
-                const savedGame = await Game.findByPk(guildId);
-                
-                if (!savedGame) {
-                    await interaction.reply({
-                        content: 'This game is no longer available.',
-                        ephemeral: true
-                    });
-                    return;
-                }
-
-                // Check against the actual creatorId stored in the database record
-                if (interaction.user.id !== savedGame.creatorId) {
-                    await interaction.reply({
-                        content: 'Only the game creator can make this decision.',
-                        ephemeral: true
-                    });
-                    return;
-                }
-
-                await interaction.deferUpdate();
-
-                if (action === 'restore') {
-                    try {
-                        const restoredGame = await GameStateManager.restoreGameState(client, guildId);
-                        if (restoredGame) {
-                            client.games.set(guildId, restoredGame);
-                            await interaction.message.edit({
-                                embeds: [{
-                                    color: 0x00ff00,
-                                    title: '✅ Game Restored',
-                                    description: 'The game has been successfully restored.'
-                                }],
-                                components: []
-                            });
-                        }
-                    } catch (error) {
-                        logger.error('Error restoring game', { error, guildId });
-                        await interaction.message.edit({
-                            embeds: [{
-                                color: 0xff0000,
-                                title: '❌ Restoration Failed',
-                                description: 'Failed to restore the game. Starting a new game might be necessary.'
-                            }],
-                            components: []
-                        });
-                    }
-                } else if (action === 'delete') {
-                    try {
-                        const savedGame = await Game.findByPk(guildId);
-                        if (savedGame) {
-                            // Create minimal temp game just for channel cleanup
-                            const tempGame = {
-                                client,
-                                guildId,
-                                werewolfChannel: { id: savedGame.werewolfChannelId },
-                                deadChannel: { id: savedGame.deadChannelId }
-                            };
-
-                            // Clean up channels
-                            await GameStateManager.cleanupChannels(tempGame);
-
-                            // Delete from database
-                            await Game.destroy({ where: { guildId } });
-                            
-                            await interaction.message.edit({
-                                embeds: [{
-                                    color: 0xff0000,
-                                    title: '🗑️ Game Deleted',
-                                    description: 'The unfinished game and its channels have been deleted.'
-                                }],
-                                components: []
-                            });
-                        }
-                    } catch (error) {
-                        logger.error('Error handling game deletion', { error, guildId });
-                        await interaction.message.edit({
-                            embeds: [{
-                                color: 0xff0000,
-                                title: '❌ Error',
-                                description: 'Failed to delete the game. Please try again.'
-                            }],
-                            components: []
-                        });
-                    }
-                    return;
-                }
-            }
-
-            // Handle regular game buttons
-            const game = client.games.get(interaction.guildId);
-            if (!game) {
-                await interaction.reply({
-                    content: 'No active game found.',
-                    ephemeral: true
-                });
-                return;
-            }
-
-            // Extract action from customId
-            const action = interaction.customId.includes('_') ? 
-                interaction.customId.split('_')[0] : 
-                interaction.customId;
-
             try {
-                switch (action) {
-                    case 'join':
-                        await buttonHandler.handleJoinGame(interaction, game);
-                        break;
-                    case 'toggle':
-                    case 'add':
-                    case 'remove':
-                        await buttonHandler.handleToggleRole(interaction, game);
-                        break;
-                    case 'view':
-                        if (interaction.customId === 'view_info') {
-                            await buttonHandler.handleViewRoles(interaction, game);
-                        } else if (interaction.customId === 'view') {
-                            await buttonHandler.handleViewSetup(interaction, game);
-                        }
-                        break;
-                    case 'reset':
-                        await buttonHandler.handleResetRoles(interaction, game);
-                        break;
-                    case 'start':
-                        await buttonHandler.handleStartGame(interaction, game);
-                        break;
-                    case 'second':
-                    case 'vote':
-                        await dayPhaseHandler.handleButton(interaction, game);
-                        break;
-                    default:
-                        logger.warn('Unhandled button interaction', { 
-                            action, 
-                            customId: interaction.customId 
-                        });
-                        break;
+                // Check if this is a game restoration button
+                if (interaction.customId.startsWith('restore_') || interaction.customId.startsWith('delete_')) {
+                    const [action, guildId] = interaction.customId.split('_');
+                    
+                    if (action === 'restore') {
+                        await buttonHandler.handleRestoreGame(interaction, guildId);
+                    } else if (action === 'delete') {
+                        await buttonHandler.handleDeleteGame(interaction, guildId);
+                    }
+                    return;
+                }
+
+                // Get game instance
+                const game = client.games.get(interaction.guildId);
+                if (!game) {
+                    await interaction.reply({
+                        content: 'No active game found.',
+                        ephemeral: true
+                    });
+                    return;
+                }
+
+                // Handle regular game buttons
+                const action = interaction.customId.includes('_') ? 
+                    interaction.customId.split('_')[0] : 
+                    interaction.customId;
+
+                try {
+                    switch (action) {
+                        case 'join':
+                            await buttonHandler.handleJoinGame(interaction, game);
+                            break;
+                        case 'toggle':
+                        case 'add':
+                        case 'remove':
+                            await buttonHandler.handleToggleRole(interaction, game);
+                            break;
+                        case 'view':
+                            if (interaction.customId === 'view_info') {
+                                await buttonHandler.handleViewRoles(interaction, game);
+                            } else if (interaction.customId === 'view') {
+                                await buttonHandler.handleViewSetup(interaction, game);
+                            }
+                            break;
+                        case 'reset':
+                            await buttonHandler.handleResetRoles(interaction, game);
+                            break;
+                        case 'start':
+                            await buttonHandler.handleStartGame(interaction, game)
+                                .catch(error => {
+                                    // If interaction fails but game starts, just log it
+                                    if (error.code === 10062) {
+                                        logger.debug('Interaction expired after game start - this is normal');
+                                        return;
+                                    }
+                                    throw error;
+                                });
+                            break;
+                        case 'second':
+                        case 'vote':
+                            await dayPhaseHandler.handleButton(interaction, game);
+                            break;
+                        default:
+                            logger.warn('Unhandled button interaction', { 
+                                action, 
+                                customId: interaction.customId 
+                            });
+                            break;
+                    }
+                } catch (error) {
+                    await handleCommandError(interaction, error);
                 }
             } catch (error) {
+                logger.error('Error in button interaction handler', { error });
                 await handleCommandError(interaction, error);
             }
         }

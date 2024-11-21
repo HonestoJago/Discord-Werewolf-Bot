@@ -3,7 +3,7 @@ const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 const WerewolfGame = require('../game/WerewolfGame');
 const { createRoleToggleButtons, createGameSetupButtons } = require('../utils/buttonCreator');
-const { createRoleInfoEmbed } = require('../utils/embedCreator');
+const { createRoleInfoEmbed, createGameWelcomeEmbed } = require('../utils/embedCreator');
 const ROLES = require('../constants/roles');
 const GameStateManager = require('../utils/gameStateManager');
 
@@ -14,24 +14,69 @@ async function handleJoinGame(interaction, game) {
         if (isAlreadyInGame) {
             // Remove player from game
             game.players.delete(interaction.user.id);
-            await game.saveGameState();
-            await interaction.reply({
-                content: `${interaction.user} left (${game.players.size} players)`,
-                ephemeral: false
-            });
         } else {
             // Add player to game
             await game.addPlayer(interaction.user);
-            await interaction.reply({
-                content: `${interaction.user} joined (${game.players.size} players)`,
-                ephemeral: false
+        }
+
+        // Create updated embed with current player list
+        const setupEmbed = {
+            ...createGameWelcomeEmbed(),  // Get base embed
+            fields: [
+                ...createGameWelcomeEmbed().fields,
+                {
+                    name: `👥 Current Players (${game.players.size})`,
+                    value: game.players.size > 0 ?
+                        Array.from(game.players.values())
+                            .map(p => `• ${p.username}`)
+                            .join('\n') :
+                        'No players yet...',
+                    inline: false
+                }
+            ]
+        };
+
+        // Try to fetch the setup message using stored ID
+        let setupMessage = game.setupMessageId ? 
+            await interaction.channel.messages.fetch(game.setupMessageId)
+                .catch(error => {
+                    logger.error('Failed to fetch setup message', { error });
+                    return null;
+                }) 
+            : null;
+
+        // If not found by ID, try to find it in recent messages
+        if (!setupMessage) {
+            const messages = await interaction.channel.messages.fetch({ limit: 50 });
+            setupMessage = messages.find(m => 
+                m.author.id === interaction.client.user.id && 
+                m.components.length > 0 &&  // Has buttons
+                m.embeds[0]?.title?.includes('A New Hunt Begins')  // Is setup message
+            );
+        }
+
+        if (setupMessage) {
+            // Update the setup message with new embed but keep same buttons
+            await setupMessage.edit({
+                embeds: [setupEmbed],
+                components: setupMessage.components
+            });
+        } else {
+            logger.warn('Setup message not found', { 
+                setupMessageId: game.setupMessageId 
             });
         }
-    } catch (error) {
-        logger.error('Error in handleJoinGame', {
-            error: error.message,
-            userId: interaction.user.id
+
+        // Send ephemeral confirmation to the player
+        await interaction.reply({
+            content: `You have ${isAlreadyInGame ? 'left' : 'joined'} the game.`,
+            ephemeral: true
         });
+
+        await game.saveGameState();
+
+    } catch (error) {
+        logger.error('Error in handleJoinGame', { error });
         throw error;
     }
 }
@@ -200,20 +245,144 @@ async function handleStartGame(interaction, game) {
             throw new GameError('Unauthorized', 'Only the game creator can start the game.');
         }
 
+        // Acknowledge the interaction immediately before starting the game
+        await interaction.deferUpdate();
+
+        // Start the game
         await game.startGame();
+
+        // Try to update the original message, but don't throw if it fails
         try {
-            await interaction.update({
+            await interaction.editReply({
                 components: [] // Remove all buttons after game starts
             });
         } catch (error) {
-            // Ignore unknown interaction errors after game start
-            if (error.code !== 10062) {
-                throw error;
+            // Just log interaction failures - game has already started successfully
+            logger.debug('Could not update start game interaction', {
+                error: error.code,
+                message: error.message
+            });
+        }
+
+    } catch (error) {
+        // Only throw if it's a game error, not an interaction error
+        if (error instanceof GameError) {
+            throw error;
+        }
+        logger.error('Error in handleStartGame', { error });
+    }
+}
+
+async function handleRestoreGame(interaction, guildId) {
+    try {
+        const savedGame = await Game.findByPk(guildId);
+        if (!savedGame) {
+            await interaction.reply({
+                content: 'This game is no longer available.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        // Check against the actual creatorId stored in the database record
+        if (interaction.user.id !== savedGame.creatorId) {
+            await interaction.reply({
+                content: 'Only the game creator can make this decision.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        await interaction.deferUpdate();
+
+        try {
+            const restoredGame = await GameStateManager.restoreGameState(interaction.client, guildId);
+            if (restoredGame) {
+                interaction.client.games.set(guildId, restoredGame);
+                await interaction.message.edit({
+                    embeds: [{
+                        color: 0x00ff00,
+                        title: '✅ Game Restored',
+                        description: 'The game has been successfully restored.'
+                    }],
+                    components: []
+                });
             }
-            // Otherwise just log it
-            logger.debug('Interaction expired after game start - this is normal');
+        } catch (error) {
+            logger.error('Error restoring game', { error, guildId });
+            await interaction.message.edit({
+                embeds: [{
+                    color: 0xff0000,
+                    title: '❌ Restoration Failed',
+                    description: 'Failed to restore the game. Starting a new game might be necessary.'
+                }],
+                components: []
+            });
         }
     } catch (error) {
+        logger.error('Error handling restore button', { error });
+        throw error;
+    }
+}
+
+async function handleDeleteGame(interaction, guildId) {
+    try {
+        const savedGame = await Game.findByPk(guildId);
+        if (!savedGame) {
+            await interaction.reply({
+                content: 'This game is no longer available.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        if (interaction.user.id !== savedGame.creatorId) {
+            await interaction.reply({
+                content: 'Only the game creator can make this decision.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        await interaction.deferUpdate();
+
+        try {
+            // Create minimal temp game just for channel cleanup
+            const tempGame = {
+                client: interaction.client,
+                guildId,
+                werewolfChannel: { id: savedGame.werewolfChannelId },
+                deadChannel: { id: savedGame.deadChannelId }
+            };
+
+            // Clean up channels
+            await GameStateManager.cleanupChannels(tempGame);
+
+            // Delete from database
+            await Game.destroy({ where: { guildId } });
+            
+            await interaction.message.edit({
+                embeds: [{
+                    color: 0xff0000,
+                    title: '🗑️ Game Deleted',
+                    description: 'The unfinished game and its channels have been deleted.'
+                }],
+                components: []
+            });
+
+        } catch (error) {
+            logger.error('Error handling game deletion', { error, guildId });
+            await interaction.message.edit({
+                embeds: [{
+                    color: 0xff0000,
+                    title: '❌ Error',
+                    description: 'Failed to delete the game. Please try again.'
+                }],
+                components: []
+            });
+        }
+    } catch (error) {
+        logger.error('Error handling delete button', { error });
         throw error;
     }
 }
@@ -224,5 +393,7 @@ module.exports = {
     handleViewRoles,
     handleViewSetup,
     handleResetRoles,
-    handleStartGame
+    handleStartGame,
+    handleRestoreGame,
+    handleDeleteGame
 };

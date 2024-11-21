@@ -11,7 +11,8 @@ const {
     createVoteResultsEmbed, 
     createGameEndEmbed,
     createDayTransitionEmbed, 
-    createNightTransitionEmbed
+    createNightTransitionEmbed,
+    createGameWelcomeEmbed
 } = require('../utils/embedCreator');
 const NightActionProcessor = require('./NightActionProcessor');
 const VoteProcessor = require('./VoteProcessor');
@@ -21,6 +22,7 @@ const Game = require('../models/Game');
 const { createGameEndButtons } = require('../utils/buttonCreator');
 const GameStateManager = require('../utils/gameStateManager');
 const PlayerStateManager = require('./PlayerStateManager');
+const { createGameSetupButtons } = require('../utils/buttonCreator');
 
 // Define roles and their properties in a configuration object
 const ROLE_CONFIG = {
@@ -870,17 +872,39 @@ calculateRoleAssignments(playerCount) {
         const snapshot = this.createGameSnapshot();
         
         try {
+            // Clean up setup message if it exists
+            if (this.setupMessageId) {
+                try {
+                    const channel = await this.client.channels.fetch(this.gameChannelId);
+                    const setupMessage = await channel.messages.fetch(this.setupMessageId)
+                        .catch(error => {
+                            logger.warn('Could not fetch setup message', { error });
+                            return null;
+                        });
+                    
+                    if (setupMessage) {
+                        await setupMessage.delete().catch(error => 
+                            logger.warn('Could not delete setup message', { error })
+                        );
+                    }
+                } catch (error) {
+                    logger.warn('Error cleaning up setup message', { 
+                        error,
+                        setupMessageId: this.setupMessageId 
+                    });
+                }
+            }
+    
             // Clean up channels first - this is external and needs to happen before state changes
             await GameStateManager.cleanupChannels(this).catch(error => {
                 logger.error('Error cleaning up channels during shutdown', { error });
-                // Continue with shutdown even if channel cleanup fails
             });
-
+    
             // Clear any existing nomination first
             if (this.nominatedPlayer) {
                 await this.voteProcessor.clearNomination('Game is ending.');
             }
-
+    
             // Update state atomically
             const shutdownState = {
                 // Reset all collections
@@ -891,11 +915,11 @@ calculateRoleAssignments(playerCount) {
                 selectedRoles: new Map(),
                 completedNightActions: new Set(),
                 expectedNightActions: new Set(),
-
+    
                 // Clear channels
                 werewolfChannel: null,
                 deadChannel: null,
-
+    
                 // Reset game state
                 phase: PHASES.GAME_OVER,
                 round: 0,
@@ -903,14 +927,14 @@ calculateRoleAssignments(playerCount) {
                 gameStartTime: null,
                 lastProtectedPlayer: null,
                 pendingHunterRevenge: null,
-
+    
                 // Clear voting state
                 nominatedPlayer: null,
                 nominator: null,
                 seconder: null,
                 votingOpen: false,
                 nominationTimeout: null,
-
+    
                 // Reset role history
                 roleHistory: {
                     seer: { investigations: [] },
@@ -918,7 +942,7 @@ calculateRoleAssignments(playerCount) {
                     bodyguard: { protections: [] }
                 }
             };
-
+    
             // Clear intervals and timeouts
             if (this.stateSaveInterval) {
                 clearInterval(this.stateSaveInterval);
@@ -928,26 +952,26 @@ calculateRoleAssignments(playerCount) {
                 clearTimeout(this.nominationTimeout);
                 this.nominationTimeout = null;
             }
-
+    
             // Apply shutdown state atomically
             Object.assign(this, shutdownState);
-
+    
             // Save final state
             await GameStateManager.saveGameState(this);
-
+    
             // Remove from client's games collection
             this.client.games.delete(this.guildId);
-
+    
             // Clean up from database
             await Game.destroy({ 
                 where: { guildId: this.guildId }
             });
-
+    
             logger.info('Game shut down successfully', {
                 guildId: this.guildId,
                 gameChannelId: this.gameChannelId
             });
-
+    
         } catch (error) {
             // Restore previous state on error
             await this.restoreFromSnapshot(snapshot);
@@ -1490,6 +1514,33 @@ calculateRoleAssignments(playerCount) {
                 phase: this.phase,
                 round: this.round
             });
+            throw error;
+        }
+    }
+
+    /**
+     * Creates and stores the initial game setup message
+     * @param {TextChannel} channel - Discord channel to send message to
+     * @returns {Message} The created setup message
+     */
+    async createInitialMessage(channel) {
+        try {
+            const setupMessage = await channel.send({
+                embeds: [createGameWelcomeEmbed()],
+                components: createGameSetupButtons()
+            });
+            
+            this.setupMessageId = setupMessage.id;
+            await this.saveGameState();
+            
+            logger.info('Created initial game setup message', {
+                messageId: setupMessage.id,
+                channelId: channel.id
+            });
+
+            return setupMessage;
+        } catch (error) {
+            logger.error('Error creating initial game message', { error });
             throw error;
         }
     }

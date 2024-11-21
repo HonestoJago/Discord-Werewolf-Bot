@@ -86,7 +86,8 @@ class GameStateManager {
                         protections: game.nightActions?.bodyguardProtections || []
                     }
                 },
-                actionLog: game.actionLog || {}
+                actionLog: game.actionLog || {},
+                setupMessageId: game.setupMessageId,
             };
 
             await Game.upsert(gameState);

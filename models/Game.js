@@ -249,6 +249,19 @@ const Game = sequelize.define('Game', {
         //         }
         //     ]
         // }
+    },
+
+    // Add field for setup message
+    setupMessageId: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        validate: {
+            isDiscordId(value) {
+                if (value && !/^\d{17,19}$/.test(value)) {
+                    throw new Error('Must be a valid Discord ID');
+                }
+            }
+        }
     }
 }, {
     // Add hooks to validate JSON structures

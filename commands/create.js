@@ -26,11 +26,13 @@ module.exports = {
                 interaction.user.id
             );
 
-            // Send welcome message with setup UI
+            // Send initial setup message
+            await game.createInitialMessage(interaction.channel);
+
+            // Send ephemeral confirmation to command user
             await interaction.reply({
-                embeds: [createGameWelcomeEmbed()],
-                components: createGameSetupButtons(),
-                ephemeral: false
+                content: 'Game created successfully!',
+                ephemeral: true
             });
 
             logger.info('New game created via command', {
