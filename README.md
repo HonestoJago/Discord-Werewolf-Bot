@@ -48,7 +48,6 @@ Welcome to the **Discord Werewolf Bot** 🐺—your gateway to the thrilling soc
 - Permission management
 - Suspicious activity monitoring
 - Optional DM verification
-- Fallback command system
 
 ## 🚀 Getting Started
 
@@ -100,7 +99,6 @@ All private channels (Werewolf, Dead Players) are automatically deleted after ea
 - Role-specific action menus
 - Real-time status updates
 - Timer displays
-- Fallback commands
 
 ### 📊 Statistics Tracking
 - Individual performance metrics
