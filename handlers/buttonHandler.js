@@ -12,14 +12,12 @@ async function handleJoinGame(interaction, game) {
         const isAlreadyInGame = game.players.has(interaction.user.id);
         
         if (isAlreadyInGame) {
-            // Remove player from game
             game.players.delete(interaction.user.id);
         } else {
-            // Add player to game
             await game.addPlayer(interaction.user);
         }
 
-        // Create updated embed with current player list showing ready status
+        // Update the embed with current player list
         const setupEmbed = {
             ...createGameWelcomeEmbed(),
             fields: [
@@ -28,7 +26,6 @@ async function handleJoinGame(interaction, game) {
             ]
         };
 
-        // Get buttons from buttonCreator - it already includes the ready button
         const setupButtons = createGameSetupButtons(game.selectedRoles);
 
         // Update setup message
@@ -47,12 +44,8 @@ async function handleJoinGame(interaction, game) {
             });
         }
 
-        // Send ephemeral confirmation to the player
-        await interaction.reply({
-            content: `You have ${isAlreadyInGame ? 'left' : 'joined'} the game.`,
-            ephemeral: true
-        });
-
+        // Just acknowledge the interaction
+        await interaction.deferUpdate();
         await game.saveGameState();
 
     } catch (error) {
@@ -396,7 +389,7 @@ async function handleReadyToggle(interaction, game) {
         // Toggle ready status
         player.isReady = !player.isReady;
 
-        // Update the embed to show new ready status
+        // Update the embed
         const setupEmbed = {
             ...createGameWelcomeEmbed(),
             fields: [
@@ -405,49 +398,7 @@ async function handleReadyToggle(interaction, game) {
             ]
         };
 
-        // Get buttons - but don't modify the ready button's appearance
         const buttons = createGameSetupButtons(game.selectedRoles);
-
-        // Check if everyone is ready
-        const allReady = Array.from(game.players.values()).every(p => p.isReady);
-        if (allReady) {
-            setupEmbed.fields.push({
-                name: '🎮 Game Ready!',
-                value: 'All players are ready. Game creator can start when ready.',
-                inline: false
-            });
-
-            if (game.players.size < 4) {
-                setupEmbed.fields.push({
-                    name: '⚠️ Need More Players',
-                    value: `${4 - game.players.size} more players needed to start.`,
-                    inline: false
-                });
-            }
-        } else {
-            // Show who we're waiting for
-            const unreadyPlayers = Array.from(game.players.values())
-                .filter(p => !p.isReady)
-                .map(p => p.username);
-            
-            setupEmbed.fields.push({
-                name: '⏳ Waiting For',
-                value: unreadyPlayers.join('\n'),
-                inline: false
-            });
-        }
-
-        // Add role distribution preview
-        if (game.players.size >= 4) {
-            const rolePreview = calculateRoleDistribution(game.players.size, game.selectedRoles);
-            setupEmbed.fields.push({
-                name: '🎭 Role Distribution',
-                value: Object.entries(rolePreview)
-                    .map(([role, count]) => `${role}: ${count}`)
-                    .join('\n'),
-                inline: false
-            });
-        }
 
         // Update the message
         await interaction.update({
@@ -456,18 +407,6 @@ async function handleReadyToggle(interaction, game) {
         });
 
         await game.saveGameState();
-
-        // Send ephemeral confirmation to the player
-        await interaction.followUp({
-            content: `You are now ${player.isReady ? 'ready' : 'not ready'}.`,
-            ephemeral: true
-        });
-
-        logger.info('Player ready status changed', {
-            playerId: player.id,
-            username: player.username,
-            isReady: player.isReady
-        });
 
     } catch (error) {
         logger.error('Error handling ready toggle', { error });
@@ -493,46 +432,78 @@ function calculateRoleDistribution(playerCount, selectedRoles) {
 
 // Helper function to format player list with better visual hierarchy
 function formatPlayerList(players) {
-    return Array.from(players.values())
-        .map(p => {
-            const readyStatus = p.isReady ? '✅' : '⏳';
-            return `**${p.username}** ${readyStatus}`;  // Bold names for visibility
-        })
-        .join('\n');
+    // Separate players by ready status
+    const readyPlayers = [];
+    const unreadyPlayers = [];
+    
+    players.forEach(p => {
+        if (p.isReady) {
+            readyPlayers.push(p.username);
+        } else {
+            unreadyPlayers.push(p.username);
+        }
+    });
+
+    // Build sections
+    const sections = [];
+    
+    if (readyPlayers.length > 0) {
+        sections.push('```diff\n' + readyPlayers.map(name => `+ ${name}`).join('\n') + '\n```');
+    }
+
+    return sections.join('\n');
 }
 
 // Helper function to create status fields
 function createStatusFields(game) {
     const fields = [];
     
-    // Player list with clear ready status
-    fields.push({
-        name: `👥 Current Players (${game.players.size})`,
-        value: game.players.size > 0 ?
-            formatPlayerList(game.players) :
-            '*No players yet...*',
-        inline: false
+    // Separate players by ready status
+    const readyPlayers = [];
+    const unreadyPlayers = [];
+    
+    game.players.forEach(p => {
+        if (p.isReady) {
+            readyPlayers.push(p.username);
+        } else {
+            unreadyPlayers.push(p.username);
+        }
     });
 
+    // Player list showing only ready players
+    if (game.players.size > 0) {
+        if (readyPlayers.length > 0) {
+            fields.push({
+                name: `✅ Confirmed Ready to Play (${readyPlayers.length})`,
+                value: '```diff\n' + readyPlayers.map(name => `+ ${name}`).join('\n') + '\n```',
+                inline: false
+            });
+        }
+
+        // Show unready players in "Joined but not ready" section
+        if (unreadyPlayers.length > 0) {
+            fields.push({
+                name: '⌛ Joined but Not Ready',
+                value: '```ini\n' + unreadyPlayers.map(name => `[${name}]`).join('\n') + '\n```',
+                inline: false
+            });
+        }
+    } else {
+        fields.push({
+            name: `👥 Players`,
+            value: '*No players yet...*',
+            inline: false
+        });
+    }
+
     // Game status section
-    const allReady = Array.from(game.players.values()).every(p => p.isReady);
-    if (allReady) {
+    const allReady = unreadyPlayers.length === 0;
+    if (allReady && game.players.size > 0) {
         fields.push({
             name: '🎮 Ready to Start!',
             value: game.players.size >= 4 ?
                 '```diff\n+ All players are ready! Game creator can start the game.\n```' :
                 '```fix\nNeed ' + (4 - game.players.size) + ' more players to start.\n```',
-            inline: false
-        });
-    } else {
-        const unreadyPlayers = Array.from(game.players.values())
-            .filter(p => !p.isReady)
-            .map(p => `**${p.username}**`)
-            .join('\n');
-        
-        fields.push({
-            name: '⏳ Waiting For',
-            value: '```fix\nThe following players need to ready up:\n```' + unreadyPlayers,
             inline: false
         });
     }
