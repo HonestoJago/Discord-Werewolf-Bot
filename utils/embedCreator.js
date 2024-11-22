@@ -585,15 +585,16 @@ function createNightTransitionEmbed(players) {
     };
 }
 
-function createLoverDeathEmbed(deadPlayerName) {
+function createLoverDeathEmbed(deadLover, originalLover) {
     return {
         color: 0xff69b4,  // Pink color for love theme
         title: '💔 A Heart Breaks',
         description: 
             '```diff\n- LOVE AND DEATH ARE INTERTWINED\n```\n' +
-            `*The tragic fate of **${deadPlayerName}** sends ripples through the village...*\n\n` +
+            `The tragic fate of **${originalLover}** sends ripples through the village...\n\n` +
             '# **A Bond of Love Claims Another**\n\n' +
-            '*Unable to live without their beloved, another soul departs this world...*',
+            `*Unable to live without their beloved **${originalLover}**, **${deadLover}** departs this world...*\n\n` +
+            '*Their love story ends, but their legend will live on...*',
         footer: { 
             text: 'Some bonds transcend even death itself...' 
         }
@@ -693,15 +694,23 @@ function createGameSetupEmbed(game) {
 }
 
 function createDeathAnnouncementEmbed(target, isWerewolf, isGameEndingDeath) {
+    // For werewolf deaths
+    const werewolfDescription = 
+        '```diff\n+ A WEREWOLF FALLS\n```\n' +
+        `*The village's suspicions were correct! **${target.username}** was indeed a Werewolf!*`;
+
+    // For villager team deaths
+    const villagerDescription = 
+        '```diff\n- AN INNOCENT FALLS\n```\n' +
+        `*Alas, **${target.username}** was not a Werewolf. The real beasts still lurk among you...*`;
+
     return {
         color: isWerewolf ? 0x008000 : 0x800000,
         title: '🐺 A Grim Discovery',
-        description: isWerewolf ?
-            `*The village's suspicions were correct! **${target.username}** was indeed a Werewolf!*` :
-            `*Alas, **${target.username}** was not a Werewolf. The real beasts still lurk among you...*`,
+        description: isWerewolf ? werewolfDescription : villagerDescription,
         footer: { 
             text: isGameEndingDeath ? 
-                'The final piece falls into place...' : 
+                'The balance of power has shifted...' : 
                 'The hunt continues...' 
         }
     };
