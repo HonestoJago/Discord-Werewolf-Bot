@@ -75,7 +75,7 @@ module.exports = {
 
             // Process the action
             if (isHunterRevenge) {
-                await currentGame.voteProcessor.processHunterRevenge(player.id, targetId);
+                await currentGame.processHunterRevenge(player.id, targetId);
                 await interaction.reply({
                     content: 'Your revenge has been executed.',
                     ephemeral: true

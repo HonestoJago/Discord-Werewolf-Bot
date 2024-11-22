@@ -4,7 +4,7 @@ const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');
 const PHASES = require('../constants/phases');
-const { createVoteResultsEmbed, createHunterRevengeEmbed, createHunterTensionEmbed } = require('../utils/embedCreator');
+const { createVoteResultsEmbed, createHunterRevengeEmbed, createHunterTensionEmbed, createDeathAnnouncementEmbed } = require('../utils/embedCreator');
 const { StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
 
 class VoteProcessor {
@@ -341,15 +341,19 @@ class VoteProcessor {
                 // Handle elimination and special cases
                 if (eliminated) {
                     const isWerewolf = target.role === ROLES.WEREWOLF;
+                    
+                    // Calculate remaining players BEFORE the death
+                    const remainingWerewolves = this.game.getPlayersByRole(ROLES.WEREWOLF).length;
+                    const remainingVillagers = this.game.getAlivePlayers().length;
+                    
+                    // Check if this death will end the game
+                    const isGameEndingDeath = 
+                        (isWerewolf && remainingWerewolves === 1) || // Last werewolf dies
+                        (!isWerewolf && remainingWerewolves >= (remainingVillagers - 1)); // Werewolves reach parity after this death
+
+                    // Send death announcement with correct ending message
                     await this.game.broadcastMessage({
-                        embeds: [{
-                            color: isWerewolf ? 0x008000 : 0x800000,
-                            title: isWerewolf ? '🐺 A Wolf Among Us!' : '❌ An Innocent Soul',
-                            description: isWerewolf ?
-                                `*The village's suspicions were correct! **${target.username}** was indeed a Werewolf!*` :
-                                `*Alas, **${target.username}** was not a Werewolf. The real beasts still lurk among you...*`,
-                            footer: { text: isWerewolf ? 'But are there more?' : 'Choose more carefully next time...' }
-                        }]
+                        embeds: [createDeathAnnouncementEmbed(target, isWerewolf, isGameEndingDeath)]
                     });
 
                     // Handle Hunter's revenge BEFORE marking as dead
@@ -400,137 +404,10 @@ class VoteProcessor {
      * @param {Player} hunter - The Hunter player
      */
     async handleHunterRevenge(hunter) {
-        try {
-            // Create dropdown for Hunter's revenge
-            const validTargets = Array.from(this.game.players.values())
-                .filter(p => p.isAlive && p.id !== hunter.id)
-                .map(p => ({
-                    label: p.username,
-                    value: p.id,
-                    description: `Take ${p.username} with you`
-                }));
-
-            const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId('hunter_revenge')
-                .setPlaceholder('Choose your target')
-                .addOptions(validTargets);
-
-            const row = new ActionRowBuilder().addComponents(selectMenu);
-
-            // Send DM to Hunter with dropdown
-            await hunter.sendDM({
-                embeds: [createHunterRevengeEmbed()],
-                components: [row]
-            });
-            
-            // Send mysterious message to village
-            await this.game.broadcastMessage({
-                embeds: [createHunterTensionEmbed(true)]
-            });
-
-            // Clear voting state and save
-            this.clearVotingState();
-            await this.game.saveGameState();
-        } catch (error) {
-            logger.error('Error setting up Hunter revenge', { error });
-            throw error;
-        }
+        await this.game.handleHunterRevenge(hunter);
     }
 
-    /**
-     * Atomically processes Hunter's revenge during day
-     * @param {string} hunterId - ID of the Hunter
-     * @param {string} targetId - ID of the Hunter's target
-     */
-    async processHunterRevenge(hunterId, targetId) {
-        // Create a complete snapshot of all relevant state
-        const gameSnapshot = {
-            hunterState: { ...this.game.players.get(hunterId) },
-            targetState: { ...this.game.players.get(targetId) },
-            pendingRevenge: this.game.pendingHunterRevenge,
-            phase: this.game.phase
-        };
-        
-        try {
-            const hunter = this.game.players.get(hunterId);
-            const target = this.game.players.get(targetId);
-
-            // Validate revenge action
-            if (!this.game.pendingHunterRevenge || hunterId !== this.game.pendingHunterRevenge) {
-                throw new GameError('Invalid action', 'You can only use this action when prompted after being eliminated as the Hunter.');
-            }
-
-            if (!target?.isAlive) {
-                throw new GameError('Invalid target', 'You must choose a living player.');
-            }
-
-            // Use PlayerStateManager for both deaths
-            await this.game.playerStateManager.changePlayerState(hunterId, 
-                { isAlive: false },
-                { 
-                    reason: 'Hunter revenge death',
-                    skipLoverDeath: true // Hunter's revenge death doesn't trigger lover death
-                }
-            );
-
-            await this.game.playerStateManager.changePlayerState(targetId,
-                { isAlive: false },
-                { 
-                    reason: 'Hunter revenge target',
-                    skipHunterRevenge: true // Prevent infinite loop
-                }
-            );
-
-            this.game.pendingHunterRevenge = null;
-
-            // Save state before any external operations
-            await this.game.saveGameState();
-
-            // Now handle external operations (these can't be rolled back but at least state is consistent)
-            await this.game.broadcastMessage({
-                embeds: [{
-                    color: 0x800000,
-                    title: '🏹 The Hunter\'s Final Shot',
-                    description: 
-                        `*With their dying breath, **${hunter.username}** raises their bow...*\n\n` +
-                        `In a final act of vengeance, they take **${target.username}** with them to the grave!`,
-                    footer: { text: 'Even in death, the Hunter\'s aim remains true...' }
-                }]
-            });
-
-            // Handle lover deaths through PlayerStateManager
-            await this.game.nightActionProcessor.handleLoversDeath(target);
-
-            // Check win conditions
-            if (!this.game.checkWinConditions()) {
-                await this.game.advanceToNight();
-            }
-
-            logger.info('Hunter\'s revenge completed', {
-                hunterId: hunter.id,
-                hunterName: hunter.username,
-                targetId: target.id,
-                targetName: target.username
-            });
-
-        } catch (error) {
-            // Restore all state on error
-            const hunter = this.game.players.get(hunterId);
-            const target = this.game.players.get(targetId);
-            
-            Object.assign(hunter, gameSnapshot.hunterState);
-            Object.assign(target, gameSnapshot.targetState);
-            this.game.pendingHunterRevenge = gameSnapshot.pendingRevenge;
-            this.game.phase = gameSnapshot.phase;
-            
-            await this.game.saveGameState();
-            
-            logger.error('Error processing Hunter revenge', { error });
-            throw error;
-        }
-    }
-
-    /**
+      /**
      * Atomically clears the current nomination
      * @param {string} reason - Reason for clearing the nomination
      * @param {boolean} broadcast - Whether to broadcast the clearing

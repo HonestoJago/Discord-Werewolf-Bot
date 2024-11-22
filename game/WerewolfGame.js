@@ -1,7 +1,7 @@
 // game/WerewolfGame.js
 
 const Player = require('./Player');
-const { EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
+const { EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
 const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');  // Direct import of frozen object
@@ -12,7 +12,11 @@ const {
     createGameEndEmbed,
     createDayTransitionEmbed, 
     createNightTransitionEmbed,
-    createGameWelcomeEmbed
+    createGameWelcomeEmbed,
+    createHunterTensionEmbed,
+    createHunterRevengePromptEmbed,  // Add this
+    createHunterRevengeEmbed,
+    createHunterRevengeFallbackEmbed
 } = require('../utils/embedCreator');
 const NightActionProcessor = require('./NightActionProcessor');
 const VoteProcessor = require('./VoteProcessor');
@@ -1541,6 +1545,156 @@ calculateRoleAssignments(playerCount) {
             return setupMessage;
         } catch (error) {
             logger.error('Error creating initial game message', { error });
+            throw error;
+        }
+    }
+
+    // Add this new method to WerewolfGame class
+    async handleHunterRevenge(hunter) {
+        const snapshot = this.createGameSnapshot();
+        
+        try {
+            // Set pending revenge state
+            this.pendingHunterRevenge = hunter.id;
+            
+            // First announce the tension
+            await this.broadcastMessage({
+                embeds: [createHunterTensionEmbed(hunter)]
+            });
+    
+            // Create dropdown for Hunter's revenge
+            const validTargets = Array.from(this.players.values())
+                .filter(p => p.isAlive && p.id !== hunter.id)
+                .map(p => ({
+                    label: p.username,
+                    value: p.id,
+                    description: `Take ${p.username} with you`
+                }));
+    
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('hunter_revenge')
+                .setPlaceholder('Choose your target')
+                .addOptions(validTargets);
+    
+            const row = new ActionRowBuilder().addComponents(selectMenu);
+    
+            logger.info('Setting up Hunter revenge', {
+                hunterId: hunter.id,
+                hunterName: hunter.username,
+                validTargetCount: validTargets.length
+            });
+    
+            // Save state before sending DM
+            await this.saveGameState();
+    
+            // Try to send DM to Hunter
+            try {
+                const dmResult = await hunter.sendDM({
+                    embeds: [createHunterRevengePromptEmbed()],
+                    components: [row]
+                });
+    
+                logger.info('Hunter revenge DM sent', {
+                    hunterId: hunter.id,
+                    hunterName: hunter.username,
+                    dmResult: !!dmResult
+                });
+    
+            } catch (dmError) {
+                logger.error('Failed to send Hunter revenge DM', {
+                    error: {
+                        name: dmError.name,
+                        message: dmError.message,
+                        code: dmError.code,
+                        stack: dmError.stack
+                    },
+                    hunterId: hunter.id,
+                    hunterName: hunter.username
+                });
+    
+                // Send fallback message to main channel using embedCreator
+                await this.broadcastMessage({
+                    embeds: [createHunterRevengeFallbackEmbed(hunter.username)]
+                });
+            }
+    
+        } catch (error) {
+            // Restore previous state on error
+            await this.restoreFromSnapshot(snapshot);
+            logger.error('Error in handleHunterRevenge', { 
+                error: {
+                    name: error.name,
+                    message: error.message,
+                    code: error.code,
+                    stack: error.stack
+                },
+                hunterId: hunter.id,
+                hunterName: hunter.username
+            });
+            throw error;
+        }
+    }
+
+    /**
+     * Processes Hunter's revenge action
+     * @param {string} hunterId - ID of the Hunter
+     * @param {string} targetId - ID of the revenge target
+     */
+    async processHunterRevenge(hunterId, targetId) {
+        const snapshot = this.createGameSnapshot();
+        
+        try {
+            const hunter = this.players.get(hunterId);
+            const target = this.players.get(targetId);
+
+            if (!this.pendingHunterRevenge || hunterId !== this.pendingHunterRevenge) {
+                throw new GameError('Invalid action', 'No pending Hunter revenge action.');
+            }
+
+            if (!target?.isAlive) {
+                throw new GameError('Invalid target', 'Target must be alive.');
+            }
+
+            // Send revenge announcement
+            await this.broadcastMessage({
+                embeds: [createHunterRevengeEmbed(hunter, target)]
+            });
+
+            // Kill the target using PlayerStateManager
+            await this.playerStateManager.changePlayerState(targetId, 
+                { isAlive: false },
+                { 
+                    reason: 'Hunter revenge target',
+                    skipHunterRevenge: true, // Prevent infinite loop if target is also Hunter
+                    announceImmediately: true
+                }
+            );
+
+            // Clear pending revenge state
+            this.pendingHunterRevenge = null;
+
+            // Save state
+            await this.saveGameState();
+
+            logger.info('Hunter revenge processed', {
+                hunterId: hunter.id,
+                targetId: target.id,
+                currentPhase: this.phase
+            });
+
+            // Check win conditions and advance phase appropriately
+            if (!this.checkWinConditions()) {
+                // Advance to opposite phase of when Hunter died
+                if (this.phase === PHASES.NIGHT) {
+                    await this.advanceToDay();
+                } else {
+                    await this.advanceToNight();
+                }
+            }
+
+        } catch (error) {
+            await this.restoreFromSnapshot(snapshot);
+            logger.error('Error processing Hunter revenge', { error });
             throw error;
         }
     }

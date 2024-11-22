@@ -875,47 +875,7 @@ class NightActionProcessor {
      * @param {Player} hunter - The Hunter player
      */
     async handleHunterNightDeath(hunter) {
-        const snapshot = this.createNightSnapshot();
-        
-        try {
-            this.game.pendingHunterRevenge = hunter.id;
-            
-            // Create dropdown for Hunter's revenge
-            const validTargets = Array.from(this.game.players.values())
-                .filter(p => p.isAlive && p.id !== hunter.id)
-                .map(p => ({
-                    label: p.username,
-                    value: p.id,
-                    description: `Take ${p.username} with you`
-                }));
-
-            const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId('hunter_revenge')
-                .setPlaceholder('Choose your target')
-                .addOptions(validTargets);
-
-            const row = new ActionRowBuilder().addComponents(selectMenu);
-
-            // Save state before external operations
-            await this.game.saveGameState();
-
-            // Send DM to Hunter with dropdown
-            await hunter.sendDM({
-                embeds: [createHunterRevengeEmbed()],
-                components: [row]
-            });
-
-            // Send mysterious message to village
-            await this.game.broadcastMessage({
-                embeds: [createHunterTensionEmbed(false)]
-            });
-
-        } catch (error) {
-            // Restore previous state on error
-            this.restoreFromSnapshot(snapshot);
-            logger.error('Error handling Hunter night death', { error });
-            throw error;
-        }
+        await this.game.handleHunterRevenge(hunter);
     }
 
     /**

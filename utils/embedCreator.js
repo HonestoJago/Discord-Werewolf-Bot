@@ -571,7 +571,7 @@ function createNightTransitionEmbed(players) {
                 inline: false
             },
             {
-                name: '📊 Game Status',
+                name: ' Game Status',
                 value: '```diff\n' +
                     `+ Total Players: ${players.size}\n` +
                     `- Required for Majority: ${Math.ceil(livingPlayers.length / 2)}\n` +
@@ -601,24 +601,36 @@ function createLoverDeathEmbed(deadPlayerName) {
 }
 
 // Add this new function with the other embed creators
-function createHunterRevengeEmbed() {
+function createHunterRevengeEmbed(hunter, target) {
+    return {
+        color: 0x800000,
+        title: '🏹 The Hunter\'s Final Shot',
+        description: 
+            `*With their dying breath, **${hunter.username}** raises their bow...*\n\n` +
+            `In a final act of vengeance, they take **${target.username}** with them to the grave!`,
+        footer: { text: 'Even in death, the Hunter\'s aim remains true...' }
+    };
+}
+
+function createHunterTensionEmbed(hunter) {
+    return {
+        color: 0x4B0082,
+        title: '🏹 The Hunter Falls',
+        description: 
+            `*With their dying breath, **${hunter.username}** reaches for their bow...*\n\n` +
+            'The village holds its breath, sensing that this elimination has set something in motion.\n' +
+            'Wait for fate to unfold before proceeding to nightfall.',
+        footer: { text: 'Some deaths echo louder than others...' }
+    };
+}
+
+// For the Hunter's revenge UI
+function createHunterRevengePromptEmbed() {
     return {
         color: 0x800000,
         title: '🏹 Hunter\'s Last Shot',
         description: 'You have been eliminated! As the Hunter, you may choose one player to take with you.\n\nSelect your target from the dropdown menu below.',
         footer: { text: 'Choose wisely - your final action could change the course of the game...' }
-    };
-}
-
-function createHunterTensionEmbed(isDayPhase = true) {
-    return {
-        color: 0x4B0082,
-        title: '🌘 A Moment of Tension',
-        description: 
-            '*The air grows thick with anticipation as death\'s shadow lingers...*\n\n' +
-            'The village holds its breath, sensing that this elimination has set something in motion.\n' +
-            `Wait for fate to unfold before proceeding to ${isDayPhase ? 'nightfall' : 'daylight'}.`,
-        footer: { text: 'Some deaths echo louder than others...' }
     };
 }
 
@@ -680,6 +692,35 @@ function createGameSetupEmbed(game) {
     };
 }
 
+function createDeathAnnouncementEmbed(target, isWerewolf, isGameEndingDeath) {
+    return {
+        color: isWerewolf ? 0x008000 : 0x800000,
+        title: '🐺 A Grim Discovery',
+        description: isWerewolf ?
+            `*The village's suspicions were correct! **${target.username}** was indeed a Werewolf!*` :
+            `*Alas, **${target.username}** was not a Werewolf. The real beasts still lurk among you...*`,
+        footer: { 
+            text: isGameEndingDeath ? 
+                'The final piece falls into place...' : 
+                'The hunt continues...' 
+        }
+    };
+}
+
+// Add this function to embedCreator.js
+function createHunterRevengeFallbackEmbed(hunterName) {
+    return {
+        color: 0x800000,
+        title: '🏹 Hunter\'s Revenge Available',
+        description: `**${hunterName}**, your DMs appear to be disabled. ` +
+            'You can still take your revenge by using the `/action` command with:\n' +
+            '• Action: `choose_target`\n' +
+            '• Target: (the player you want to take with you)\n\n' +
+            'You must use this command in the game channel.',
+        footer: { text: 'The Hunter\'s revenge awaits...' }
+    };
+}
+
 module.exports = { 
     createPlayerListEmbed,
     createNominationEmbed,
@@ -705,5 +746,8 @@ module.exports = {
     createMinionRevealEmbed,
     createSorcererRevealEmbed,
     createSorcererActionEmbed,
-    createGameSetupEmbed
+    createGameSetupEmbed,
+    createDeathAnnouncementEmbed,
+    createHunterRevengeFallbackEmbed,
+    createHunterRevengePromptEmbed
 };

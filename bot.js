@@ -404,7 +404,7 @@ client.on('interactionCreate', async interaction => {
 
                     try {
                         // Process Hunter's Revenge
-                        await game.voteProcessor.processHunterRevenge(hunterId, targetId);
+                        await game.processHunterRevenge(hunterId, targetId);
 
                         // Inform the user
                         await interaction.editReply({
