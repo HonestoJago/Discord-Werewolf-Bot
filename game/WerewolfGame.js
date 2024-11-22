@@ -225,20 +225,19 @@ class WerewolfGame {
                 throw new GameError('Player already in game', 'You are already in the game.');
             }
     
-            // Move rate limit check here, after basic validations
             await this.rateLimiter.checkRateLimit(user.id, 'join');
     
-            // Create and add new player atomically
-            const player = new Player(user.id, user.username, this.client);
+            const sanitizedUsername = InputValidator.validateUsername(user.username);
+            const validatedId = InputValidator.validateDiscordId(user.id);
+            
+            const player = new Player(validatedId, sanitizedUsername, this.client);
             this.players.set(user.id, player);
     
-            // Auto-ready if DM checks are disabled
             if (!this.requireDmCheck) {
                 const newReadyPlayers = new Set(this.readyPlayers);
                 newReadyPlayers.add(user.id);
                 this.readyPlayers = newReadyPlayers;  // Update atomically
                 
-                // Set the player's ready status directly
                 player.isReady = true;
                 
                 logger.info('Player auto-readied (DM checks disabled)', {
@@ -248,13 +247,10 @@ class WerewolfGame {
                 });
             }
     
-            // Save state after adding player
             await this.saveGameState();
             
-            // Update UI to reflect new player and ready status
             await this.updateReadyStatus();
     
-            // Log the action for security tracking
             await this.securityManager.logAction(user.id, 'join');
     
             logger.info('Player added to the game', { 
@@ -759,6 +755,12 @@ calculateRoleAssignments(playerCount) {
                 throw new GameError('Channel Not Found', 'The game channel does not exist.');
             }
     
+            // Only sanitize string messages (user content), not our embeds
+            if (typeof message === 'string') {
+                message = InputValidator.sanitizeMessage(message);
+            }
+            // No need to sanitize embeds since they're created by our embedCreator
+    
             await channel.send(message);
             
             logger.info('Broadcast message sent', { 
@@ -768,11 +770,7 @@ calculateRoleAssignments(playerCount) {
     
         } catch (error) {
             await this.restoreFromSnapshot(snapshot);
-            logger.error('Error broadcasting message', { 
-                error: error.message,
-                stack: error.stack,
-                channelId: this.gameChannelId 
-            });
+            logger.error('Error broadcasting message', { error });
             throw new GameError('Broadcast Failed', 'Failed to send message to game channel.');
         }
     }
