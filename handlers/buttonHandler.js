@@ -6,6 +6,7 @@ const { createRoleToggleButtons, createGameSetupButtons, updateReadyButton } = r
 const { createRoleInfoEmbed, createGameWelcomeEmbed, createVotingEmbed } = require('../utils/embedCreator');
 const ROLES = require('../constants/roles');
 const GameStateManager = require('../utils/gameStateManager');
+const Game = require('../models/Game');
 
 async function handleJoinGame(interaction, game) {
     try {
@@ -386,31 +387,21 @@ async function handleReadyToggle(interaction, game) {
             return;
         }
 
-        // Toggle ready status
-        player.isReady = !player.isReady;
-
-        // Update the embed
-        const setupEmbed = {
-            ...createGameWelcomeEmbed(),
-            fields: [
-                ...createGameWelcomeEmbed().fields,
-                ...createStatusFields(game)
-            ]
-        };
-
-        const buttons = createGameSetupButtons(game.selectedRoles);
-
-        // Update the message
-        await interaction.update({
-            embeds: [setupEmbed],
-            components: buttons
-        });
-
-        await game.saveGameState();
+        await game.handleReadyCheck(interaction.user.id);
+        
+        // Just acknowledge the interaction
+        await interaction.deferUpdate();
 
     } catch (error) {
-        logger.error('Error handling ready toggle', { error });
-        throw error;
+        if (error instanceof GameError) {
+            await interaction.reply({
+                content: error.userMessage,
+                ephemeral: true
+            });
+        } else {
+            logger.error('Error handling ready toggle', { error });
+            await handleCommandError(interaction, error);
+        }
     }
 }
 
@@ -603,6 +594,71 @@ async function handleVoteButton(interaction, currentGame) {
     }
 }
 
+// Add new handler for DM check toggle
+async function handleDmCheckToggle(interaction, game) {
+    const snapshot = game.createGameSnapshot();
+    
+    try {
+        // Log the attempt
+        logger.info('DM check toggle attempted', {
+            userId: interaction.user.id,
+            isCreator: interaction.user.id === game.gameCreatorId,
+            currentSetting: game.requireDmCheck
+        });
+
+        // Defer the update immediately
+        await interaction.deferUpdate();
+
+        if (!game.isGameCreatorOrAuthorized(interaction.user.id)) {
+            logger.warn('Unauthorized DM check toggle attempt', {
+                userId: interaction.user.id,
+                creatorId: game.gameCreatorId
+            });
+            
+            await interaction.followUp({
+                content: 'Only the game creator can toggle DM check requirement.',
+                ephemeral: true
+            });
+            return;
+        }
+
+        // Toggle state atomically
+        const oldSetting = game.requireDmCheck;
+        await game.toggleDmCheck();
+        
+        // Log the successful toggle
+        logger.info('DM check requirement changed', {
+            from: oldSetting,
+            to: game.requireDmCheck,
+            readyPlayerCount: game.readyPlayers.size,
+            totalPlayers: game.players.size
+        });
+        
+        // Update UI components after state change
+        const setupMessage = await interaction.channel.messages.fetch(game.setupMessageId);
+        await setupMessage.edit({
+            components: createGameSetupButtons(game.selectedRoles, game.requireDmCheck)
+        });
+
+    } catch (error) {
+        await game.restoreFromSnapshot(snapshot);
+        logger.error('Error handling DM check toggle', { 
+            error,
+            userId: interaction.user.id,
+            currentSetting: game.requireDmCheck,
+            playerCount: game.players.size,
+            readyCount: game.readyPlayers.size
+        });
+        
+        if (!interaction.replied && !interaction.deferred) {
+            await interaction.reply({
+                content: 'An error occurred while toggling DM check requirement.',
+                ephemeral: true
+            });
+        }
+    }
+}
+
 module.exports = {
     handleJoinGame,
     handleToggleRole,
@@ -614,5 +670,6 @@ module.exports = {
     handleDeleteGame,
     handleReadyToggle,
     handleSecondButton,
-    handleVoteButton
+    handleVoteButton,
+    handleDmCheckToggle
 };

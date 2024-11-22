@@ -123,6 +123,13 @@ class WerewolfGame {
         };
 
         this.playerStateManager = new PlayerStateManager(this);
+
+        // Add these properties to the WerewolfGame constructor
+        this.readyPlayers = new Set();
+        this.readyCheckTimeout = null;
+        this.READY_CHECK_DURATION = 60000; // 1 minute
+
+        this.requireDmCheck = false; // Default to false for easier testing
     }
 
     /**
@@ -154,7 +161,9 @@ class WerewolfGame {
                 seer: { investigations: [...(this.roleHistory?.seer?.investigations || [])] },
                 sorcerer: { investigations: [...(this.roleHistory?.sorcerer?.investigations || [])] },
                 bodyguard: { protections: [...(this.roleHistory?.bodyguard?.protections || [])] }
-            }
+            },
+            readyPlayers: new Set(this.readyPlayers),
+            requireDmCheck: this.requireDmCheck
         };
     }
 
@@ -182,6 +191,8 @@ class WerewolfGame {
             sorcerer: { investigations: [...snapshot.roleHistory.sorcerer.investigations] },
             bodyguard: { protections: [...snapshot.roleHistory.bodyguard.protections] }
         };
+        this.readyPlayers = new Set(snapshot.readyPlayers);
+        this.requireDmCheck = snapshot.requireDmCheck;
     }
 
     /**
@@ -196,42 +207,57 @@ class WerewolfGame {
             logger.info('Attempting to add player', { 
                 userId: user.id, 
                 currentPhase: this.phase,
-                isLobby: this.phase === PHASES.LOBBY 
+                isLobby: this.phase === PHASES.LOBBY,
+                requireDmCheck: this.requireDmCheck
             });
-
+    
             if (this.phase !== PHASES.LOBBY) {
                 throw new GameError('Cannot join', 'The game has already started. You cannot join at this time.');
             }
-
+    
             if (this.players.has(user.id)) {
                 throw new GameError('Player already in game', 'You are already in the game.');
             }
-
+    
             // Create and add new player atomically
             const player = new Player(user.id, user.username, this.client);
             this.players.set(user.id, player);
-
+    
+            // Auto-ready if DM checks are disabled
+            if (!this.requireDmCheck) {
+                const newReadyPlayers = new Set(this.readyPlayers);
+                newReadyPlayers.add(user.id);
+                this.readyPlayers = newReadyPlayers;  // Update atomically
+                
+                // Set the player's ready status directly
+                player.isReady = true;
+                
+                logger.info('Player auto-readied (DM checks disabled)', {
+                    playerId: user.id,
+                    username: user.username,
+                    readyPlayers: Array.from(this.readyPlayers)
+                });
+            }
+    
             // Save state after adding player
-            await GameStateManager.saveGameState(this);
-
+            await this.saveGameState();
+            
+            // Update UI to reflect new player and ready status
+            await this.updateReadyStatus();
+    
             logger.info('Player added to the game', { 
                 playerId: user.id, 
                 username: user.username,
-                currentPhase: this.phase 
+                currentPhase: this.phase,
+                autoReady: !this.requireDmCheck,
+                readyPlayers: Array.from(this.readyPlayers)
             });
-
+    
             return player;
-
+    
         } catch (error) {
-            // Restore previous state on error
             await this.restoreFromSnapshot(snapshot);
-            
-            logger.error('Error adding player to game', { 
-                error, 
-                userId: user.id,
-                currentPhase: this.phase 
-            });
-            
+            logger.error('Error adding player to game', { error });
             throw error;
         }
     }
@@ -1694,6 +1720,170 @@ calculateRoleAssignments(playerCount) {
         } catch (error) {
             await this.restoreFromSnapshot(snapshot);
             logger.error('Error processing Hunter revenge', { error });
+            throw error;
+        }
+    }
+
+    // Add this method to handle ready checks
+    async handleReadyCheck(playerId) {
+        const snapshot = this.createGameSnapshot();
+        
+        try {
+            const player = this.players.get(playerId);
+            if (!player) {
+                throw new GameError('Not in game', 'You must join the game first.');
+            }
+    
+            // If DM checks are disabled, clicking Ready should do nothing
+            if (!this.requireDmCheck) {
+                logger.info('Ready button clicked but DM checks disabled - ignoring', {
+                    playerId,
+                    requireDmCheck: this.requireDmCheck
+                });
+                return;
+            }
+    
+            // Create new ready players set atomically
+            const newReadyPlayers = new Set(this.readyPlayers);
+            
+            if (newReadyPlayers.has(playerId)) {
+                // If already ready, unready them
+                newReadyPlayers.delete(playerId);
+                player.isReady = false;
+                logger.info('Player unreadied', { 
+                    playerId,
+                    requireDmCheck: this.requireDmCheck 
+                });
+            } else {
+                // Try DM check since it's required
+                try {
+                    await player.sendDM({
+                        embeds: [{
+                            color: 0x00ff00,
+                            title: '✅ DM Test Successful',
+                            description: 'You can receive direct messages from the bot.'
+                        }]
+                    });
+                    newReadyPlayers.add(playerId);
+                    player.isReady = true;
+                    logger.info('Player readied after DM check', { 
+                        playerId,
+                        requireDmCheck: this.requireDmCheck 
+                    });
+                } catch (error) {
+                    throw new GameError(
+                        'DM Failed',
+                        'Please enable DMs from server members to play.'
+                    );
+                }
+            }
+    
+            // Update state atomically
+            this.readyPlayers = newReadyPlayers;
+            
+            // Save state before UI update
+            await this.saveGameState();
+            
+            // Update UI after state is saved
+            await this.updateReadyStatus();
+    
+        } catch (error) {
+            await this.restoreFromSnapshot(snapshot);
+            throw error;
+        }
+    }
+
+    // Add this method to update ready status display
+    async updateReadyStatus() {
+        const channel = await this.client.channels.fetch(this.gameChannelId);
+        const setupMessage = await channel.messages.fetch(this.setupMessageId);
+    
+        const joinedPlayers = Array.from(this.players.values());
+        const readyPlayers = joinedPlayers.filter(p => this.readyPlayers.has(p.id));
+        const unreadyPlayers = joinedPlayers.filter(p => !this.readyPlayers.has(p.id));
+    
+        logger.info('Updating ready status', {
+            totalPlayers: joinedPlayers.length,
+            readyCount: readyPlayers.length,
+            unreadyCount: unreadyPlayers.length,
+            readyPlayerIds: Array.from(this.readyPlayers),
+            requireDmCheck: this.requireDmCheck
+        });
+    
+        const embed = {
+            ...createGameWelcomeEmbed(),
+            fields: [
+                ...createGameWelcomeEmbed().fields
+            ]
+        };
+    
+        if (unreadyPlayers.length > 0) {
+            embed.fields.push({
+                name: '⌛ Joined but Not Ready',
+                value: unreadyPlayers.map(p => `• ${p.username}`).join('\n'),
+                inline: false
+            });
+        }
+    
+        if (readyPlayers.length > 0) {
+            embed.fields.push({
+                name: `✅ Ready to Play (${readyPlayers.length})`,
+                value: readyPlayers.map(p => `• ${p.username}`).join('\n'),
+                inline: false
+            });
+        } else {
+            embed.fields.push({
+                name: '✅ Ready to Play (0)',
+                value: '*No players ready yet*',
+                inline: false
+            });
+        }
+    
+        await setupMessage.edit({
+            embeds: [embed],
+            components: createGameSetupButtons(this.selectedRoles, this.requireDmCheck)
+        });
+    }
+
+    // Add this method to toggle DM check requirement
+    async toggleDmCheck() {
+        const snapshot = this.createGameSnapshot();
+        
+        try {
+            // Create new state atomically
+            const newRequireDmCheck = !this.requireDmCheck;
+            let newReadyPlayers = new Set(this.readyPlayers); // Keep existing ready players
+    
+            // If turning DM checks OFF, auto-ready ALL current players
+            if (!newRequireDmCheck) {
+                for (const playerId of this.players.keys()) {
+                    newReadyPlayers.add(playerId);
+                }
+            }
+            // If turning DM checks ON, clear ready status
+            else {
+                newReadyPlayers.clear();
+            }
+            
+            // Apply state changes atomically
+            this.requireDmCheck = newRequireDmCheck;
+            this.readyPlayers = newReadyPlayers;
+            
+            // Save state before UI update
+            await this.saveGameState();
+            
+            // Update UI after state is saved
+            await this.updateReadyStatus();
+            
+            logger.info('DM check requirement toggled', { 
+                requireDmCheck: this.requireDmCheck,
+                readyPlayersCount: this.readyPlayers.size,
+                totalPlayers: this.players.size,
+                readyPlayers: Array.from(this.readyPlayers)
+            });
+            
+        } catch (error) {
+            await this.restoreFromSnapshot(snapshot);
             throw error;
         }
     }

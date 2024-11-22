@@ -1,10 +1,10 @@
 const { ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const ROLES = require('../constants/roles');
 
-function createGameSetupButtons(selectedRoles = new Map()) {
+function createGameSetupButtons(selectedRoles = new Map(), requireDmCheck = true) {
     const rows = [];
 
-    // First row: Join and Ready buttons
+    // First row: Join, Ready, and DM Check Toggle buttons
     const joinRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('join')
@@ -15,7 +15,12 @@ function createGameSetupButtons(selectedRoles = new Map()) {
             .setCustomId('ready')
             .setLabel('Ready')
             .setStyle(ButtonStyle.Secondary)
-            .setEmoji('✅')
+            .setEmoji('✅'),
+        new ButtonBuilder()
+            .setCustomId('toggle_dm')
+            .setLabel(`DM Check: ${requireDmCheck ? 'ON' : 'OFF'}`)
+            .setStyle(requireDmCheck ? ButtonStyle.Secondary : ButtonStyle.Success)
+            .setEmoji('📨')
     );
     rows.push(joinRow);
 

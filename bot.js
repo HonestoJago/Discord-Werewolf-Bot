@@ -271,53 +271,55 @@ client.on('interactionCreate', async interaction => {
                     return;
                 }
 
-                // Handle regular game buttons
-                const [action] = interaction.customId.split('_');
+                // Extract action from customId
+                const customId = interaction.customId;  // Get full customId first
+                const [action] = customId.split('_');
 
                 try {
-                    switch (action) {
-                        case 'join':
-                            await buttonHandler.handleJoinGame(interaction, game);
+                    switch (customId) {  // Switch on full customId for exact matches
+                        case 'toggle_dm':
+                            await buttonHandler.handleDmCheckToggle(interaction, game);
                             break;
-                        case 'ready':
-                            await buttonHandler.handleReadyToggle(interaction, game);
-                            break;
-                        case 'add':
-                        case 'remove':
-                            await buttonHandler.handleToggleRole(interaction, game);
-                            break;
-                        case 'view':
-                            if (interaction.customId === 'view_info') {
-                                await buttonHandler.handleViewRoles(interaction, game);
-                            } else if (interaction.customId === 'view') {
-                                await buttonHandler.handleViewSetup(interaction, game);
-                            }
-                            break;
-                        case 'reset':
-                            await buttonHandler.handleResetRoles(interaction, game);
-                            break;
-                        case 'start':
-                            await buttonHandler.handleStartGame(interaction, game)
-                                .catch(error => {
-                                    if (error.code === 10062) {
-                                        logger.debug('Interaction expired after game start - this is normal');
-                                        return;
-                                    }
-                                    throw error;
-                                });
-                            break;
-                        case 'second':
-                            await buttonHandler.handleSecondButton(interaction, game);
-                            break;
-                        case 'vote':
-                            await buttonHandler.handleVoteButton(interaction, game);
-                            break;
+                            
+                        // Use action for partial matches
                         default:
-                            logger.warn('Unhandled button interaction', { 
-                                action, 
-                                customId: interaction.customId 
-                            });
-                            break;
+                            switch (action) {
+                                case 'join':
+                                    await buttonHandler.handleJoinGame(interaction, game);
+                                    break;
+                                case 'ready':
+                                    await buttonHandler.handleReadyToggle(interaction, game);
+                                    break;
+                                case 'add':
+                                case 'remove':
+                                    await buttonHandler.handleToggleRole(interaction, game);
+                                    break;
+                                case 'view':
+                                    if (customId === 'view_info') {
+                                        await buttonHandler.handleViewRoles(interaction, game);
+                                    } else if (customId === 'view') {
+                                        await buttonHandler.handleViewSetup(interaction, game);
+                                    }
+                                    break;
+                                case 'reset':
+                                    await buttonHandler.handleResetRoles(interaction, game);
+                                    break;
+                                case 'start':
+                                    await buttonHandler.handleStartGame(interaction, game);
+                                    break;
+                                case 'second':
+                                    await buttonHandler.handleSecondButton(interaction, game);
+                                    break;
+                                case 'vote':
+                                    await buttonHandler.handleVoteButton(interaction, game);
+                                    break;
+                                default:
+                                    logger.warn('Unhandled button interaction', { 
+                                        action, 
+                                        customId: interaction.customId 
+                                    });
+                                    break;
+                            }
                     }
                 } catch (error) {
                     await handleCommandError(interaction, error);
