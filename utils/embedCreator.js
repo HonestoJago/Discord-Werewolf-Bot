@@ -363,46 +363,30 @@ function createGameWelcomeEmbed() {
                 value: '```yaml\n' +
                     '• Enable DMs from server members\n' +
                     '• Follow the Werewolf category or enable channel viewing\n' +
+                    '• Join the Werewolf voice channel\n' +
+                    '• Test your camera and microphone\n' +
                     '```\n' +
-                    '*These settings are required for role info and private channels*',
+                    '*These settings are required for role info and gameplay*',
                 inline: false
             },
             {
-                name: '📋 Game Setup',
+                name: '📢 Voice Chat Rules',
                 value: '```yaml\n' +
                     '• Day Phase: Cameras & Mics ON\n' +
                     '• Night Phase: Cameras & Mics OFF\n' +
-                    '```',
-                inline: false
-            },
-            {
-                name: '🎭 Basic Roles',
-                value: '```\n' +
-                    '• Werewolves (1 per 4 players)\n' +
-                    '• Seer (1)\n' +
-                    '• Villagers (remaining players)\n' +
+                    '• Stay in voice chat throughout the game\n' +
                     '```\n' +
-                    'Use `/role-info` to learn more about each role!',
-                inline: false
-            },
-            {
-                name: '⚔️ Optional Roles',
-                value: 
-                    '• 🛡️ **Bodyguard**: Protects one player each night\n' +
-                    '• 💘 **Cupid**: Links two players in love. If one dies, both die\n' +
-                    '• 🏹 **Hunter**: Takes one player with them when they die\n' +
-                    '• 🦹 **Minion**: Knows the Werewolves but is unknown to them. Wins with Werewolves\n' +
-                    '• 🧙 **Sorcerer**: Can identify the Seer. Unknown to Werewolves but wins with them',
+                    '*Please test your setup before readying up!*',
                 inline: false
             },
             {
                 name: '🎮 How to Play',
                 value: 
-                    '1. Click `🎮 Join the Hunt` or use `/join`\n' +
-                    '2. Game creator can toggle optional roles with role buttons\n' +
-                    '3. Click `📜 View Setup` to see current players and roles\n' +
-                    '4. Use `🔄 Reset Roles` to clear optional role selections\n' +
-                    '5. Click `🌕 Begin the Hunt` when ready to start',
+                    '1. Click `🐺 Join the Hunt` to join\n' +
+                    '2. Click `✅ Ready` when your setup is tested and working\n' +
+                    '3. Click `ℹ️ View Role Info` to learn about roles\n' +
+                    '4. Game creator can toggle optional roles\n' +
+                    '5. Game starts when all players are ready',
                 inline: false
             }
         ],

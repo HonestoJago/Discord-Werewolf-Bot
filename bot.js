@@ -282,6 +282,9 @@ client.on('interactionCreate', async interaction => {
                         case 'join':
                             await buttonHandler.handleJoinGame(interaction, game);
                             break;
+                        case 'ready':
+                            await buttonHandler.handleReadyToggle(interaction, game);
+                            break;
                         case 'toggle':
                         case 'add':
                         case 'remove':
