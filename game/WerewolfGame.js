@@ -26,6 +26,9 @@ const { createGameEndButtons } = require('../utils/buttonCreator');
 const GameStateManager = require('../utils/gameStateManager');
 const PlayerStateManager = require('./PlayerStateManager');
 const { createGameSetupButtons } = require('../utils/buttonCreator');
+const RateLimiter = require('../utils/rateLimiter');
+const SecurityManager = require('../utils/securityManager');
+const InputValidator = require('../utils/inputValidator');
 
 // Define roles and their properties in a configuration object
 const ROLE_CONFIG = {
@@ -130,6 +133,9 @@ class WerewolfGame {
         this.READY_CHECK_DURATION = 60000; // 1 minute
 
         this.requireDmCheck = false; // Default to false for easier testing
+
+        this.rateLimiter = new RateLimiter();
+        this.securityManager = new SecurityManager(guildId);
     }
 
     /**
@@ -219,6 +225,9 @@ class WerewolfGame {
                 throw new GameError('Player already in game', 'You are already in the game.');
             }
     
+            // Move rate limit check here, after basic validations
+            await this.rateLimiter.checkRateLimit(user.id, 'join');
+    
             // Create and add new player atomically
             const player = new Player(user.id, user.username, this.client);
             this.players.set(user.id, player);
@@ -244,6 +253,9 @@ class WerewolfGame {
             
             // Update UI to reflect new player and ready status
             await this.updateReadyStatus();
+    
+            // Log the action for security tracking
+            await this.securityManager.logAction(user.id, 'join');
     
             logger.info('Player added to the game', { 
                 playerId: user.id, 
