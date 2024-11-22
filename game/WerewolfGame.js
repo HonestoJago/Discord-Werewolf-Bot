@@ -20,7 +20,6 @@ const {
 } = require('../utils/embedCreator');
 const NightActionProcessor = require('./NightActionProcessor');
 const VoteProcessor = require('./VoteProcessor');
-const dayPhaseHandler = require('../handlers/dayPhaseHandler');
 const PlayerStats = require('../models/Player');
 const Game = require('../models/Game');
 const { createGameEndButtons } = require('../utils/buttonCreator');
@@ -842,7 +841,7 @@ calculateRoleAssignments(playerCount) {
 
             // Create day phase UI
             const channel = await this.client.channels.fetch(this.gameChannelId);
-            await dayPhaseHandler.createDayPhaseUI(channel, this.players);
+            await this.voteProcessor.createDayPhaseUI(channel, this.players);
 
             logger.info('Advanced to Day phase', {
                 round: this.round,

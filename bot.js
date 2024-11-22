@@ -8,7 +8,6 @@ require('dotenv').config();
 const { handleCommandError } = require('./utils/error-handler');
 const logger = require('./utils/logger');
 const WerewolfGame = require('./game/WerewolfGame');
-const dayPhaseHandler = require('./handlers/dayPhaseHandler');
 const buttonHandler = require('./handlers/buttonHandler');
 const sequelize = require('./utils/database');
 const PlayerStats = require('./models/Player');
@@ -273,9 +272,7 @@ client.on('interactionCreate', async interaction => {
                 }
 
                 // Handle regular game buttons
-                const action = interaction.customId.includes('_') ? 
-                    interaction.customId.split('_')[0] : 
-                    interaction.customId;
+                const [action] = interaction.customId.split('_');
 
                 try {
                     switch (action) {
@@ -285,7 +282,6 @@ client.on('interactionCreate', async interaction => {
                         case 'ready':
                             await buttonHandler.handleReadyToggle(interaction, game);
                             break;
-                        case 'toggle':
                         case 'add':
                         case 'remove':
                             await buttonHandler.handleToggleRole(interaction, game);
@@ -303,7 +299,6 @@ client.on('interactionCreate', async interaction => {
                         case 'start':
                             await buttonHandler.handleStartGame(interaction, game)
                                 .catch(error => {
-                                    // If interaction fails but game starts, just log it
                                     if (error.code === 10062) {
                                         logger.debug('Interaction expired after game start - this is normal');
                                         return;
@@ -312,8 +307,10 @@ client.on('interactionCreate', async interaction => {
                                 });
                             break;
                         case 'second':
+                            await buttonHandler.handleSecondButton(interaction, game);
+                            break;
                         case 'vote':
-                            await dayPhaseHandler.handleButton(interaction, game);
+                            await buttonHandler.handleVoteButton(interaction, game);
                             break;
                         default:
                             logger.warn('Unhandled button interaction', { 
@@ -394,7 +391,7 @@ client.on('interactionCreate', async interaction => {
                 }
                 // Handle other select menus
                 else if (interaction.customId.startsWith('day_')) {
-                    await dayPhaseHandler.handleSelect(interaction, game);
+                    await game.voteProcessor.handleNominationSelect(interaction);
                 }
                 else if (interaction.customId === 'hunter_revenge') {
                     await interaction.deferReply({ ephemeral: true });

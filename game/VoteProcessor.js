@@ -1,11 +1,20 @@
+const { ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
 const GameStateManager = require('../utils/gameStateManager');
-const dayPhaseHandler = require('../handlers/dayPhaseHandler');
 const { GameError } = require('../utils/error-handler');
+const { handleCommandError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 const ROLES = require('../constants/roles');
 const PHASES = require('../constants/phases');
-const { createVoteResultsEmbed, createHunterRevengeEmbed, createHunterTensionEmbed, createDeathAnnouncementEmbed } = require('../utils/embedCreator');
-const { StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
+const { 
+    createVoteResultsEmbed, 
+    createHunterRevengeEmbed, 
+    createHunterTensionEmbed, 
+    createDeathAnnouncementEmbed,
+    createDayPhaseEmbed,
+    createNominationEmbed,
+    createVotingEmbed
+} = require('../utils/embedCreator');
+const buttonCreator = require('../utils/buttonCreator');
 
 class VoteProcessor {
     constructor(game) {
@@ -159,17 +168,22 @@ class VoteProcessor {
             // Save state before broadcasting
             await this.game.saveGameState();
 
-            logger.info('Nomination seconded', {
-                seconder: seconder.username,
-                target: this.game.players.get(this.game.nominatedPlayer).username
+            // Create and send voting UI
+            const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
+            const target = this.game.players.get(this.game.nominatedPlayer);
+            
+            await channel.send({
+                embeds: [createVotingEmbed(
+                    target,
+                    seconder,
+                    this.game
+                )],
+                components: [buttonCreator.createVotingButtons(this.game.nominatedPlayer)]
             });
 
-            await this.game.broadcastMessage({
-                embeds: [{
-                    title: 'Nomination Seconded',
-                    description: `${seconder.username} has seconded the nomination of ${this.game.players.get(this.game.nominatedPlayer).username}.\n` +
-                               `Proceeding to voting phase.`
-                }]
+            logger.info('Nomination seconded', {
+                seconder: seconder.username,
+                target: target.username
             });
 
         } catch (error) {
@@ -315,7 +329,7 @@ class VoteProcessor {
 
                 // Refresh the day phase UI
                 const dayChannel = await this.game.client.channels.fetch(this.game.gameChannelId);
-                await dayPhaseHandler.createDayPhaseUI(dayChannel, this.game.players);
+                await this.createDayPhaseUI(dayChannel, this.game.players);
 
                 return {
                     eliminated: null,
@@ -479,7 +493,7 @@ class VoteProcessor {
 
             // Re-initiate Day phase UI
             const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
-            await dayPhaseHandler.createDayPhaseUI(channel, this.game.players);
+            await this.createDayPhaseUI(channel, this.game.players);
 
             logger.info('Nomination has been reset', { 
                 reason: 'Previous nomination failed due to no seconder.' 
@@ -489,6 +503,63 @@ class VoteProcessor {
             this.restoreFromSnapshot(snapshot);
             logger.error('Error initiating new nomination', { error });
             throw error;
+        }
+    }
+
+    async createDayPhaseUI(channel, players) {
+        try {
+            // Create the day phase UI with player status
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId('day_select_target')
+                .setPlaceholder('Select a player to nominate')
+                .addOptions(
+                    Array.from(players.values())
+                        .filter(p => p.isAlive)
+                        .map(p => ({
+                            label: p.username,
+                            value: p.id,
+                            description: `Nominate ${p.username} for elimination`
+                        }))
+                );
+
+            const row = new ActionRowBuilder().addComponents(selectMenu);
+            const embed = createDayPhaseEmbed(players);
+
+            await channel.send({
+                embeds: [embed],
+                components: [row]
+            });
+        } catch (error) {
+            logger.error('Error creating day phase UI', { error });
+            throw error;
+        }
+    }
+
+    async handleNominationSelect(interaction) {
+        try {
+            // Check for active nomination first
+            if (this.game.nominatedPlayer) {
+                await interaction.reply({
+                    content: 'A nomination is already in progress. Please wait for it to conclude.',
+                    ephemeral: true
+                });
+                return;
+            }
+
+            const targetId = interaction.values[0];
+            const target = this.game.players.get(targetId);
+            
+            // Handle the nomination
+            await this.nominate(interaction.user.id, targetId);
+            await this.game.saveGameState();
+
+            // Send nomination announcement with second button
+            await interaction.reply({
+                embeds: [createNominationEmbed(interaction.user.username, target.username)],
+                components: [buttonCreator.createSecondButton(targetId)]
+            });
+        } catch (error) {
+            await handleCommandError(interaction, error);
         }
     }
 }

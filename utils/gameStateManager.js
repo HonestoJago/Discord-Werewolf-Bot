@@ -7,7 +7,6 @@ const logger = require('./logger');
 const PHASES = require('../constants/phases');
 const ROLES = require('../constants/roles');
 const { createDayPhaseEmbed, createHunterRevengeEmbed, createHunterTensionEmbed } = require('./embedCreator');
-const dayPhaseHandler = require('../handlers/dayPhaseHandler');
 
 class GameStateManager {
     /**
@@ -426,7 +425,7 @@ class GameStateManager {
 
                     // Create nomination UI only if no active nomination
                     if (!game.nominatedPlayer) {
-                        await dayPhaseHandler.createDayPhaseUI(channel, game.players);
+                        await game.voteProcessor.createDayPhaseUI(channel, game.players);
                     }
                     
                     logger.info('Recreated day phase UI');

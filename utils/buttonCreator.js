@@ -79,7 +79,32 @@ function updateReadyButton(isReady) {
         .setEmoji('✅');
 }
 
+function createSecondButton(targetId) {
+    const secondButton = new ButtonBuilder()
+        .setCustomId(`second_${targetId}`)
+        .setLabel('Second This Nomination')
+        .setStyle(ButtonStyle.Primary);
+
+    return new ActionRowBuilder().addComponents(secondButton);
+}
+
+function createVotingButtons(targetId) {
+    const lynchButton = new ButtonBuilder()
+        .setCustomId(`vote_${targetId}_guilty`)
+        .setLabel('Lynch')
+        .setStyle(ButtonStyle.Danger);
+
+    const spareButton = new ButtonBuilder()
+        .setCustomId(`vote_${targetId}_innocent`)
+        .setLabel('Let Live')
+        .setStyle(ButtonStyle.Success);
+
+    return new ActionRowBuilder().addComponents(lynchButton, spareButton);
+}
+
 module.exports = {
     createGameSetupButtons,
-    updateReadyButton
+    updateReadyButton,
+    createSecondButton,
+    createVotingButtons
 };

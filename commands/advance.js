@@ -4,7 +4,6 @@ const { SlashCommandBuilder } = require('discord.js');
 const logger = require('../utils/logger');
 const { handleCommandError, GameError } = require('../utils/error-handler');
 const PHASES = require('../constants/phases');
-const dayPhaseHandler = require('../handlers/dayPhaseHandler');
 const { createDayTransitionEmbed, createNightTransitionEmbed } = require('../utils/embedCreator');
 
 module.exports = {

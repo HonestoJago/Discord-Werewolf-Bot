@@ -3,7 +3,7 @@ const { GameError } = require('../utils/error-handler');
 const logger = require('../utils/logger');
 const WerewolfGame = require('../game/WerewolfGame');
 const { createRoleToggleButtons, createGameSetupButtons, updateReadyButton } = require('../utils/buttonCreator');
-const { createRoleInfoEmbed, createGameWelcomeEmbed } = require('../utils/embedCreator');
+const { createRoleInfoEmbed, createGameWelcomeEmbed, createVotingEmbed } = require('../utils/embedCreator');
 const ROLES = require('../constants/roles');
 const GameStateManager = require('../utils/gameStateManager');
 
@@ -511,6 +511,98 @@ function createStatusFields(game) {
     return fields;
 }
 
+// Add these new handlers
+async function handleSecondButton(interaction, currentGame) {
+    try {
+        const targetId = interaction.customId.split('_')[1];
+        
+        // Try to delete the nomination message first in case the second fails
+        const originalMessage = interaction.message;
+
+        try {
+            await currentGame.voteProcessor.second(interaction.user.id);
+            
+            await interaction.reply({ 
+                content: 'You have seconded the nomination.', 
+                ephemeral: true 
+            });
+
+            // Only try to delete the original message if the second was successful
+            try {
+                await originalMessage.delete();
+            } catch (deleteError) {
+                logger.warn('Could not delete nomination message', { deleteError });
+            }
+
+        } catch (error) {
+            logger.error('Error processing second', { 
+                error: {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack
+                },
+                userId: interaction.user.id,
+                targetId: targetId
+            });
+
+            if (!interaction.replied) {
+                await interaction.reply({
+                    content: error instanceof GameError ? error.userMessage : 'Failed to process your action.',
+                    ephemeral: true
+                });
+            }
+        }
+    } catch (error) {
+        logger.error('Error in handleSecondButton', { 
+            error: {
+                name: error.name,
+                message: error.message,
+                stack: error.stack
+            }
+        });
+        
+        if (!interaction.replied) {
+            await interaction.reply({
+                content: 'An error occurred while processing your action.',
+                ephemeral: true
+            });
+        }
+    }
+}
+
+async function handleVoteButton(interaction, currentGame) {
+    const [, targetId, vote] = interaction.customId.split('_');
+    
+    if (interaction.user.id === currentGame.nominatedPlayer) {
+        await interaction.reply({
+            content: 'You cannot vote in your own nomination.',
+            ephemeral: true
+        });
+        return;
+    }
+
+    const voter = currentGame.players.get(interaction.user.id);
+    if (!voter?.isAlive) {
+        await interaction.reply({
+            content: 'Only living players can vote.',
+            ephemeral: true
+        });
+        return;
+    }
+
+    try {
+        await currentGame.voteProcessor.submitVote(interaction.user.id, vote === 'guilty');
+        await interaction.reply({
+            content: `Your vote to ${vote === 'guilty' ? 'lynch' : 'spare'} has been recorded.`,
+            ephemeral: true
+        });
+    } catch (error) {
+        if (error.code !== 10062) {
+            logger.error('Error processing vote', { error });
+        }
+    }
+}
+
 module.exports = {
     handleJoinGame,
     handleToggleRole,
@@ -520,5 +612,7 @@ module.exports = {
     handleStartGame,
     handleRestoreGame,
     handleDeleteGame,
-    handleReadyToggle
+    handleReadyToggle,
+    handleSecondButton,
+    handleVoteButton
 };
