@@ -640,6 +640,14 @@ calculateRoleAssignments(playerCount) {
         const snapshot = this.createGameSnapshot();
         
         try {
+            // Don't advance if Hunter revenge is pending
+            if (this.pendingHunterRevenge) {
+                logger.info('Night phase transition blocked - Hunter revenge pending', {
+                    hunterId: this.pendingHunterRevenge
+                });
+                return;
+            }
+    
             this.phase = PHASES.NIGHT;
             this.round++;
     
@@ -653,7 +661,6 @@ calculateRoleAssignments(playerCount) {
             await GameStateManager.saveGameState(this);
     
             // Initialize night actions through processor
-            // Remove the transition message from here since it's handled in handleNightActions
             await this.nightActionProcessor.handleNightActions();
     
             logger.info(`Game advanced to Night ${this.round}`, {
@@ -831,13 +838,21 @@ calculateRoleAssignments(playerCount) {
                 logger.warn('Already in Day phase, skipping transition');
                 return;
             }
-
+    
+            // Don't advance if Hunter revenge is pending
+            if (this.pendingHunterRevenge) {
+                logger.info('Day phase transition blocked - Hunter revenge pending', {
+                    hunterId: this.pendingHunterRevenge
+                });
+                return;
+            }
+    
             // Validate current phase
             if (this.phase !== PHASES.NIGHT && this.phase !== PHASES.NIGHT_ZERO) {
                 throw new GameError('Invalid phase transition', 
                     `Cannot transition to Day from ${this.phase}`);
             }
-
+    
             // Update state atomically
             const stateUpdates = {
                 phase: PHASES.DAY,
@@ -854,35 +869,35 @@ calculateRoleAssignments(playerCount) {
                 // Clear any protection
                 lastProtectedPlayer: null
             };
-
+    
             // Apply all state updates atomically
             Object.assign(this, stateUpdates);
-
+    
             // Clear any existing timeouts
             if (this.nominationTimeout) {
                 clearTimeout(this.nominationTimeout);
                 this.nominationTimeout = null;
             }
-
+    
             // Save state before any external operations
             await GameStateManager.saveGameState(this);
-
+    
             // Send day transition message
             await this.broadcastMessage({
                 embeds: [createDayTransitionEmbed()]
             });
-
+    
             // Create day phase UI
             const channel = await this.client.channels.fetch(this.gameChannelId);
             await this.voteProcessor.createDayPhaseUI(channel, this.players);
-
+    
             logger.info('Advanced to Day phase', {
                 round: this.round,
                 phase: this.phase,
                 playerCount: this.players.size,
                 livingPlayers: this.getAlivePlayers().length
             });
-
+    
         } catch (error) {
             // Restore previous state on error
             await this.restoreFromSnapshot(snapshot);
@@ -1408,6 +1423,11 @@ calculateRoleAssignments(playerCount) {
             // If game is already over, don't check again
             if (this.gameOver) {
                 return true;
+            }
+
+            // Don't check win conditions if Hunter revenge is pending
+            if (this.pendingHunterRevenge) {
+                return false;
             }
 
             // Get all living players

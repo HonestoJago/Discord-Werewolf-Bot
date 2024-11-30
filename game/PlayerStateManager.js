@@ -124,51 +124,50 @@ class PlayerStateManager {
                 // Handle death
                 player.isAlive = false;
 
-                // Always move to dead channel on death, unless explicitly skipped
-                if (!options.skipChannelMove) {
-                    await this.game.moveToDeadChannel(player);
-                }
-
-                // Handle special role death effects
-                if (player.role === ROLES.HUNTER && !options.skipHunterRevenge) {
-                    this.game.pendingHunterRevenge = player.id;
-                }
-
                 // Handle lover death if not already being handled
                 if (!options.skipLoverDeath) {
                     const loverId = this.game.lovers.get(player.id);
                     if (loverId) {
                         const lover = this.game.players.get(loverId);
                         if (lover?.isAlive) {
-                            try {
-                                // Send heartbreak message before killing lover
-                                await this.game.broadcastMessage({
-                                    embeds: [createLoverDeathEmbed(lover, player)]
-                                });
+                            await this.game.broadcastMessage({
+                                embeds: [createLoverDeathEmbed(lover, player)]
+                            });
 
-                                // Recursive call with skipLoverDeath to prevent infinite loop
-                                await this.changePlayerState(loverId, 
-                                    { isAlive: false }, 
-                                    { 
-                                        reason: 'Lover died',
-                                        skipLoverDeath: true
-                                    }
-                                );
-                            } catch (loverError) {
-                                logger.error('Error handling lover death', {
-                                    error: {
-                                        message: loverError.message,
-                                        stack: loverError.stack,
-                                        name: loverError.name
-                                    },
-                                    playerId: player.id,
-                                    loverId: lover.id
-                                });
-                                throw loverError;
+                            // Check if lover is Hunter before killing them
+                            if (lover.role === ROLES.HUNTER && !options.skipHunterRevenge) {
+                                // Set up Hunter's revenge before marking them dead
+                                this.game.pendingHunterRevenge = lover.id;
+                                await this.game.handleHunterRevenge(lover);
+                                // Don't proceed with lover death yet - let Hunter take revenge first
+                                return;
                             }
+
+                            await this.changePlayerState(loverId, 
+                                { isAlive: false }, 
+                                { 
+                                    reason: 'Lover died',
+                                    skipLoverDeath: true,
+                                    skipHunterRevenge: lover.role === ROLES.HUNTER // Skip if we already handled it
+                                }
+                            );
                         }
                     }
                 }
+
+                // Handle special role death effects BEFORE moving to dead channel
+                if (player.role === ROLES.HUNTER && !options.skipHunterRevenge) {
+                    // Set pending revenge before any channel moves
+                    this.game.pendingHunterRevenge = player.id;
+                    await this.game.handleHunterRevenge(player);
+                    return;
+                }
+
+                // Only move to dead channel AFTER handling special death effects
+                if (!options.skipChannelMove) {
+                    await this.game.moveToDeadChannel(player);
+                }
+
             } else if (isAlive && !player.isAlive) {
                 // Handle resurrection (if we ever add that feature)
                 player.isAlive = true;
