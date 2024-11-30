@@ -14,9 +14,10 @@ const {
     createNightTransitionEmbed,
     createGameWelcomeEmbed,
     createHunterTensionEmbed,
-    createHunterRevengePromptEmbed,  // Add this
+    createHunterRevengePromptEmbed,
     createHunterRevengeEmbed,
-    createHunterRevengeFallbackEmbed
+    createHunterRevengeFallbackEmbed,
+    createGameStartNightZeroEmbed
 } = require('../utils/embedCreator');
 const NightActionProcessor = require('./NightActionProcessor');
 const VoteProcessor = require('./VoteProcessor');
@@ -318,14 +319,7 @@ class WerewolfGame {
     
                 // Send initial game message
                 await this.broadcastMessage({
-                    embeds: [{
-                        color: 0x800000,
-                        title: '🌕 Night Zero Begins 🐺',
-                        description: 
-                            '*The first night has begun. Special roles will receive their instructions via DM...*\n\n' +
-                            'Night Zero will progress automatically once all actions are completed.',
-                        footer: { text: 'May wisdom and strategy guide you...' }
-                    }]
+                    embeds: [createGameStartNightZeroEmbed()]
                 });
     
                 // Initialize Night Zero
