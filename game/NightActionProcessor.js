@@ -285,13 +285,6 @@ class NightActionProcessor {
             this.game.completedNightActions.clear();
             this.game.expectedNightActions.clear();
 
-            // Add logging before phase transition
-            logger.info('Night actions processed, attempting phase transition', {
-                currentPhase: this.game.phase,
-                round: this.game.round,
-                pendingHunterRevenge: this.game.pendingHunterRevenge
-            });
-
             // Don't advance if Hunter revenge is pending
             if (this.game.pendingHunterRevenge) {
                 logger.info('Waiting for Hunter revenge before advancing phase', {
@@ -300,19 +293,11 @@ class NightActionProcessor {
                 return;
             }
 
-            // Check win conditions and advance phase only if no Hunter revenge is pending
-            if (!this.game.checkWinConditions()) {
-                await this.game.advanceToDay();
-                
-                logger.info('Advanced to day after night actions', {
-                    currentPhase: this.game.phase,
-                    round: this.game.round
-                });
-            }
+            // Just advance phase if no Hunter revenge pending
+            await this.game.advanceToDay();
         } catch (error) {
             logger.error('Error processing night actions', { error });
-            // Even if there's an error, only advance if no Hunter revenge is pending
-            if (!this.game.pendingHunterRevenge && !this.game.checkWinConditions()) {
+            if (!this.game.pendingHunterRevenge) {
                 await this.game.advanceToDay();
             }
         }

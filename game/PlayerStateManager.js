@@ -2,7 +2,8 @@ const GameStateManager = require('../utils/gameStateManager');
 const logger = require('../utils/logger');
 const { GameError } = require('../utils/error-handler');
 const ROLES = require('../constants/roles');
-const { createLoverDeathEmbed } = require('../utils/embedCreator');
+const PHASES = require('../constants/phases');
+const { createLoverDeathEmbed, createGameEndEmbed } = require('../utils/embedCreator');
 
 class PlayerStateManager {
     constructor(game) {
@@ -82,8 +83,13 @@ class PlayerStateManager {
                 await this.handleProtectionChange(player, changes.isProtected, options);
             }
 
-            // Single save point after all changes
+            // Save state before checking win conditions
             await GameStateManager.saveGameState(this.game);
+
+            // Check win conditions after state changes if not skipped
+            if (!options.skipWinCheck && !this.game.pendingHunterRevenge) {
+                await this.checkGameEndingConditions();
+            }
 
             logger.info('Player state changed', {
                 playerId,
@@ -123,6 +129,8 @@ class PlayerStateManager {
             if (!isAlive && player.isAlive) {
                 // Create a list to track all pending state changes
                 const pendingStateChanges = [];
+                const deathChain = new Set(); // Track all deaths in this chain
+                deathChain.add(player.id);
                 
                 // Handle death
                 player.isAlive = false;
@@ -137,35 +145,30 @@ class PlayerStateManager {
                                 embeds: [createLoverDeathEmbed(lover, player)]
                             });
 
-                            // Add lover death to pending changes
+                            deathChain.add(loverId);
+
+                            // Handle Hunter lover death specially
                             if (lover.role === ROLES.HUNTER && !options.skipHunterRevenge) {
-                                // Set up Hunter's revenge before marking them dead
                                 this.game.pendingHunterRevenge = lover.id;
                                 await this.game.handleHunterRevenge(lover);
-                                return;
+                                return; // Exit early to let Hunter revenge handle the rest
                             }
 
+                            // For any other lover death, queue it with skipHunterRevenge=true
                             pendingStateChanges.push({
                                 playerId: loverId,
                                 changes: { isAlive: false },
                                 options: { 
                                     reason: 'Lover died',
-                                    skipLoverDeath: true,
-                                    skipHunterRevenge: lover.role === ROLES.HUNTER
+                                    skipLoverDeath: true,  // Prevent infinite lover death chain
+                                    skipHunterRevenge: true // Prevent Hunter revenge on lover death
                                 }
                             });
                         }
                     }
                 }
 
-                // Handle special role death effects
-                if (player.role === ROLES.HUNTER && !options.skipHunterRevenge) {
-                    this.game.pendingHunterRevenge = player.id;
-                    await this.game.handleHunterRevenge(player);
-                    return;
-                }
-
-                // Move to dead channel
+                // Move to dead channel if needed
                 if (!options.skipChannelMove) {
                     await this.game.moveToDeadChannel(player);
                 }
@@ -179,12 +182,20 @@ class PlayerStateManager {
                     );
                 }
 
-                // Save final state
+                // Save state
                 await this.game.saveGameState();
 
-                // Only check win conditions after all state changes are complete
-                if (!this.game.pendingHunterRevenge) {
-                    await this.game.checkWinConditions();
+                // Skip win condition check if Hunter revenge is pending
+                if (this.game.pendingHunterRevenge) {
+                    logger.info('Skipping win condition check - Hunter revenge pending', {
+                        hunterId: this.game.pendingHunterRevenge
+                    });
+                    return;
+                }
+
+                // Check game ending conditions if not skipped
+                if (!options.skipWinCheck) {
+                    await this.checkGameEndingConditions();
                 }
             }
         } catch (error) {
@@ -258,6 +269,87 @@ class PlayerStateManager {
 
         // Add any other validation rules
         return true;
+    }
+
+    // Add new method to centralize game ending logic
+    async checkGameEndingConditions() {
+        // Check if all players are dead (draw)
+        const alivePlayers = this.game.getAlivePlayers();
+        if (alivePlayers.length === 0) {
+            logger.info('All players are dead - ending in draw');
+            await this.endGameInDraw();
+            return;
+        }
+
+        // Count living werewolves and villager team members
+        const livingWerewolves = alivePlayers.filter(p => p.role === ROLES.WEREWOLF).length;
+        const livingVillagerTeam = alivePlayers.filter(p => 
+            p.role !== ROLES.WEREWOLF && 
+            p.role !== ROLES.MINION && 
+            p.role !== ROLES.SORCERER
+        ).length;
+
+        // Check win conditions
+        if (livingWerewolves === 0) {
+            // Village team wins
+            await this.endGame(alivePlayers.filter(p => 
+                p.role !== ROLES.WEREWOLF && 
+                p.role !== ROLES.MINION && 
+                p.role !== ROLES.SORCERER
+            ));
+        }
+        else if (livingWerewolves >= livingVillagerTeam) {
+            // Werewolf team wins
+            await this.endGame(alivePlayers.filter(p => 
+                p.role === ROLES.WEREWOLF || 
+                p.role === ROLES.MINION || 
+                p.role === ROLES.SORCERER
+            ));
+        }
+    }
+
+    async endGameInDraw() {
+        this.game.phase = PHASES.GAME_OVER;
+        this.game.gameOver = true;
+
+        const gameStats = {
+            rounds: this.game.round,
+            totalPlayers: this.game.players.size,
+            eliminations: this.game.players.size,
+            duration: this.game.getGameDuration(),
+            players: Array.from(this.game.players.values())
+        };
+
+        // Send draw announcement
+        await this.game.broadcastMessage({
+            embeds: [createGameEndEmbed([], gameStats, true)] // Added true for isDraw parameter
+        });
+
+        logger.info('Game ended in draw', {
+            rounds: this.game.round,
+            totalPlayers: this.game.players.size
+        });
+
+        await this.game.shutdownGame();
+    }
+
+    async endGame(winners) {
+        this.game.phase = PHASES.GAME_OVER;
+        this.game.gameOver = true;
+
+        const gameStats = {
+            rounds: this.game.round,
+            totalPlayers: this.game.players.size,
+            eliminations: this.game.players.size - winners.length,
+            duration: this.game.getGameDuration(),
+            players: Array.from(this.game.players.values())
+        };
+
+        await this.game.broadcastMessage({
+            embeds: [createGameEndEmbed(Array.from(winners), gameStats)]
+        });
+
+        await this.game.shutdownGame();
     }
 }
 

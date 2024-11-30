@@ -352,49 +352,22 @@ class VoteProcessor {
                 const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
                 await channel.send({ embeds: [resultsEmbed] });
 
-                // Handle elimination and special cases
-                if (eliminated) {
-                    const isWerewolf = target.role === ROLES.WEREWOLF;
-                    
-                    // Calculate remaining players BEFORE the death
-                    const remainingWerewolves = this.game.getPlayersByRole(ROLES.WEREWOLF).length;
-                    const remainingVillagers = this.game.getAlivePlayers().length;
-                    
-                    // Check if this death will end the game
-                    const isGameEndingDeath = 
-                        (isWerewolf && remainingWerewolves === 1) || // Last werewolf dies
-                        (!isWerewolf && remainingWerewolves >= (remainingVillagers - 1)); // Werewolves reach parity after this death
-
-                    // Send death announcement with correct ending message
-                    await this.game.broadcastMessage({
-                        embeds: [createDeathAnnouncementEmbed(target, isWerewolf, isGameEndingDeath)]
-                    });
-
-                    // Handle Hunter's revenge BEFORE marking as dead
-                    if (target.role === ROLES.HUNTER) {
-                        this.game.pendingHunterRevenge = target.id;
-                        await this.handleHunterRevenge(target);
-                        return;
+                // Handle elimination through PlayerStateManager
+                await this.game.playerStateManager.changePlayerState(target.id, 
+                    { isAlive: false },
+                    { 
+                        reason: 'Eliminated by vote',
+                        skipHunterRevenge: target.role === ROLES.HUNTER
                     }
+                );
 
-                    // For non-Hunter players, use PlayerStateManager
-                    await this.game.playerStateManager.changePlayerState(target.id, 
-                        { isAlive: false },
-                        { 
-                            reason: 'Eliminated by vote',
-                            skipHunterRevenge: target.role === ROLES.HUNTER // Skip if we're handling Hunter specially
-                        }
-                    );
+                // Clear voting state
+                this.clearVotingState();
+                await this.game.saveGameState();
 
-                    // Clear voting state and save
-                    this.clearVotingState();
-                    await this.game.saveGameState();
-
-                    // Check win conditions and advance phase
-                    const gameOver = await this.game.checkWinConditions();
-                    if (!gameOver) {
-                        await this.game.advanceToNight();
-                    }
+                // Advance to night if no Hunter revenge pending
+                if (!this.game.pendingHunterRevenge) {
+                    await this.game.advanceToNight();
                 }
             }
 

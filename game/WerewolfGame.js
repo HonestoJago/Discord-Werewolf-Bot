@@ -1412,97 +1412,21 @@ calculateRoleAssignments(playerCount) {
      * @returns {boolean} - True if the game is over, else False.
      */
     async checkWinConditions() {
-        const snapshot = this.createGameSnapshot();
-        
-        try {
-            // Don't check win conditions during setup phases
-            if (this.phase === PHASES.LOBBY || this.phase === PHASES.NIGHT_ZERO) {
-                return false;
-            }
-    
-            // If game is already over, don't check again
-            if (this.gameOver) {
-                return true;
-            }
-    
-            // Don't check win conditions if Hunter revenge is pending
-            if (this.pendingHunterRevenge) {
-                return false;
-            }
-    
-            // Get all living players
-            const alivePlayers = this.getAlivePlayers();
-            
-            // Count living werewolves and villager team members
-            const livingWerewolves = alivePlayers.filter(p => p.role === ROLES.WEREWOLF).length;
-            const livingVillagerTeam = alivePlayers.filter(p => p.role !== ROLES.WEREWOLF).length;
-    
-            let winners = new Set();
-            let gameOver = false;
-    
-            // Calculate game stats
-            const gameStats = {
-                rounds: this.round,
-                totalPlayers: this.players.size,
-                eliminations: this.players.size - alivePlayers.length,
-                duration: this.getGameDuration(),
-                players: Array.from(this.players.values())
-            };
-    
-            // Check for draw first
-            if (alivePlayers.length === 0) {
-                gameOver = true;
-                this.phase = PHASES.GAME_OVER;
-                this.gameOver = true;
-                
-                // Send draw announcement using embedCreator
-                await this.broadcastMessage({
-                    embeds: [createGameEndEmbed([], gameStats)]
-                });
-                
-                await this.shutdownGame();
-                return true;
-            }
-    
-            // Rest of win condition checks remain the same...
-            if (livingWerewolves === 0) {
-                // Village team wins
-                gameOver = true;
-                winners = new Set(alivePlayers.filter(p => 
-                    p.role !== ROLES.WEREWOLF && 
-                    p.role !== ROLES.MINION && 
-                    p.role !== ROLES.SORCERER
-                ));
-            }
-            else if (livingWerewolves >= livingVillagerTeam) {
-                // Werewolf team wins
-                gameOver = true;
-                winners = new Set(alivePlayers.filter(p => 
-                    p.role === ROLES.WEREWOLF || 
-                    p.role === ROLES.MINION || 
-                    p.role === ROLES.SORCERER
-                ));
-            }
-    
-            if (gameOver) {
-                this.phase = PHASES.GAME_OVER;
-                this.gameOver = true;
-                
-                // Send game end announcement using embedCreator
-                await this.broadcastMessage({
-                    embeds: [createGameEndEmbed(Array.from(winners), gameStats)]
-                });
-                
-                await this.shutdownGame();
-            }
-    
-            return gameOver;
-    
-        } catch (error) {
-            await this.restoreFromSnapshot(snapshot);
-            logger.error('Error checking win conditions', { error });
-            throw error;
+        if (this.phase === PHASES.LOBBY || this.phase === PHASES.NIGHT_ZERO) {
+            return false;
         }
+
+        if (this.gameOver) {
+            return true;
+        }
+
+        if (this.pendingHunterRevenge) {
+            return false;
+        }
+
+        // Delegate to PlayerStateManager
+        await this.playerStateManager.checkGameEndingConditions();
+        return this.gameOver;
     }
 
     /**
