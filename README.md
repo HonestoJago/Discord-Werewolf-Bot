@@ -71,18 +71,27 @@ Welcome to the **Discord Werewolf Bot** 🐺—your gateway to the thrilling soc
    BOT_TOKEN=your_discord_bot_token
    CLIENT_ID=your_client_id
    WEREWOLF_CATEGORY_ID=category_for_private_channels
+   NODE_ENV=production    # Use 'development' for testing with 4 players
    ```
 
-3. **Launch**
-   ```bash
-   node bot.js
-   ```
+### 🎮 Game Modes
+- **Production Mode** (NODE_ENV=production)
+  - Requires 6 players minimum
+  - Recommended for regular gameplay
+  - Full role balance and game experience
+- **Development Mode** (NODE_ENV=development)
+  - Requires 4 players minimum
+  - Used for testing and development
+  - Allows for quicker game setup
 
 ### 🎮 Player Requirements
 - Enable server member DMs
 - Access to game channels
 - Voice chat capability
 - Working camera (optional)
+- Minimum players:
+  - Production: 6 players
+  - Development: 4 players
 
 ## 📖 Detailed Documentation
 

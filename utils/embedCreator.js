@@ -348,8 +348,11 @@ function createGameEndEmbed(winners, gameStats) {
     };
 }
 
-function createGameWelcomeEmbed() {
-    return {
+function createGameWelcomeEmbed(readyCount = 0, totalPlayers = 0, requireDmCheck = false) {
+    // Get MIN_PLAYERS from environment or default to 6
+    const MIN_PLAYERS = process.env.NODE_ENV === 'development' ? 4 : 6;
+    
+    const embed = {
         color: 0x800000,
         title: '🌕 A New Hunt Begins 🐺',
         description: 
@@ -394,6 +397,26 @@ function createGameWelcomeEmbed() {
             text: 'The fate of the village hangs in the balance...'
         }
     };
+
+    // Add game status field if there are players
+    if (totalPlayers > 0) {
+        const readyStatus = requireDmCheck ? 
+            `${readyCount}/${totalPlayers} players ready` :
+            `${totalPlayers} players joined`;
+
+        const canStart = totalPlayers >= MIN_PLAYERS && readyCount === totalPlayers;
+        
+        embed.fields.push({
+            name: '📊 Game Status',
+            value: `${readyStatus}\n${
+                canStart ? '**Ready to start!**' : 
+                `Need ${Math.max(MIN_PLAYERS - totalPlayers, 0)} more players or waiting for players to ready up.`
+            }`,
+            inline: false
+        });
+    }
+
+    return embed;
 }
 
 function createNightZeroEmbed() {
@@ -586,14 +609,32 @@ function createNightTransitionEmbed(players) {
 }
 
 function createLoverDeathEmbed(deadLover, originalLover) {
+    // Handle both cases where we might receive a player object or just a username
+    const deadLoverName = typeof deadLover === 'string' ? deadLover : deadLover?.username;
+    const originalLoverName = typeof originalLover === 'string' ? originalLover : originalLover?.username;
+
+    if (!deadLoverName || !originalLoverName) {
+        logger.error('Invalid lover names in createLoverDeathEmbed', {
+            deadLover,
+            originalLover
+        });
+        // Provide fallback names if missing
+        return {
+            color: 0xff69b4,
+            title: '💔 A Heart Breaks',
+            description: 'A lover has died of heartbreak.',
+            footer: { text: 'Some bonds transcend even death itself...' }
+        };
+    }
+
     return {
-        color: 0xff69b4,  // Pink color for love theme
+        color: 0xff69b4,
         title: '💔 A Heart Breaks',
         description: 
             '```diff\n- LOVE AND DEATH ARE INTERTWINED\n```\n' +
-            `The tragic fate of **${originalLover}** sends ripples through the village...\n\n` +
+            `The tragic fate of **${originalLoverName}** sends ripples through the village...\n\n` +
             '# **A Bond of Love Claims Another**\n\n' +
-            `*Unable to live without their beloved **${originalLover}**, **${deadLover}** departs this world...*\n\n` +
+            `*Unable to live without their beloved **${originalLoverName}**, **${deadLoverName}** departs this world...*\n\n` +
             '*Their love story ends, but their legend will live on...*',
         footer: { 
             text: 'Some bonds transcend even death itself...' 

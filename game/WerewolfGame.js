@@ -50,6 +50,9 @@ const PHASE_TRANSITIONS = {
     [PHASES.GAME_OVER]: []
 };
 
+// Add this near the top with other constants
+const MIN_PLAYERS = process.env.NODE_ENV === 'development' ? 4 : 6;
+
 class WerewolfGame {
     constructor(client, guildId, gameChannelId, gameCreatorId, authorizedIds = []) {
         if (!client) {
@@ -281,8 +284,8 @@ class WerewolfGame {
             if (this.phase !== PHASES.LOBBY) {
                 throw new GameError('Game already started', 'The game has already started.');
             }
-            if (this.players.size < 4) {
-                throw new GameError('Not enough players', 'Not enough players to start the game. Minimum 4 players required.');
+            if (this.players.size < MIN_PLAYERS) {
+                throw new GameError('Not enough players', 'Not enough players to start the game. Minimum 6 players required.');
             }
     
             // Initialize state atomically
@@ -1820,34 +1823,28 @@ calculateRoleAssignments(playerCount) {
             requireDmCheck: this.requireDmCheck
         });
     
-        const embed = {
-            ...createGameWelcomeEmbed(),
-            fields: [
-                ...createGameWelcomeEmbed().fields
-            ]
-        };
+        const embed = createGameWelcomeEmbed(
+            readyPlayers.length,
+            joinedPlayers.length,
+            this.requireDmCheck
+        );
     
-        if (unreadyPlayers.length > 0) {
-            embed.fields.push({
-                name: '⌛ Joined but Not Ready',
-                value: unreadyPlayers.map(p => `• ${p.username}`).join('\n'),
-                inline: false
-            });
-        }
-    
+        // Add ready players list with checkmark
         if (readyPlayers.length > 0) {
             embed.fields.push({
                 name: `✅ Ready to Play (${readyPlayers.length})`,
                 value: readyPlayers.map(p => `• ${p.username}`).join('\n'),
                 inline: false
             });
-        } else {
-            embed.fields.push({
-                name: '✅ Ready to Play (0)',
-                value: '*No players ready yet*',
-                inline: false
-            });
         }
+    
+        // Add game status
+        const canStart = joinedPlayers.length >= MIN_PLAYERS && readyPlayers.length === joinedPlayers.length;
+        embed.fields.push({
+            name: '📊 Game Status',
+            value: `${readyPlayers.length}/${joinedPlayers.length} players ready\n${canStart ? 'Ready to start!' : ''}`,
+            inline: false
+        });
     
         await setupMessage.edit({
             embeds: [embed],

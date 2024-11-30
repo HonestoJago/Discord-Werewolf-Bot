@@ -143,7 +143,7 @@ class PlayerStateManager {
                             try {
                                 // Send heartbreak message before killing lover
                                 await this.game.broadcastMessage({
-                                    embeds: [createLoverDeathEmbed(lover.username)]
+                                    embeds: [createLoverDeathEmbed(lover, player)]
                                 });
 
                                 // Recursive call with skipLoverDeath to prevent infinite loop
