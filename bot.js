@@ -129,16 +129,7 @@ client.once('ready', async () => {
 
                 // Send prompt to channel asking if they want to restore the game
                 await channel.send({
-                    embeds: [{
-                        color: 0x0099ff,
-                        title: '🎮 Unfinished Game Found',
-                        description: 
-                            `A game was interrupted in this channel:\n\n` +
-                            `**Phase:** ${savedGame.phase}\n` +
-                            `**Round:** ${savedGame.round}\n` +
-                            `**Last Updated:** ${new Date(savedGame.lastUpdated).toLocaleString()}\n\n` +
-                            'Would you like to restore this game?'
-                    }],
+                    embeds: [createGameRestorePromptEmbed(savedGame)],
                     components: [{
                         type: 1,
                         components: [

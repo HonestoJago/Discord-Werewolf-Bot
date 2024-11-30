@@ -93,55 +93,8 @@ async function handleToggleRole(interaction, game) {
 
 async function handleViewRoles(interaction, game) {
     try {
-        const roleInfoEmbed = {
-            color: 0x0099ff,
-            title: 'Role Information',
-            fields: [
-                {
-                    name: '🐺 Werewolf',
-                    value: 'Vote each night to eliminate a player. Win when werewolves equal or outnumber villagers.',
-                    inline: false
-                },
-                {
-                    name: '👁️ Seer',
-                    value: 'Investigate one player each night to learn if they are a werewolf.',
-                    inline: false
-                },
-                {
-                    name: '🛡️ Bodyguard',
-                    value: 'Protect one player each night from werewolf attacks.',
-                    inline: false
-                },
-                {
-                    name: '💘 Cupid',
-                    value: 'Choose two players to be lovers at the start. If one dies, both die.',
-                    inline: false
-                },
-                {
-                    name: '🏹 Hunter',
-                    value: 'When killed, take one other player with you.',
-                    inline: false
-                },
-                {
-                    name: '🦹 Minion',
-                    value: 'Know the werewolves but unknown to them. Win with werewolves.',
-                    inline: false
-                },
-                {
-                    name: '🧙 Sorcerer',
-                    value: 'Each night, investigate one player to learn if they are the Seer. Win with werewolves.',
-                    inline: false
-                },
-                {
-                    name: '👥 Villager',
-                    value: 'Vote during the day to eliminate suspicious players.',
-                    inline: false
-                }
-            ]
-        };
-
         await interaction.reply({
-            embeds: [roleInfoEmbed],
+            embeds: [createRoleInfoEmbed()],
             ephemeral: true
         });
     } catch (error) {

@@ -13,7 +13,8 @@ const {
     createHunterRevengeEmbed,
     createHunterTensionEmbed,
     createMinionRevealEmbed,
-    createSorcererRevealEmbed
+    createSorcererRevealEmbed,
+    createWerewolfTeamEmbed
 } = require('../utils/embedCreator');
 
 class NightActionProcessor {
@@ -822,14 +823,7 @@ class NightActionProcessor {
             // Send werewolf team info
             for (const werewolf of werewolves) {
                 await werewolf.sendDM({
-                    embeds: [{
-                        color: 0x800000,
-                        title: '🐺 Your Pack',
-                        description: werewolves.length > 1 ?
-                            `*Your fellow werewolves are: **${werewolfNames}***` :
-                            '*You are the lone werewolf. Hunt carefully...*',
-                        footer: { text: 'Coordinate with your pack during the night phase...' }
-                    }]
+                    embeds: [createWerewolfTeamEmbed(werewolves)]
                 });
             }
 

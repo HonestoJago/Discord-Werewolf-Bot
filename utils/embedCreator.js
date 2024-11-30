@@ -794,6 +794,46 @@ function createHunterRevengeFallbackEmbed(hunterName) {
     };
 }
 
+function createWerewolfTeamEmbed(werewolves) {
+    const werewolfNames = werewolves.map(w => w.username).join(', ');
+    return {
+        color: 0x800000,
+        title: '🐺 Your Pack',
+        description: werewolves.length > 1 ?
+            `*Your fellow werewolves are: **${werewolfNames}***` :
+            '*You are the lone werewolf. Hunt carefully...*',
+        footer: { text: 'Coordinate with your pack during the night phase...' }
+    };
+}
+
+function createGameRestorePromptEmbed(savedGame) {
+    return {
+        color: 0x0099ff,
+        title: '🎮 Unfinished Game Found',
+        description: 
+            `A game was interrupted in this channel:\n\n` +
+            `**Phase:** ${savedGame.phase}\n` +
+            `**Round:** ${savedGame.round}\n` +
+            `**Last Updated:** ${new Date(savedGame.lastUpdated).toLocaleString()}\n\n` +
+            'Would you like to restore this game?'
+    };
+}
+
+function createRoleInfoEmbed() {
+    return {
+        color: 0x0099ff,
+        title: 'Role Information',
+        fields: [
+            {
+                name: '🐺 Werewolf',
+                value: 'Vote each night to eliminate a player. Win when werewolves equal or outnumber villagers.',
+                inline: false
+            },
+            // ... rest of the fields ...
+        ]
+    };
+}
+
 module.exports = { 
     createPlayerListEmbed,
     createNominationEmbed,
@@ -822,5 +862,8 @@ module.exports = {
     createGameSetupEmbed,
     createDeathAnnouncementEmbed,
     createHunterRevengeFallbackEmbed,
-    createHunterRevengePromptEmbed
+    createHunterRevengePromptEmbed,
+    createWerewolfTeamEmbed,
+    createGameRestorePromptEmbed,
+    createRoleInfoEmbed
 };
