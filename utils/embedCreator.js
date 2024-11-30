@@ -414,6 +414,29 @@ function createGameWelcomeEmbed(readyCount = 0, totalPlayers = 0, requireDmCheck
             }`,
             inline: false
         });
+
+        // Add ready players list with diff formatting
+        if (readyCount > 0) {
+            embed.fields.push({
+                name: `✅ Ready to Play (${readyCount})`,
+                value: '```diff\n' + 
+                    `+ ${readyCount}/${totalPlayers} players ready\n` +
+                    '```',
+                inline: false
+            });
+        }
+
+        // Add unready players count if any
+        const unreadyCount = totalPlayers - readyCount;
+        if (unreadyCount > 0) {
+            embed.fields.push({
+                name: '⌛ Waiting For',
+                value: '```fix\n' +
+                    `${unreadyCount} more players to ready up\n` +
+                    '```',
+                inline: false
+            });
+        }
     }
 
     return embed;

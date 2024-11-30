@@ -1829,22 +1829,27 @@ calculateRoleAssignments(playerCount) {
             this.requireDmCheck
         );
     
-        // Add ready players list with checkmark
+        // Add ready players list with diff formatting
         if (readyPlayers.length > 0) {
             embed.fields.push({
                 name: `✅ Ready to Play (${readyPlayers.length})`,
-                value: readyPlayers.map(p => `• ${p.username}`).join('\n'),
+                value: '```diff\n' + 
+                    readyPlayers.map(p => `+ ${p.username}`).join('\n') +
+                    '\n```',
                 inline: false
             });
         }
     
-        // Add game status
-        const canStart = joinedPlayers.length >= MIN_PLAYERS && readyPlayers.length === joinedPlayers.length;
-        embed.fields.push({
-            name: '📊 Game Status',
-            value: `${readyPlayers.length}/${joinedPlayers.length} players ready\n${canStart ? 'Ready to start!' : ''}`,
-            inline: false
-        });
+        // Add unready players list if any
+        if (unreadyPlayers.length > 0) {
+            embed.fields.push({
+                name: '⌛ Joined but Not Ready',
+                value: '```fix\n' + 
+                    unreadyPlayers.map(p => p.username).join('\n') +
+                    '\n```',
+                inline: false
+            });
+        }
     
         await setupMessage.edit({
             embeds: [embed],
