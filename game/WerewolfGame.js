@@ -1419,28 +1419,28 @@ calculateRoleAssignments(playerCount) {
             if (this.phase === PHASES.LOBBY || this.phase === PHASES.NIGHT_ZERO) {
                 return false;
             }
-
+    
             // If game is already over, don't check again
             if (this.gameOver) {
                 return true;
             }
-
+    
             // Don't check win conditions if Hunter revenge is pending
             if (this.pendingHunterRevenge) {
                 return false;
             }
-
+    
             // Get all living players
             const alivePlayers = this.getAlivePlayers();
             
             // Count living werewolves and villager team members
             const livingWerewolves = alivePlayers.filter(p => p.role === ROLES.WEREWOLF).length;
             const livingVillagerTeam = alivePlayers.filter(p => p.role !== ROLES.WEREWOLF).length;
-
+    
             let winners = new Set();
             let gameOver = false;
-
-            // Calculate game stats atomically
+    
+            // Calculate game stats
             const gameStats = {
                 rounds: this.round,
                 totalPlayers: this.players.size,
@@ -1448,111 +1448,59 @@ calculateRoleAssignments(playerCount) {
                 duration: this.getGameDuration(),
                 players: Array.from(this.players.values())
             };
-
-            // Determine win condition atomically
+    
+            // Check for draw first
             if (alivePlayers.length === 0) {
-                // Draw - no winners
-                gameOver = true;
-                this.phase = PHASES.GAME_OVER;
-                this.gameOver = true;
-            } 
-            else if (livingWerewolves === 0) {
-                // Village team wins
                 gameOver = true;
                 this.phase = PHASES.GAME_OVER;
                 this.gameOver = true;
                 
-                // Add all non-evil team players to winners
-                this.players.forEach(player => {
-                    if (player.role !== ROLES.WEREWOLF && 
-                        player.role !== ROLES.MINION && 
-                        player.role !== ROLES.SORCERER) {
-                        winners.add(player);
-                    }
+                // Send draw announcement using embedCreator
+                await this.broadcastMessage({
+                    embeds: [createGameEndEmbed([], gameStats)]
                 });
+                
+                await this.shutdownGame();
+                return true;
+            }
+    
+            // Rest of win condition checks remain the same...
+            if (livingWerewolves === 0) {
+                // Village team wins
+                gameOver = true;
+                winners = new Set(alivePlayers.filter(p => 
+                    p.role !== ROLES.WEREWOLF && 
+                    p.role !== ROLES.MINION && 
+                    p.role !== ROLES.SORCERER
+                ));
             }
             else if (livingWerewolves >= livingVillagerTeam) {
                 // Werewolf team wins
                 gameOver = true;
+                winners = new Set(alivePlayers.filter(p => 
+                    p.role === ROLES.WEREWOLF || 
+                    p.role === ROLES.MINION || 
+                    p.role === ROLES.SORCERER
+                ));
+            }
+    
+            if (gameOver) {
                 this.phase = PHASES.GAME_OVER;
                 this.gameOver = true;
                 
-                // Add all evil team players to winners
-                this.players.forEach(player => {
-                    if (player.role === ROLES.WEREWOLF || 
-                        player.role === ROLES.MINION || 
-                        player.role === ROLES.SORCERER) {
-                        winners.add(player);
-                    }
+                // Send game end announcement using embedCreator
+                await this.broadcastMessage({
+                    embeds: [createGameEndEmbed(Array.from(winners), gameStats)]
                 });
+                
+                await this.shutdownGame();
             }
-
-            if (gameOver) {
-                try {
-                    // Clear all game state atomically
-                    const endGameUpdates = {
-                        nominatedPlayer: null,
-                        nominator: null,
-                        seconder: null,
-                        votingOpen: false,
-                        votes: new Map(),
-                        nominationTimeout: null,
-                        phase: PHASES.GAME_OVER,
-                        gameOver: true
-                    };
-
-                    // Apply all end game updates atomically
-                    Object.assign(this, endGameUpdates);
-
-                    // Save state before external operations
-                    await GameStateManager.saveGameState(this);
-
-                    // Disable UI components
-                    const channel = await this.client.channels.fetch(this.gameChannelId);
-                    const messages = await channel.messages.fetch({ limit: 10 });
-                    await Promise.all(messages.map(message => {
-                        if (message.components?.length > 0) {
-                            return message.edit({ components: [] });
-                        }
-                    }));
-
-                    // Send game end message
-                    await this.broadcastMessage({
-                        embeds: [createGameEndEmbed(Array.from(winners), gameStats)]
-                    });
-
-                    // Update player stats
-                    await this.updatePlayerStats(winners);
-
-                    // Clean up game resources
-                    await this.shutdownGame();
-
-                } catch (error) {
-                    // If end game sequence fails, restore state and try cleanup
-                    await this.restoreFromSnapshot(snapshot);
-                    logger.error('Error in game end sequence', { 
-                        error: error.message,
-                        stack: error.stack 
-                    });
-                    await this.shutdownGame().catch(err => 
-                        logger.error('Error in emergency shutdown', { err })
-                    );
-                }
-            }
-
+    
             return gameOver;
-
+    
         } catch (error) {
-            // Restore state on any error
             await this.restoreFromSnapshot(snapshot);
-            
-            logger.error('Error checking win conditions', { 
-                error: error.message,
-                stack: error.stack,
-                phase: this.phase,
-                round: this.round
-            });
-            
+            logger.error('Error checking win conditions', { error });
             throw error;
         }
     }
@@ -1698,52 +1646,61 @@ calculateRoleAssignments(playerCount) {
         try {
             const hunter = this.players.get(hunterId);
             const target = this.players.get(targetId);
-
-            if (!this.pendingHunterRevenge || hunterId !== this.pendingHunterRevenge) {
-                throw new GameError('Invalid action', 'No pending Hunter revenge action.');
-            }
-
-            if (!target?.isAlive) {
-                throw new GameError('Invalid target', 'Target must be alive.');
-            }
-
+    
             // Send revenge announcement
             await this.broadcastMessage({
                 embeds: [createHunterRevengeEmbed(hunter, target)]
             });
-
-            // Kill the target using PlayerStateManager
+    
+            // Kill the target
             await this.playerStateManager.changePlayerState(targetId, 
                 { isAlive: false },
                 { 
                     reason: 'Hunter revenge target',
-                    skipHunterRevenge: true, // Prevent infinite loop if target is also Hunter
+                    skipHunterRevenge: true,
                     announceImmediately: true
                 }
             );
-
+    
             // Clear pending revenge state
             this.pendingHunterRevenge = null;
-
+    
             // Save state
             await this.saveGameState();
-
+    
             logger.info('Hunter revenge processed', {
                 hunterId: hunter.id,
                 targetId: target.id,
                 currentPhase: this.phase
             });
-
-            // Check win conditions and advance phase appropriately
-            if (!this.checkWinConditions()) {
-                // Advance to opposite phase of when Hunter died
-                if (this.phase === PHASES.NIGHT) {
-                    await this.advanceToDay();
-                } else {
-                    await this.advanceToNight();
-                }
+    
+            // Check if everyone is dead (draw condition)
+            const alivePlayers = this.getAlivePlayers();
+            if (alivePlayers.length === 0) {
+                this.phase = PHASES.GAME_OVER;
+                this.gameOver = true;
+    
+                // Calculate game stats
+                const gameStats = {
+                    rounds: this.round,
+                    totalPlayers: this.players.size,
+                    eliminations: this.players.size,
+                    duration: this.getGameDuration(),
+                    players: Array.from(this.players.values())
+                };
+    
+                // Send draw announcement using embedCreator
+                await this.broadcastMessage({
+                    embeds: [createGameEndEmbed([], gameStats)]
+                });
+    
+                await this.shutdownGame();
+                return;
             }
-
+    
+            // If not a draw, check normal win conditions
+            await this.checkWinConditions();
+    
         } catch (error) {
             await this.restoreFromSnapshot(snapshot);
             logger.error('Error processing Hunter revenge', { error });

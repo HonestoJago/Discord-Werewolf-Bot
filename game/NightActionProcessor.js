@@ -238,9 +238,47 @@ class NightActionProcessor {
 
     async processNightActions() {
         try {
-            // Process other night actions...
+            // Process bodyguard protection first
             await this.processBodyguardProtection();
-            await this.processWerewolfAttacks();
+            
+            // Process werewolf attacks
+            const werewolfAttacks = Object.entries(this.game.nightActions)
+                .filter(([playerId, action]) => action.action === 'attack')
+                .map(([playerId, action]) => action.target);
+
+            if (werewolfAttacks.length > 0) {
+                // Get the most voted target
+                const targetCounts = {};
+                werewolfAttacks.forEach(targetId => {
+                    targetCounts[targetId] = (targetCounts[targetId] || 0) + 1;
+                });
+
+                const [targetId] = Object.entries(targetCounts)
+                    .sort(([,a], [,b]) => b - a)[0];
+
+                const target = this.game.players.get(targetId);
+
+                // Only kill if target isn't protected
+                if (target && !target.isProtected) {
+                    await this.game.playerStateManager.changePlayerState(targetId, 
+                        { isAlive: false },
+                        { 
+                            reason: 'Killed by werewolves',
+                            skipHunterRevenge: false
+                        }
+                    );
+
+                    await this.game.broadcastMessage({
+                        embeds: [{
+                            color: 0x800000,
+                            title: '🐺 A Grim Discovery',
+                            description: `*As dawn breaks, the village finds **${target.username}** dead, their body savagely mauled...*\n\n` +
+                                      `The werewolves have claimed another victim.`,
+                            footer: { text: 'The hunt continues...' }
+                        }]
+                    });
+                }
+            }
 
             // Clean up night state
             this.game.nightActions = {};
@@ -250,12 +288,20 @@ class NightActionProcessor {
             // Add logging before phase transition
             logger.info('Night actions processed, attempting phase transition', {
                 currentPhase: this.game.phase,
-                round: this.game.round
+                round: this.game.round,
+                pendingHunterRevenge: this.game.pendingHunterRevenge
             });
 
-            // Check win conditions and advance phase
+            // Don't advance if Hunter revenge is pending
+            if (this.game.pendingHunterRevenge) {
+                logger.info('Waiting for Hunter revenge before advancing phase', {
+                    hunterId: this.game.pendingHunterRevenge
+                });
+                return;
+            }
+
+            // Check win conditions and advance phase only if no Hunter revenge is pending
             if (!this.game.checkWinConditions()) {
-                // Direct call to advance phase, exactly like advance.js does
                 await this.game.advanceToDay();
                 
                 logger.info('Advanced to day after night actions', {
@@ -265,8 +311,8 @@ class NightActionProcessor {
             }
         } catch (error) {
             logger.error('Error processing night actions', { error });
-            // Even if there's an error, try to advance the phase
-            if (!this.game.checkWinConditions()) {
+            // Even if there's an error, only advance if no Hunter revenge is pending
+            if (!this.game.pendingHunterRevenge && !this.game.checkWinConditions()) {
                 await this.game.advanceToDay();
             }
         }
@@ -662,71 +708,78 @@ class NightActionProcessor {
         const snapshot = this.createNightSnapshot();
         
         try {
-            for (const [playerId, action] of Object.entries(this.game.nightActions)) {
-                if (action.action === 'attack') {
-                    const target = this.game.players.get(action.target);
-                    
-                    logger.info('Processing werewolf attack', {
-                        targetId: action.target,
-                        targetRole: target?.role,
-                        targetIsAlive: target?.isAlive,
-                        targetIsProtected: target?.isProtected,
-                        hasLovers: !!this.game.lovers.get(action.target)
-                    });
-
-                    if (!target?.isAlive) continue;
-
-                    if (target.isProtected) {
-                        if (!this.protectionMessageSent) {
-                            await this.game.broadcastMessage({
-                                embeds: [createProtectionEmbed(true)]
-                            });
-                            this.protectionMessageSent = true;
-                        }
-                        continue;
-                    }
-
-                    // Handle Hunter case atomically
-                    if (target.role === ROLES.HUNTER) {
-                        await this.handleHunterNightDeath(target);
-                        return;
-                    }
-
-                    // Use PlayerStateManager for death
-                    await this.game.playerStateManager.changePlayerState(target.id, 
-                        { isAlive: false },
-                        { 
-                            reason: 'Killed by werewolves',
-                            skipHunterRevenge: target.role === ROLES.HUNTER
-                        }
-                    );
-
-                    await this.game.broadcastMessage({
-                        embeds: [{
-                            color: 0x800000,
-                            title: '🐺 A Grim Discovery',
-                            description: `*As dawn breaks, the village finds **${target.username}** dead, their body savagely mauled...*\n\n` +
-                                       `The werewolves have claimed another victim.`,
-                            footer: { text: 'The hunt continues...' }
-                        }]
-                    });
+            // Get werewolf attack targets
+            const werewolfAttacks = new Map();
+            for (const [playerId, actions] of Object.entries(this.game.nightActions)) {
+                if (actions.attack) {
+                    werewolfAttacks.set(playerId, actions.attack);
                 }
             }
 
-            // Check win conditions and advance phase
-            const gameOver = await this.game.checkWinConditions();
-            if (!gameOver) {
-                await this.game.advanceToDay();
+            // Process each attack
+            if (werewolfAttacks.size > 0) {
+                // Count votes for each target
+                const voteCount = new Map();
+                for (const targetId of werewolfAttacks.values()) {
+                    voteCount.set(targetId, (voteCount.get(targetId) || 0) + 1);
+                }
+
+                // Find target with most votes
+                let maxVotes = 0;
+                let selectedTarget = null;
+                for (const [targetId, votes] of voteCount.entries()) {
+                    if (votes > maxVotes) {
+                        maxVotes = votes;
+                        selectedTarget = targetId;
+                    }
+                }
+
+                if (selectedTarget) {
+                    const target = this.game.players.get(selectedTarget);
+                    
+                    logger.info('Processing werewolf attack', {
+                        targetId: selectedTarget,
+                        targetRole: target?.role,
+                        targetIsAlive: target?.isAlive,
+                        targetIsProtected: target?.isProtected,
+                        hasLovers: !!this.game.lovers.get(selectedTarget)
+                    });
+
+                    if (target?.isAlive && !target.isProtected) {
+                        // Use PlayerStateManager for death
+                        await this.game.playerStateManager.changePlayerState(target.id, 
+                            { isAlive: false },
+                            { 
+                                reason: 'Killed by werewolves',
+                                skipHunterRevenge: false // Don't skip Hunter revenge
+                            }
+                        );
+
+                        await this.game.broadcastMessage({
+                            embeds: [{
+                                color: 0x800000,
+                                title: '🐺 A Grim Discovery',
+                                description: `*As dawn breaks, the village finds **${target.username}** dead, their body savagely mauled...*\n\n` +
+                                          `The werewolves have claimed another victim.`,
+                                footer: { text: 'The hunt continues...' }
+                            }]
+                        });
+                    }
+                }
+            }
+
+            // Don't check win conditions or advance phase if Hunter revenge is pending
+            if (!this.game.pendingHunterRevenge) {
+                const gameOver = await this.game.checkWinConditions();
+                if (!gameOver) {
+                    await this.game.advanceToDay();
+                }
             }
 
         } catch (error) {
             this.restoreFromSnapshot(snapshot);
             logger.error('Error processing werewolf attacks', { error });
-            if (!this.game.checkWinConditions()) {
-                await this.game.advanceToDay();
-            }
-        } finally {
-            this.protectionMessageSent = false;
+            throw error;
         }
     }
 

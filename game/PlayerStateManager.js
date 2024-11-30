@@ -121,6 +121,9 @@ class PlayerStateManager {
     async handleAliveStateChange(player, isAlive, options = {}) {
         try {
             if (!isAlive && player.isAlive) {
+                // Create a list to track all pending state changes
+                const pendingStateChanges = [];
+                
                 // Handle death
                 player.isAlive = false;
 
@@ -134,43 +137,55 @@ class PlayerStateManager {
                                 embeds: [createLoverDeathEmbed(lover, player)]
                             });
 
-                            // Check if lover is Hunter before killing them
+                            // Add lover death to pending changes
                             if (lover.role === ROLES.HUNTER && !options.skipHunterRevenge) {
                                 // Set up Hunter's revenge before marking them dead
                                 this.game.pendingHunterRevenge = lover.id;
                                 await this.game.handleHunterRevenge(lover);
-                                // Don't proceed with lover death yet - let Hunter take revenge first
                                 return;
                             }
 
-                            await this.changePlayerState(loverId, 
-                                { isAlive: false }, 
-                                { 
+                            pendingStateChanges.push({
+                                playerId: loverId,
+                                changes: { isAlive: false },
+                                options: { 
                                     reason: 'Lover died',
                                     skipLoverDeath: true,
-                                    skipHunterRevenge: lover.role === ROLES.HUNTER // Skip if we already handled it
+                                    skipHunterRevenge: lover.role === ROLES.HUNTER
                                 }
-                            );
+                            });
                         }
                     }
                 }
 
-                // Handle special role death effects BEFORE moving to dead channel
+                // Handle special role death effects
                 if (player.role === ROLES.HUNTER && !options.skipHunterRevenge) {
-                    // Set pending revenge before any channel moves
                     this.game.pendingHunterRevenge = player.id;
                     await this.game.handleHunterRevenge(player);
                     return;
                 }
 
-                // Only move to dead channel AFTER handling special death effects
+                // Move to dead channel
                 if (!options.skipChannelMove) {
                     await this.game.moveToDeadChannel(player);
                 }
 
-            } else if (isAlive && !player.isAlive) {
-                // Handle resurrection (if we ever add that feature)
-                player.isAlive = true;
+                // Process all pending state changes atomically
+                for (const change of pendingStateChanges) {
+                    await this.changePlayerState(
+                        change.playerId,
+                        change.changes,
+                        change.options
+                    );
+                }
+
+                // Save final state
+                await this.game.saveGameState();
+
+                // Only check win conditions after all state changes are complete
+                if (!this.game.pendingHunterRevenge) {
+                    await this.game.checkWinConditions();
+                }
             }
         } catch (error) {
             logger.error('Error in handleAliveStateChange', {
