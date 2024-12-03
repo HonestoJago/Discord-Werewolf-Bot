@@ -755,7 +755,7 @@ class NightActionProcessor {
 
             // Don't check win conditions or advance phase if Hunter revenge is pending
             if (!this.game.pendingHunterRevenge) {
-                const gameOver = await this.game.checkWinConditions();
+                const gameOver = await this.game.playerStateManager.checkWinConditionsAfterDeath(selectedTarget);
                 if (!gameOver) {
                     await this.game.advanceToDay();
                 }

@@ -273,12 +273,27 @@ class PlayerStateManager {
 
     // Add new method to centralize game ending logic
     async checkGameEndingConditions() {
+        // Skip checks during setup phases
+        if (this.game.phase === PHASES.LOBBY || this.game.phase === PHASES.NIGHT_ZERO) {
+            return false;
+        }
+
+        // Skip if game is already over
+        if (this.game.gameOver) {
+            return true;
+        }
+
+        // Skip if Hunter revenge is pending
+        if (this.game.pendingHunterRevenge) {
+            return false;
+        }
+
         // Check if all players are dead (draw)
         const alivePlayers = this.game.getAlivePlayers();
         if (alivePlayers.length === 0) {
             logger.info('All players are dead - ending in draw');
             await this.endGameInDraw();
-            return;
+            return true;
         }
 
         // Count living werewolves and villager team members
@@ -292,20 +307,59 @@ class PlayerStateManager {
         // Check win conditions
         if (livingWerewolves === 0) {
             // Village team wins
-            await this.endGame(alivePlayers.filter(p => 
+            const winners = alivePlayers.filter(p => 
                 p.role !== ROLES.WEREWOLF && 
                 p.role !== ROLES.MINION && 
                 p.role !== ROLES.SORCERER
-            ));
+            );
+            await this.endGame(winners);
+            return true;
         }
         else if (livingWerewolves >= livingVillagerTeam) {
             // Werewolf team wins
-            await this.endGame(alivePlayers.filter(p => 
+            const winners = alivePlayers.filter(p => 
                 p.role === ROLES.WEREWOLF || 
                 p.role === ROLES.MINION || 
                 p.role === ROLES.SORCERER
-            ));
+            );
+            await this.endGame(winners);
+            return true;
         }
+
+        return false;
+    }
+
+    async checkWinConditionsAfterDeath(deadPlayerId) {
+        // Create a snapshot before checking
+        const snapshot = this.createGameSnapshot();
+        
+        try {
+            // Skip if Hunter revenge is pending
+            if (this.game.pendingHunterRevenge) {
+                logger.info('Skipping win check - Hunter revenge pending', {
+                    hunterId: this.game.pendingHunterRevenge
+                });
+                return false;
+            }
+
+            return await this.checkGameEndingConditions();
+        } catch (error) {
+            await this.restoreFromSnapshot(snapshot);
+            logger.error('Error checking win conditions after death', { error });
+            throw error;
+        }
+    }
+
+    // Add helper method to check if a player is on the werewolf team
+    isWerewolfTeam(player) {
+        return player.role === ROLES.WEREWOLF || 
+               player.role === ROLES.MINION || 
+               player.role === ROLES.SORCERER;
+    }
+
+    // Add helper method to check if a player is on the village team
+    isVillageTeam(player) {
+        return !this.isWerewolfTeam(player);
     }
 
     async endGameInDraw() {
@@ -350,6 +404,103 @@ class PlayerStateManager {
         });
 
         await this.game.shutdownGame();
+    }
+
+    async processHunterRevenge(hunterId, targetId) {
+        const snapshot = this.createGameSnapshot();
+        
+        try {
+            const hunter = this.game.players.get(hunterId);
+            const target = this.game.players.get(targetId);
+    
+            if (!target || !target.isAlive) {
+                throw new GameError('Invalid target', 'Target player not found or is already dead');
+            }
+    
+            // Send revenge announcement
+            await this.game.broadcastMessage({
+                embeds: [createHunterRevengeEmbed(hunter.username, target.username)]
+            });
+    
+            // Kill the target
+            await this.changePlayerState(targetId, 
+                { isAlive: false },
+                { 
+                    reason: 'Hunter revenge target',
+                    skipHunterRevenge: true,
+                    skipLoverDeath: true,
+                    skipWinCheck: true // Skip win check until after we check for draw
+                }
+            );
+    
+            // Clear pending revenge state
+            this.game.pendingHunterRevenge = null;
+    
+            // Save state
+            await this.game.saveGameState();
+    
+            logger.info('Hunter revenge processed', {
+                hunterId: hunter.id,
+                targetId: target.id,
+                currentPhase: this.game.phase
+            });
+    
+            // Check if everyone is dead (draw)
+            const alivePlayers = this.game.getAlivePlayers();
+            if (alivePlayers.length === 0) {
+                logger.info('All players dead after Hunter revenge - ending in draw');
+                await this.endGameInDraw();
+                return;
+            }
+    
+            // If not a draw, check normal win conditions
+            await this.checkGameEndingConditions();
+    
+        } catch (error) {
+            await this.restoreFromSnapshot(snapshot);
+            logger.error('Error processing Hunter revenge', { error });
+            throw error;
+        }
+    }
+
+    /**
+     * Creates a snapshot of the current game state for this manager
+     * @returns {Object} Snapshot of current state
+     */
+    createGameSnapshot() {
+        return {
+            phase: this.game.phase,
+            players: new Map(Array.from(this.game.players.entries()).map(([id, player]) => [
+                id,
+                {
+                    id: player.id,
+                    isAlive: player.isAlive,
+                    isProtected: player.isProtected,
+                    role: player.role
+                }
+            ])),
+            round: this.game.round,
+            lastProtectedPlayer: this.game.lastProtectedPlayer,
+            pendingHunterRevenge: this.game.pendingHunterRevenge,
+            lovers: new Map(this.game.lovers)
+        };
+    }
+
+    /**
+     * Restores game state from a snapshot
+     * @param {Object} snapshot - The snapshot to restore from
+     */
+    async restoreFromSnapshot(snapshot) {
+        this.game.phase = snapshot.phase;
+        this.game.players = new Map(Array.from(snapshot.players.entries()).map(([id, playerData]) => [
+            id,
+            Object.assign(this.game.players.get(id), playerData)
+        ]));
+        this.game.round = snapshot.round;
+        this.game.lastProtectedPlayer = snapshot.lastProtectedPlayer;
+        this.game.pendingHunterRevenge = snapshot.pendingHunterRevenge;
+        this.game.lovers = new Map(snapshot.lovers);
+        await this.game.saveGameState();
     }
 }
 

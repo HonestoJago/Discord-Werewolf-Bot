@@ -542,7 +542,23 @@ async function handleVoteButton(interaction, currentGame) {
         });
     } catch (error) {
         if (error.code !== 10062) {
-            logger.error('Error processing vote', { error });
+            logger.error('Error processing vote', { 
+                error: {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack
+                },
+                userId: interaction.user.id,
+                vote: vote,
+                targetId: targetId
+            });
+            // Only reply if interaction hasn't been handled yet
+            if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply({
+                    content: 'There was an error processing your vote.',
+                    ephemeral: true
+                });
+            }
         }
     }
 }

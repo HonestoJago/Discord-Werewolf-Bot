@@ -276,19 +276,16 @@ class VoteProcessor {
      */
     async processVotes() {
         const snapshot = this.createVoteSnapshot();
+        let target = null;  // Define target outside try block
+        let voteCounts = { guilty: 0, innocent: 0 };  // Define voteCounts outside try block
+        let playerVotes = {};  // Define playerVotes outside try block
         
         try {
             if (!this.game.votingOpen) {
                 throw new GameError('Invalid state', 'No votes to process.');
             }
         
-            const voteCounts = {
-                guilty: 0,
-                innocent: 0
-            };
-        
-            const playerVotes = {};
-            const target = this.game.players.get(this.game.nominatedPlayer);
+            target = this.game.players.get(this.game.nominatedPlayer);
             
             // Count votes only from living players who aren't the target
             const eligibleVoters = Array.from(this.game.players.values())
@@ -303,12 +300,27 @@ class VoteProcessor {
                     playerVotes[voter.username] = vote;
                 }
             }
-        
+
             // Check if we have all eligible votes
             const totalVotes = voteCounts.guilty + voteCounts.innocent;
             if (totalVotes < eligibleVoters) {
+                logger.info('Vote processing incomplete - waiting for more votes', {
+                    target: target.username,
+                    currentVotes: totalVotes,
+                    requiredVotes: eligibleVoters,
+                    guiltyVotes: voteCounts.guilty,
+                    innocentVotes: voteCounts.innocent
+                });
                 return null;
             }
+
+            logger.info('Processing vote results', {
+                target: target.username,
+                guiltyVotes: voteCounts.guilty,
+                innocentVotes: voteCounts.innocent,
+                eligibleVoters,
+                playerVotes
+            });
         
             // Process vote outcome atomically
             if (voteCounts.guilty === voteCounts.innocent || voteCounts.innocent > voteCounts.guilty) {
@@ -331,6 +343,13 @@ class VoteProcessor {
                 const dayChannel = await this.game.client.channels.fetch(this.game.gameChannelId);
                 await this.createDayPhaseUI(dayChannel, this.game.players);
 
+                logger.info('Vote failed - target spared', {
+                    target: target.username,
+                    guiltyVotes: voteCounts.guilty,
+                    innocentVotes: voteCounts.innocent,
+                    reason: voteCounts.guilty === voteCounts.innocent ? 'tie' : 'majority innocent'
+                });
+
                 return {
                     eliminated: null,
                     votesFor: voteCounts.guilty,
@@ -352,36 +371,71 @@ class VoteProcessor {
                 const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
                 await channel.send({ embeds: [resultsEmbed] });
 
+                logger.info('Vote passed - target eliminated', {
+                    target: target.username,
+                    targetRole: target.role,
+                    guiltyVotes: voteCounts.guilty,
+                    innocentVotes: voteCounts.innocent
+                });
+
                 // Handle elimination through PlayerStateManager
                 await this.game.playerStateManager.changePlayerState(target.id, 
                     { isAlive: false },
-                    { 
-                        reason: 'Eliminated by vote',
-                        skipHunterRevenge: target.role === ROLES.HUNTER
-                    }
+                    { reason: 'Eliminated by vote' }
                 );
 
                 // Clear voting state
                 this.clearVotingState();
                 await this.game.saveGameState();
 
-                // Advance to night if no Hunter revenge pending
+                // Check win conditions and advance phase if needed
                 if (!this.game.pendingHunterRevenge) {
-                    await this.game.advanceToNight();
+                    const gameOver = await this.game.playerStateManager.checkWinConditionsAfterDeath(target.id);
+                    if (!gameOver) {
+                        await this.game.advanceToNight();
+                    }
                 }
+
+                return {
+                    eliminated: target.id,
+                    votesFor: voteCounts.guilty,
+                    votesAgainst: voteCounts.innocent,
+                    stayInDay: false
+                };
             }
 
+            // If we get here, something went wrong with the vote processing
+            logger.error('Vote processing reached invalid state', {
+                guiltyVotes: voteCounts.guilty,
+                innocentVotes: voteCounts.innocent,
+                target: target.username,
+                playerVotes
+            });
+            
+            // Return a safe default that keeps us in day phase
             return {
-                eliminated: eliminated ? target.id : null,
+                eliminated: null,
                 votesFor: voteCounts.guilty,
                 votesAgainst: voteCounts.innocent,
-                stayInDay: !eliminated
+                stayInDay: true
             };
 
         } catch (error) {
             // Restore previous state on error
             this.restoreFromSnapshot(snapshot);
-            logger.error('Error processing votes', { error });
+            logger.error('Error processing votes', { 
+                error: {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack
+                },
+                target: target?.username,
+                nominatedPlayer: this.game.nominatedPlayer,
+                voteCounts,
+                playerVotes,
+                phase: this.game.phase,
+                round: this.game.round
+            });
             throw error;
         }
     }
