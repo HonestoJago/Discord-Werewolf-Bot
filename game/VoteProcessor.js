@@ -371,14 +371,23 @@ class VoteProcessor {
                 const channel = await this.game.client.channels.fetch(this.game.gameChannelId);
                 await channel.send({ embeds: [resultsEmbed] });
 
-                logger.info('Vote passed - target eliminated', {
-                    target: target.username,
-                    targetRole: target.role,
-                    guiltyVotes: voteCounts.guilty,
-                    innocentVotes: voteCounts.innocent
-                });
+                // Special handling for Hunter
+                if (target.role === ROLES.HUNTER) {
+                    // Set up Hunter revenge before death
+                    this.game.pendingHunterRevenge = target.id;
+                    await this.game.playerStateManager.handleHunterDeath(target, 'Eliminated by vote');
+                    
+                    // Clear voting state but don't advance phase
+                    this.clearVotingState();
+                    await this.game.saveGameState();
+                    
+                    logger.info('Waiting for Hunter revenge before advancing phase', {
+                        hunterId: target.id
+                    });
+                    return;
+                }
 
-                // Handle elimination through PlayerStateManager
+                // Handle normal elimination
                 await this.game.playerStateManager.changePlayerState(target.id, 
                     { isAlive: false },
                     { reason: 'Eliminated by vote' }
@@ -388,12 +397,18 @@ class VoteProcessor {
                 this.clearVotingState();
                 await this.game.saveGameState();
 
-                // Check win conditions and advance phase if needed
-                if (!this.game.pendingHunterRevenge) {
-                    const gameOver = await this.game.playerStateManager.checkGameEndingConditions();
-                    if (!gameOver) {
-                        await this.game.advanceToNight();
-                    }
+                // If Hunter revenge is pending, wait for it
+                if (this.game.pendingHunterRevenge) {
+                    logger.info('Waiting for Hunter revenge before advancing phase', {
+                        hunterId: this.game.pendingHunterRevenge
+                    });
+                    return; // Don't advance phase yet
+                }
+
+                // Only proceed if no Hunter revenge is pending
+                const gameOver = await this.game.playerStateManager.checkGameEndingConditions();
+                if (!gameOver) {
+                    await this.game.advanceToNight();
                 }
 
                 return {
@@ -440,13 +455,6 @@ class VoteProcessor {
         }
     }
 
-    /**
-     * Helper method to handle Hunter's revenge setup
-     * @param {Player} hunter - The Hunter player
-     */
-    async handleHunterRevenge(hunter) {
-        await this.game.handleHunterRevenge(hunter);
-    }
 
       /**
      * Atomically clears the current nomination

@@ -152,7 +152,14 @@ class NightActionProcessor {
 
             // Check if all actions are complete
             if (this.checkAllActionsComplete()) {
-                await this.processNightActions();
+                // Don't process night actions if Hunter revenge is pending
+                if (!this.game.pendingHunterRevenge) {
+                    await this.processNightActions();
+                } else {
+                    logger.info('Night actions complete but waiting for Hunter revenge', {
+                        hunterId: this.game.pendingHunterRevenge
+                    });
+                }
             }
 
         } catch (error) {
@@ -755,15 +762,19 @@ class NightActionProcessor {
                 }
             }
 
-            // Don't check win conditions or advance phase if Hunter revenge is pending
-            if (!this.game.pendingHunterRevenge) {
-                // Let PlayerStateManager handle death and win conditions through changePlayerState
-                await this.game.advanceToDay();
+            // If Hunter revenge is pending, wait for it
+            if (this.game.pendingHunterRevenge) {
+                logger.info('Waiting for Hunter revenge before advancing phase', {
+                    hunterId: this.game.pendingHunterRevenge
+                });
+                return; // Don't advance phase yet
             }
 
+            // Only advance if no Hunter revenge is pending
+            await this.game.advanceToDay();
+
         } catch (error) {
-            this.restoreFromSnapshot(snapshot);
-            logger.error('Error processing werewolf attacks', { error });
+            await this.restoreFromSnapshot(snapshot);
             throw error;
         }
     }

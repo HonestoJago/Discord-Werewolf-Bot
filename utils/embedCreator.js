@@ -684,7 +684,7 @@ function createHunterTensionEmbed(hunter) {
         description: 
             `*With their dying breath, **${hunter.username}** reaches for their bow...*\n\n` +
             'The village holds its breath, sensing that this elimination has set something in motion.\n' +
-            'Wait for fate to unfold before proceeding to nightfall.',
+            'Wait for fate to unfold...',
         footer: { text: 'Some deaths echo louder than others...' }
     };
 }

@@ -8,8 +8,11 @@ const {
     createGameEndEmbed, 
     createHunterRevengeEmbed, 
     createHunterTensionEmbed,
-    createDeathAnnouncementEmbed
+    createDeathAnnouncementEmbed,
+    createHunterRevengePromptEmbed,
+    createHunterRevengeFallbackEmbed
 } = require('../utils/embedCreator');
+const { ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
 
 class PlayerStateManager {
     constructor(game) {
@@ -135,9 +138,8 @@ class PlayerStateManager {
     async handleAliveStateChange(player, isAlive, options = {}) {
         try {
             if (!isAlive && player.isAlive) {
-                // Create a list to track all pending state changes
                 const pendingStateChanges = [];
-                const deathChain = new Set(); // Track all deaths in this chain
+                const deathChain = new Set();
                 deathChain.add(player.id);
                 
                 // Handle death
@@ -150,31 +152,33 @@ class PlayerStateManager {
                     });
                 }
 
-                // Then handle lover death if applicable
+                // Special handling for Hunter death
+                if (player.role === ROLES.HUNTER && !options.skipHunterRevenge) {
+                    const hunterDeath = await this.handleHunterDeath(player, options.reason);
+                    pendingStateChanges.push(hunterDeath);
+                    return;
+                }
+
+                // Handle lover death if applicable
                 if (!options.skipLoverDeath) {
                     const loverId = this.game.lovers.get(player.id);
                     if (loverId) {
                         const lover = this.game.players.get(loverId);
                         if (lover?.isAlive) {
-                            // Send lover death message before hunter message
                             await this.game.broadcastMessage({
                                 embeds: [createLoverDeathEmbed(lover, player)]
                             });
 
                             deathChain.add(loverId);
 
-                            // Handle Hunter lover death specially
+                            // If lover is Hunter, handle their death specially
                             if (lover.role === ROLES.HUNTER && !options.skipHunterRevenge) {
-                                // Send Hunter tension message last
-                                await this.game.broadcastMessage({
-                                    embeds: [createHunterTensionEmbed(lover)]
-                                });
-                                
-                                this.game.pendingHunterRevenge = lover.id;
-                                await this.game.handleHunterRevenge(lover);
+                                const hunterDeath = await this.handleHunterDeath(lover, 'Lover died');
+                                pendingStateChanges.push(hunterDeath);
                                 return;
                             }
 
+                            // For non-Hunter lovers, queue death normally
                             pendingStateChanges.push({
                                 playerId: loverId,
                                 changes: { isAlive: false },
@@ -188,12 +192,7 @@ class PlayerStateManager {
                     }
                 }
 
-                // Move to dead channel if needed
-                if (!options.skipChannelMove) {
-                    await this.game.moveToDeadChannel(player);
-                }
-
-                // Process remaining state changes
+                // Process all deaths before moving to dead channel
                 for (const change of pendingStateChanges) {
                     await this.changePlayerState(
                         change.playerId,
@@ -202,33 +201,18 @@ class PlayerStateManager {
                     );
                 }
 
-                // Save state
-                await this.game.saveGameState();
-
-                // Skip win condition check if Hunter revenge is pending
-                if (this.game.pendingHunterRevenge) {
-                    logger.info('Skipping win condition check - Hunter revenge pending', {
-                        hunterId: this.game.pendingHunterRevenge
-                    });
-                    return;
+                // Move to dead channel AFTER all actions are processed
+                if (!options.skipChannelMove) {
+                    await this.game.moveToDeadChannel(player);
                 }
 
-                // Check game ending conditions if not skipped
+                // Check win conditions if not skipped
                 if (!options.skipWinCheck) {
                     await this.checkGameEndingConditions();
                 }
             }
         } catch (error) {
-            logger.error('Error in handleAliveStateChange', {
-                error: {
-                    message: error.message,
-                    stack: error.stack,
-                    name: error.name
-                },
-                playerId: player.id,
-                isAlive,
-                options
-            });
+            logger.error('Error in handleAliveStateChange', { error });
             throw error;
         }
     }
@@ -293,27 +277,60 @@ class PlayerStateManager {
 
     // Add new method to centralize game ending logic
     async checkGameEndingConditions() {
+        // Log initial state
+        logger.info('Checking game ending conditions', {
+            phase: this.game.phase,
+            gameOver: this.game.gameOver,
+            pendingHunterRevenge: this.game.pendingHunterRevenge,
+            round: this.game.round
+        });
+
         // Skip checks during setup phases
         if (this.game.phase === PHASES.LOBBY || this.game.phase === PHASES.NIGHT_ZERO) {
+            logger.info('Skipping win check - setup phase', { phase: this.game.phase });
             return false;
         }
 
         // Skip if game is already over
         if (this.game.gameOver) {
+            logger.info('Game is already over', { phase: this.game.phase });
             return true;
         }
 
         // Skip if Hunter revenge is pending
         if (this.game.pendingHunterRevenge) {
+            logger.info('Skipping win check - Hunter revenge pending', {
+                hunterId: this.game.pendingHunterRevenge
+            });
             return false;
         }
 
         // Get alive players after all deaths are processed
         const alivePlayers = this.game.getAlivePlayers();
         
+        // Log current player state
+        logger.info('Current player state', {
+            totalPlayers: this.game.players.size,
+            alivePlayers: alivePlayers.length,
+            playerDetails: Array.from(this.game.players.values()).map(p => ({
+                username: p.username,
+                role: p.role,
+                isAlive: p.isAlive,
+                isProtected: p.isProtected,
+                hasLover: this.game.lovers.has(p.id)
+            }))
+        });
+        
         // Check if all players are dead (draw)
         if (alivePlayers.length === 0) {
-            logger.info('All players are dead - ending in draw');
+            logger.info('All players are dead - ending in draw', {
+                finalState: Array.from(this.game.players.values()).map(p => ({
+                    username: p.username,
+                    role: p.role,
+                    isAlive: p.isAlive,
+                    deathReason: p.deathReason
+                }))
+            });
             await this.endGameInDraw();
             return true;
         }
@@ -322,35 +339,62 @@ class PlayerStateManager {
         const livingWerewolves = alivePlayers.filter(p => p.role === ROLES.WEREWOLF).length;
         const livingVillagerTeam = alivePlayers.filter(p => !this.isWerewolfTeam(p)).length;
 
-        // If no players remain alive after all deaths are processed, it's a draw
+        // Log team counts
+        logger.info('Team counts', {
+            livingWerewolves,
+            livingVillagerTeam,
+            werewolfTeamPlayers: alivePlayers.filter(p => this.isWerewolfTeam(p))
+                .map(p => ({ username: p.username, role: p.role })),
+            villageTeamPlayers: alivePlayers.filter(p => !this.isWerewolfTeam(p))
+                .map(p => ({ username: p.username, role: p.role }))
+        });
+
+        // If no players remain alive on either team, it's a draw
         if (livingWerewolves === 0 && livingVillagerTeam === 0) {
-            logger.info('No players remain alive on either team - ending in draw');
+            logger.info('No players remain alive on either team - ending in draw', {
+                finalState: Array.from(this.game.players.values()).map(p => ({
+                    username: p.username,
+                    role: p.role,
+                    isAlive: p.isAlive,
+                    deathReason: p.deathReason
+                }))
+            });
             await this.endGameInDraw();
             return true;
         }
 
-        // Check win conditions
-        if (livingWerewolves === 0) {
-            // Village team wins
-            const winners = alivePlayers.filter(p => 
-                p.role !== ROLES.WEREWOLF && 
-                p.role !== ROLES.MINION && 
-                p.role !== ROLES.SORCERER
-            );
-            await this.endGame(winners);
-            return true;
-        }
-        else if (livingWerewolves >= livingVillagerTeam) {
-            // Werewolf team wins
-            const winners = alivePlayers.filter(p => 
-                p.role === ROLES.WEREWOLF || 
-                p.role === ROLES.MINION || 
-                p.role === ROLES.SORCERER
-            );
-            await this.endGame(winners);
-            return true;
+        // Only check team wins if there are still players alive
+        if (alivePlayers.length > 0) {
+            if (livingWerewolves === 0) {
+                logger.info('Village team wins - all werewolves eliminated', {
+                    remainingVillagers: alivePlayers.filter(p => !this.isWerewolfTeam(p))
+                        .map(p => ({ username: p.username, role: p.role }))
+                });
+                const winners = alivePlayers.filter(p => !this.isWerewolfTeam(p));
+                await this.endGame(winners);
+                return true;
+            }
+            else if (livingWerewolves >= livingVillagerTeam) {
+                logger.info('Werewolf team wins - achieved parity', {
+                    livingWerewolves,
+                    livingVillagerTeam,
+                    remainingPlayers: alivePlayers.map(p => ({ 
+                        username: p.username, 
+                        role: p.role,
+                        team: this.isWerewolfTeam(p) ? 'werewolf' : 'village'
+                    }))
+                });
+                const winners = alivePlayers.filter(p => this.isWerewolfTeam(p));
+                await this.endGame(winners);
+                return true;
+            }
         }
 
+        logger.info('No win condition met - game continues', {
+            livingWerewolves,
+            livingVillagerTeam,
+            totalAlive: alivePlayers.length
+        });
         return false;
     }
 
@@ -431,8 +475,8 @@ class PlayerStateManager {
                 { isAlive: false },
                 { 
                     reason: 'Hunter revenge target',
-                    skipHunterRevenge: true,
-                    skipLoverDeath: true,
+                    skipHunterRevenge: true,  // Prevent infinite revenge chain
+                    skipLoverDeath: true,     // Skip lover deaths for target
                 }
             );
     
@@ -441,12 +485,6 @@ class PlayerStateManager {
     
             // Save state
             await this.game.saveGameState();
-    
-            logger.info('Hunter revenge processed', {
-                hunterId: hunter.id,
-                targetId: target.id,
-                currentPhase: this.game.phase
-            });
     
             // Check win conditions after all state changes
             return await this.checkGameEndingConditions();
@@ -496,6 +534,61 @@ class PlayerStateManager {
         this.game.pendingHunterRevenge = snapshot.pendingHunterRevenge;
         this.game.lovers = new Map(snapshot.lovers);
         await this.game.saveGameState();
+    }
+
+    async handleHunterDeath(hunter, reason) {
+        // Set up revenge while Hunter is still alive
+        this.game.pendingHunterRevenge = hunter.id;
+
+        // Create dropdown for Hunter's revenge
+        const validTargets = Array.from(this.game.players.values())
+            .filter(p => p.isAlive && p.id !== hunter.id)
+            .map(p => ({
+                label: p.username,
+                value: p.id,
+                description: `Take ${p.username} with you`
+            }));
+
+        // Send tension message to village first
+        await this.game.broadcastMessage({
+            embeds: [createHunterTensionEmbed(hunter)]
+        });
+
+        // Send revenge UI to Hunter
+        try {
+            await hunter.sendDM({
+                embeds: [createHunterRevengePromptEmbed()],
+                components: [new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId('hunter_revenge')
+                        .setPlaceholder('Choose your target')
+                        .addOptions(validTargets)
+                )]
+            });
+
+            logger.info('Hunter revenge DM sent', {
+                hunterId: hunter.id,
+                hunterName: hunter.username,
+                validTargetCount: validTargets.length
+            });
+        } catch (error) {
+            logger.error('Failed to send Hunter revenge DM', { error });
+            // Send fallback message to game channel
+            await this.game.broadcastMessage({
+                embeds: [createHunterRevengeFallbackEmbed(hunter.username)]
+            });
+        }
+
+        // Queue Hunter's death for after revenge
+        return {
+            playerId: hunter.id,
+            changes: { isAlive: false },
+            options: { 
+                reason: reason,
+                skipLoverDeath: true,  // Prevent death chain loops
+                skipHunterRevenge: true // Already handled revenge
+            }
+        };
     }
 }
 

@@ -363,23 +363,20 @@ client.on('interactionCreate', async interaction => {
                     await game.voteProcessor.handleNominationSelect(interaction);
                 }
                 else if (interaction.customId === 'hunter_revenge') {
-                    await interaction.deferReply({ ephemeral: true });
+                    await interaction.deferUpdate();
 
                     const hunterId = interaction.user.id;
                     const targetId = interaction.values[0];
 
                     try {
-                        // Let PlayerStateManager handle Hunter's Revenge
                         await game.playerStateManager.processHunterRevenge(hunterId, targetId);
 
-                        // Inform the user
-                        await interaction.editReply({
+                        await interaction.followUp({
                             content: 'Your revenge has been executed. Both you and your target have been eliminated.',
                             ephemeral: true
                         });
                     } catch (error) {
-                        // Handle errors
-                        await interaction.editReply({
+                        await interaction.followUp({
                             content: `There was an error processing your revenge: ${error.message}`,
                             ephemeral: true
                         });
