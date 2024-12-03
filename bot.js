@@ -369,8 +369,8 @@ client.on('interactionCreate', async interaction => {
                     const targetId = interaction.values[0];
 
                     try {
-                        // Process Hunter's Revenge
-                        await game.processHunterRevenge(hunterId, targetId);
+                        // Let PlayerStateManager handle Hunter's Revenge
+                        await game.playerStateManager.processHunterRevenge(hunterId, targetId);
 
                         // Inform the user
                         await interaction.editReply({

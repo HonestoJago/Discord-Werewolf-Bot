@@ -3,7 +3,13 @@ const logger = require('../utils/logger');
 const { GameError } = require('../utils/error-handler');
 const ROLES = require('../constants/roles');
 const PHASES = require('../constants/phases');
-const { createLoverDeathEmbed, createGameEndEmbed } = require('../utils/embedCreator');
+const { 
+    createLoverDeathEmbed, 
+    createGameEndEmbed, 
+    createHunterRevengeEmbed, 
+    createHunterTensionEmbed,
+    createDeathAnnouncementEmbed
+} = require('../utils/embedCreator');
 
 class PlayerStateManager {
     constructor(game) {
@@ -50,7 +56,7 @@ class PlayerStateManager {
     }
 
     async changePlayerState(playerId, changes, options = {}) {
-        const snapshot = this.createPlayerSnapshot(playerId);
+        const snapshot = this.createGameSnapshot();
         const relatedSnapshots = new Map();
         
         try {
@@ -86,18 +92,20 @@ class PlayerStateManager {
             // Save state before checking win conditions
             await GameStateManager.saveGameState(this.game);
 
-            // Check win conditions after state changes if not skipped
-            if (!options.skipWinCheck && !this.game.pendingHunterRevenge) {
-                await this.checkGameEndingConditions();
-            }
-
+            // Log state change before returning
             logger.info('Player state changed', {
                 playerId,
                 changes,
                 reason: options.reason || 'No reason provided',
                 finalState: this.createPlayerSnapshot(playerId)
             });
-            
+
+            // Check win conditions if requested and not skipped
+            if (options.checkWinConditions && !options.skipWinCheck) {
+                return await this.checkGameEndingConditions();
+            }
+            return false;  // Game continues if no win check requested
+
         } catch (error) {
             const errorDetails = {
                 message: error.message || 'Unknown error',
@@ -135,12 +143,20 @@ class PlayerStateManager {
                 // Handle death
                 player.isAlive = false;
 
-                // Handle lover death if not already being handled
+                // First send death announcement if it's a werewolf kill
+                if (options.reason === 'Killed by werewolves') {
+                    await this.game.broadcastMessage({
+                        embeds: [createDeathAnnouncementEmbed(player)]
+                    });
+                }
+
+                // Then handle lover death if applicable
                 if (!options.skipLoverDeath) {
                     const loverId = this.game.lovers.get(player.id);
                     if (loverId) {
                         const lover = this.game.players.get(loverId);
                         if (lover?.isAlive) {
+                            // Send lover death message before hunter message
                             await this.game.broadcastMessage({
                                 embeds: [createLoverDeathEmbed(lover, player)]
                             });
@@ -149,19 +165,23 @@ class PlayerStateManager {
 
                             // Handle Hunter lover death specially
                             if (lover.role === ROLES.HUNTER && !options.skipHunterRevenge) {
+                                // Send Hunter tension message last
+                                await this.game.broadcastMessage({
+                                    embeds: [createHunterTensionEmbed(lover)]
+                                });
+                                
                                 this.game.pendingHunterRevenge = lover.id;
                                 await this.game.handleHunterRevenge(lover);
-                                return; // Exit early to let Hunter revenge handle the rest
+                                return;
                             }
 
-                            // For any other lover death, queue it with skipHunterRevenge=true
                             pendingStateChanges.push({
                                 playerId: loverId,
                                 changes: { isAlive: false },
                                 options: { 
                                     reason: 'Lover died',
-                                    skipLoverDeath: true,  // Prevent infinite lover death chain
-                                    skipHunterRevenge: true // Prevent Hunter revenge on lover death
+                                    skipLoverDeath: true,
+                                    skipHunterRevenge: true
                                 }
                             });
                         }
@@ -173,7 +193,7 @@ class PlayerStateManager {
                     await this.game.moveToDeadChannel(player);
                 }
 
-                // Process all pending state changes atomically
+                // Process remaining state changes
                 for (const change of pendingStateChanges) {
                     await this.changePlayerState(
                         change.playerId,
@@ -288,8 +308,10 @@ class PlayerStateManager {
             return false;
         }
 
-        // Check if all players are dead (draw)
+        // Get alive players after all deaths are processed
         const alivePlayers = this.game.getAlivePlayers();
+        
+        // Check if all players are dead (draw)
         if (alivePlayers.length === 0) {
             logger.info('All players are dead - ending in draw');
             await this.endGameInDraw();
@@ -298,11 +320,14 @@ class PlayerStateManager {
 
         // Count living werewolves and villager team members
         const livingWerewolves = alivePlayers.filter(p => p.role === ROLES.WEREWOLF).length;
-        const livingVillagerTeam = alivePlayers.filter(p => 
-            p.role !== ROLES.WEREWOLF && 
-            p.role !== ROLES.MINION && 
-            p.role !== ROLES.SORCERER
-        ).length;
+        const livingVillagerTeam = alivePlayers.filter(p => !this.isWerewolfTeam(p)).length;
+
+        // If no players remain alive after all deaths are processed, it's a draw
+        if (livingWerewolves === 0 && livingVillagerTeam === 0) {
+            logger.info('No players remain alive on either team - ending in draw');
+            await this.endGameInDraw();
+            return true;
+        }
 
         // Check win conditions
         if (livingWerewolves === 0) {
@@ -327,27 +352,6 @@ class PlayerStateManager {
         }
 
         return false;
-    }
-
-    async checkWinConditionsAfterDeath(deadPlayerId) {
-        // Create a snapshot before checking
-        const snapshot = this.createGameSnapshot();
-        
-        try {
-            // Skip if Hunter revenge is pending
-            if (this.game.pendingHunterRevenge) {
-                logger.info('Skipping win check - Hunter revenge pending', {
-                    hunterId: this.game.pendingHunterRevenge
-                });
-                return false;
-            }
-
-            return await this.checkGameEndingConditions();
-        } catch (error) {
-            await this.restoreFromSnapshot(snapshot);
-            logger.error('Error checking win conditions after death', { error });
-            throw error;
-        }
     }
 
     // Add helper method to check if a player is on the werewolf team
@@ -419,17 +423,16 @@ class PlayerStateManager {
     
             // Send revenge announcement
             await this.game.broadcastMessage({
-                embeds: [createHunterRevengeEmbed(hunter.username, target.username)]
+                embeds: [createHunterRevengeEmbed(hunter, target)]
             });
     
             // Kill the target
-            await this.changePlayerState(targetId, 
+            await this.changePlayerState(target.id, 
                 { isAlive: false },
                 { 
                     reason: 'Hunter revenge target',
                     skipHunterRevenge: true,
                     skipLoverDeath: true,
-                    skipWinCheck: true // Skip win check until after we check for draw
                 }
             );
     
@@ -445,16 +448,8 @@ class PlayerStateManager {
                 currentPhase: this.game.phase
             });
     
-            // Check if everyone is dead (draw)
-            const alivePlayers = this.game.getAlivePlayers();
-            if (alivePlayers.length === 0) {
-                logger.info('All players dead after Hunter revenge - ending in draw');
-                await this.endGameInDraw();
-                return;
-            }
-    
-            // If not a draw, check normal win conditions
-            await this.checkGameEndingConditions();
+            // Check win conditions after all state changes
+            return await this.checkGameEndingConditions();
     
         } catch (error) {
             await this.restoreFromSnapshot(snapshot);

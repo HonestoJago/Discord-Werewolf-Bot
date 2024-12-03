@@ -389,8 +389,9 @@ class NightActionProcessor {
             this.executionOrder.push('phase_advance');
         }
 
-        // Check win conditions before advancing
-        if (!this.game.checkWinConditions()) {
+        // Let PlayerStateManager handle win conditions
+        const gameOver = await this.game.playerStateManager.checkGameEndingConditions();
+        if (!gameOver) {
             await this.game.advanceToDay();
         }
     }
@@ -736,7 +737,8 @@ class NightActionProcessor {
                             { isAlive: false },
                             { 
                                 reason: 'Killed by werewolves',
-                                skipHunterRevenge: false // Don't skip Hunter revenge
+                                skipHunterRevenge: false,
+                                checkWinConditions: true  // Add flag to check win conditions after state change
                             }
                         );
 
@@ -755,10 +757,8 @@ class NightActionProcessor {
 
             // Don't check win conditions or advance phase if Hunter revenge is pending
             if (!this.game.pendingHunterRevenge) {
-                const gameOver = await this.game.playerStateManager.checkWinConditionsAfterDeath(selectedTarget);
-                if (!gameOver) {
-                    await this.game.advanceToDay();
-                }
+                // Let PlayerStateManager handle death and win conditions through changePlayerState
+                await this.game.advanceToDay();
             }
 
         } catch (error) {
@@ -1057,7 +1057,16 @@ class NightActionProcessor {
         } catch (error) {
             // Restore previous state on error
             this.restoreFromSnapshot(snapshot);
-            logger.error('Error processing Night Zero action', { error });
+            logger.error('Error processing Night Zero action', { 
+                error: {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack
+                },
+                cupidId: playerId,
+                targetId: targetId,
+                phase: this.game.phase
+            });
             throw error;
         }
     }

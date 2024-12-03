@@ -671,20 +671,8 @@ calculateRoleAssignments(playerCount) {
             });
     
         } catch (error) {
-            // Restore previous state on error
             await this.restoreFromSnapshot(snapshot);
-            
-            logger.error('Error advancing to Night phase', { 
-                error: error.message,
-                stack: error.stack,
-                currentPhase: this.phase,
-                round: this.round
-            });
-            
-            throw new GameError(
-                'Phase Transition Failed',
-                'Failed to advance to Night phase. The game state has been restored.'
-            );
+            throw error;
         }
     }
 
@@ -953,7 +941,7 @@ calculateRoleAssignments(playerCount) {
     
             // Clear any existing nomination first
             if (this.nominatedPlayer) {
-                await this.voteProcessor.clearNomination('Game is ending.');
+                await this.voteProcessor.clearNomination('Game is ending.', false);
             }
     
             // Update state atomically
@@ -1408,28 +1396,6 @@ calculateRoleAssignments(playerCount) {
 
   
     /**
-     * Checks win conditions to determine if the game should end.
-     * @returns {boolean} - True if the game is over, else False.
-     */
-    async checkWinConditions() {
-        if (this.phase === PHASES.LOBBY || this.phase === PHASES.NIGHT_ZERO) {
-            return false;
-        }
-
-        if (this.gameOver) {
-            return true;
-        }
-
-        if (this.pendingHunterRevenge) {
-            return false;
-        }
-
-        // Delegate to PlayerStateManager
-        await this.playerStateManager.checkGameEndingConditions();
-        return this.gameOver;
-    }
-
-    /**
      * Saves the current game state
      */
     async saveGameState() {
@@ -1559,80 +1525,7 @@ calculateRoleAssignments(playerCount) {
         }
     }
 
-    /**
-     * Processes Hunter's revenge action
-     * @param {string} hunterId - ID of the Hunter
-     * @param {string} targetId - ID of the revenge target
-     */
-    async processHunterRevenge(hunterId, targetId) {
-        const snapshot = this.createGameSnapshot();
-        
-        try {
-            const hunter = this.players.get(hunterId);
-            const target = this.players.get(targetId);
-    
-            // Send revenge announcement
-            await this.broadcastMessage({
-                embeds: [createHunterRevengeEmbed(hunter, target)]
-            });
-    
-            // Kill the target
-            await this.playerStateManager.changePlayerState(targetId, 
-                { isAlive: false },
-                { 
-                    reason: 'Hunter revenge target',
-                    skipHunterRevenge: true,
-                    announceImmediately: true
-                }
-            );
-    
-            // Clear pending revenge state
-            this.pendingHunterRevenge = null;
-    
-            // Save state
-            await this.saveGameState();
-    
-            logger.info('Hunter revenge processed', {
-                hunterId: hunter.id,
-                targetId: target.id,
-                currentPhase: this.phase
-            });
-    
-            // Check if everyone is dead (draw condition)
-            const alivePlayers = this.getAlivePlayers();
-            if (alivePlayers.length === 0) {
-                this.phase = PHASES.GAME_OVER;
-                this.gameOver = true;
-    
-                // Calculate game stats
-                const gameStats = {
-                    rounds: this.round,
-                    totalPlayers: this.players.size,
-                    eliminations: this.players.size,
-                    duration: this.getGameDuration(),
-                    players: Array.from(this.players.values())
-                };
-    
-                // Send draw announcement using embedCreator
-                await this.broadcastMessage({
-                    embeds: [createGameEndEmbed([], gameStats)]
-                });
-    
-                await this.shutdownGame();
-                return;
-            }
-    
-            // If not a draw, check normal win conditions
-            await this.checkWinConditions();
-    
-        } catch (error) {
-            await this.restoreFromSnapshot(snapshot);
-            logger.error('Error processing Hunter revenge', { error });
-            throw error;
-        }
-    }
-
-    // Add this method to handle ready checks
+       // Add this method to handle ready checks
     async handleReadyCheck(playerId) {
         const snapshot = this.createGameSnapshot();
         

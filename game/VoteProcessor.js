@@ -390,7 +390,7 @@ class VoteProcessor {
 
                 // Check win conditions and advance phase if needed
                 if (!this.game.pendingHunterRevenge) {
-                    const gameOver = await this.game.playerStateManager.checkWinConditionsAfterDeath(target.id);
+                    const gameOver = await this.game.playerStateManager.checkGameEndingConditions();
                     if (!gameOver) {
                         await this.game.advanceToNight();
                     }
@@ -457,6 +457,12 @@ class VoteProcessor {
         const snapshot = this.createVoteSnapshot();
         
         try {
+            // Don't broadcast nomination clear during game shutdown
+            if (this.game.gameOver || this.game.phase === PHASES.GAME_OVER) {
+                logger.info('Skipping nomination clear broadcast - game is ending');
+                broadcast = false;
+            }
+
             if (this.game.nominatedPlayer || this.game.nominator || this.game.seconder || this.game.votingOpen) {
                 // Update state atomically
                 this.game.nominatedPlayer = null;
@@ -473,8 +479,8 @@ class VoteProcessor {
                 // Save state before broadcasting
                 await this.game.saveGameState();
 
-                // Only broadcast if explicitly requested
-                if (broadcast) {
+                // Only broadcast if explicitly requested and game isn't over
+                if (broadcast && !this.game.gameOver) {
                     await this.game.broadcastMessage({
                         embeds: [{
                             title: 'Nomination Failed',
