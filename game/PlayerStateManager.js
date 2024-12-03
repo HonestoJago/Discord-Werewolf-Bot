@@ -483,13 +483,21 @@ class PlayerStateManager {
                 }
             );
     
+            // Need to mark Hunter as dead here!
+            await this.changePlayerState(hunter.id,
+                { isAlive: false },
+                {
+                    reason: 'Death after revenge',
+                    skipHunterRevenge: true,
+                    skipLoverDeath: true
+                }
+            );
+    
             // Clear pending revenge state
             this.game.pendingHunterRevenge = null;
     
-            // Save state
+            // Save state and check win conditions
             await this.game.saveGameState();
-    
-            // Check win conditions after all state changes
             return await this.checkGameEndingConditions();
     
         } catch (error) {
