@@ -141,22 +141,32 @@ class PlayerStateManager {
                 const pendingStateChanges = [];
                 const deathChain = new Set();
                 deathChain.add(player.id);
-                
-                // Handle death
+
+                // Special handling for Hunter - they get revenge no matter how they die
+                if (player.role === ROLES.HUNTER && !options.skipHunterRevenge) {
+                    // Set up revenge while Hunter is still alive
+                    this.game.pendingHunterRevenge = player.id;
+                    await this.handleHunterDeath(player, options.reason);
+                    
+                    // Process any other pending deaths
+                    for (const change of pendingStateChanges) {
+                        await this.changePlayerState(
+                            change.playerId,
+                            change.changes,
+                            { ...change.options, skipWinCheck: true }
+                        );
+                    }
+                    return;  // Hunter's actual death will be processed after revenge
+                }
+
+                // Handle normal death
                 player.isAlive = false;
 
-                // First send death announcement if it's a werewolf kill
+                // Send death announcement if it's a werewolf kill
                 if (options.reason === 'Killed by werewolves') {
                     await this.game.broadcastMessage({
                         embeds: [createDeathAnnouncementEmbed(player)]
                     });
-                }
-
-                // Special handling for Hunter death
-                if (player.role === ROLES.HUNTER && !options.skipHunterRevenge) {
-                    const hunterDeath = await this.handleHunterDeath(player, options.reason);
-                    pendingStateChanges.push(hunterDeath);
-                    return;
                 }
 
                 // Handle lover death if applicable
@@ -171,28 +181,21 @@ class PlayerStateManager {
 
                             deathChain.add(loverId);
 
-                            // If lover is Hunter, handle their death specially
-                            if (lover.role === ROLES.HUNTER && !options.skipHunterRevenge) {
-                                const hunterDeath = await this.handleHunterDeath(lover, 'Lover died');
-                                pendingStateChanges.push(hunterDeath);
-                                return;
-                            }
-
-                            // For non-Hunter lovers, queue death normally
+                            // Queue lover's death - if they're Hunter, they'll get revenge when their death is processed
                             pendingStateChanges.push({
                                 playerId: loverId,
                                 changes: { isAlive: false },
                                 options: { 
                                     reason: 'Lover died',
-                                    skipLoverDeath: true,
-                                    skipHunterRevenge: true
+                                    skipLoverDeath: true,  // Prevent infinite chain
+                                    skipHunterRevenge: false // Let Hunter get revenge if they're the lover
                                 }
                             });
                         }
                     }
                 }
 
-                // Process all deaths before moving to dead channel
+                // Process all deaths
                 for (const change of pendingStateChanges) {
                     await this.changePlayerState(
                         change.playerId,
@@ -201,7 +204,7 @@ class PlayerStateManager {
                     );
                 }
 
-                // Move to dead channel AFTER all actions are processed
+                // Move to dead channel if needed
                 if (!options.skipChannelMove) {
                     await this.game.moveToDeadChannel(player);
                 }
