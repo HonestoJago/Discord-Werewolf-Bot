@@ -295,27 +295,34 @@ class GameStateManager {
                 throw error;
             }
         } catch (error) {
-            if (error instanceof DiscordAPIError) {
-                logger.error('Discord API error during restoration', {
+            // Improve error logging with full details
+            logger.error('Error restoring game state', {
+                error: {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack,
+                    code: error.code
+                },
+                guildId,
+                phase: savedState?.phase,
+                lastUpdated: savedState?.lastUpdated
+            });
+
+            // Clean up failed game
+            try {
+                await Game.destroy({ where: { guildId } });
+                logger.info('Cleaned up failed game state', { guildId });
+            } catch (cleanupError) {
+                logger.error('Error cleaning up failed game', {
                     error: {
-                        message: error.message,
-                        code: error.code,
-                        method: error.method,
-                        path: error.path,
-                        httpStatus: error.httpStatus
-                    },
-                    guildId
-                });
-            } else {
-                logger.error('Failed to restore game state', {
-                    error: {
-                        message: error.message,
-                        name: error.name,
-                        stack: error.stack
+                        name: cleanupError.name,
+                        message: cleanupError.message,
+                        stack: cleanupError.stack
                     },
                     guildId
                 });
             }
+
             throw error;
         }
     }

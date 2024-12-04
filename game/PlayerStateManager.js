@@ -138,6 +138,10 @@ class PlayerStateManager {
     async handleAliveStateChange(player, isAlive, options = {}) {
         try {
             if (!isAlive && player.isAlive) {
+                // Clear protection when player dies
+                player.isProtected = false;
+                this.game.lastProtectedPlayer = null;
+                
                 const pendingStateChanges = [];
                 const deathChain = new Set();
                 deathChain.add(player.id);

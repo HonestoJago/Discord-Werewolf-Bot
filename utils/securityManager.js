@@ -1,4 +1,5 @@
 const { SecurityLog } = require('./database');
+const { Op } = require('sequelize');
 const logger = require('./logger');
 
 class SecurityManager {
@@ -36,7 +37,16 @@ class SecurityManager {
             await this.checkForSuspiciousActivity(playerId, recentActions);
 
         } catch (error) {
-            logger.error('Error logging security action', { error });
+            logger.error('Error logging security action', { 
+                error: {
+                    message: error.message,
+                    stack: error.stack,
+                    code: error.code
+                },
+                playerId,
+                actionType,
+                actionData
+            });
         }
     }
 
