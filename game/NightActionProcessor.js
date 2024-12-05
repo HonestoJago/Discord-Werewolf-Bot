@@ -267,14 +267,7 @@ class NightActionProcessor {
 
                 // Only kill if target isn't protected
                 if (target && !target.isProtected) {
-                    await this.game.playerStateManager.changePlayerState(targetId, 
-                        { isAlive: false },
-                        { 
-                            reason: 'Killed by werewolves',
-                            skipHunterRevenge: false
-                        }
-                    );
-
+                    // Send death announcement BEFORE changing state
                     await this.game.broadcastMessage({
                         embeds: [{
                             color: 0x800000,
@@ -284,6 +277,15 @@ class NightActionProcessor {
                             footer: { text: 'The hunt continues...' }
                         }]
                     });
+
+                    // Then change player state, which might trigger game end
+                    await this.game.playerStateManager.changePlayerState(targetId, 
+                        { isAlive: false },
+                        { 
+                            reason: 'Killed by werewolves',
+                            skipHunterRevenge: false
+                        }
+                    );
                 }
             }
 
@@ -300,11 +302,14 @@ class NightActionProcessor {
                 return;
             }
 
-            // Just advance phase if no Hunter revenge pending
-            await this.game.advanceToDay();
+            // Only advance phase if game isn't over
+            if (!this.game.gameOver) {
+                await this.game.advanceToDay();
+            }
+
         } catch (error) {
             logger.error('Error processing night actions', { error });
-            if (!this.game.pendingHunterRevenge) {
+            if (!this.game.pendingHunterRevenge && !this.game.gameOver) {
                 await this.game.advanceToDay();
             }
         }
