@@ -648,8 +648,21 @@ calculateRoleAssignments(playerCount) {
                 return;
             }
     
-            this.phase = PHASES.NIGHT;
-            this.round++;
+            // Update state atomically
+            const stateUpdates = {
+                phase: PHASES.NIGHT,
+                round: this.round + 1,
+                // Reset voting state
+                nominatedPlayer: null,
+                nominator: null,
+                seconder: null,
+                votingOpen: false,
+                votes: new Map(),
+                // Reset night action state
+                completedNightActions: new Set(),
+                expectedNightActions: new Set(),
+                nightActions: {}
+            };
     
             // Clear any existing timeouts
             if (this.nominationTimeout) {
@@ -657,13 +670,21 @@ calculateRoleAssignments(playerCount) {
                 this.nominationTimeout = null;
             }
     
-            // Save state before any external operations
-            await GameStateManager.saveGameState(this);
+            // Apply all state updates atomically
+            Object.assign(this, stateUpdates);
     
-            // Initialize night actions through processor
+            // Save state before broadcasting
+            await this.saveGameState();
+    
+            // Send night transition message
+            await this.broadcastMessage({
+                embeds: [createNightTransitionEmbed(this.players)]
+            });
+    
+            // Initialize night actions
             await this.nightActionProcessor.handleNightActions();
     
-            logger.info(`Game advanced to Night ${this.round}`, {
+            logger.info('Game advanced to Night', {
                 phase: this.phase,
                 round: this.round,
                 playerCount: this.players.size,
@@ -675,7 +696,6 @@ calculateRoleAssignments(playerCount) {
             throw error;
         }
     }
-
       /**
      * Moves a player to the Dead channel.
      * @param {Player} player - The player to move.
@@ -853,9 +873,7 @@ calculateRoleAssignments(playerCount) {
                 // Reset night action state
                 completedNightActions: new Set(),
                 expectedNightActions: new Set(),
-                nightActions: {},
-                // Clear any protection
-                lastProtectedPlayer: null
+                nightActions: {}
             };
     
             // Apply all state updates atomically

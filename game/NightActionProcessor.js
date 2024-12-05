@@ -20,7 +20,6 @@ const {
 class NightActionProcessor {
     constructor(game) {
         this.game = game;
-        this.protectionMessageSent = false;
     }
 
     /**
@@ -47,7 +46,6 @@ class NightActionProcessor {
                     }
                 ])
             ),
-            // Copy investigation history
             roleHistory: {
                 seer: { investigations: [...(this.game.roleHistory.seer?.investigations || [])] },
                 sorcerer: { investigations: [...(this.game.roleHistory.sorcerer?.investigations || [])] }
@@ -85,12 +83,25 @@ class NightActionProcessor {
         };
     }
 
-    /**
-     * Atomically processes a night action
-     * @param {string} playerId - ID of the player performing the action
-     * @param {string} action - Type of action being performed
-     * @param {string} targetId - ID of the target player
-     */
+    getValidTargetsForRole(player) {
+        // Get all living players except the player themselves
+        const allPlayers = Array.from(this.game.players.values())
+            .filter(p => p.isAlive && p.id !== player.id);
+
+        switch(player.role) {
+            case ROLES.BODYGUARD:
+                // Simply exclude the last protected player from options
+                return allPlayers.filter(p => p.id !== this.game.lastProtectedPlayer);
+            case ROLES.WEREWOLF:
+                return allPlayers.filter(p => p.role !== ROLES.WEREWOLF);
+            case ROLES.SEER:
+            case ROLES.SORCERER:
+                return allPlayers;
+            default:
+                return [];
+        }
+    }
+
     async processNightAction(playerId, action, targetId) {
         const snapshot = this.createNightSnapshot();
         
@@ -130,12 +141,31 @@ class NightActionProcessor {
                 throw new GameError('Invalid target', 'Target player not found or is dead');
             }
 
+            // Bodyguard-specific validation
+            if (action === 'protect') {
+                if (targetId === this.game.lastProtectedPlayer) {
+                    logger.warn('Invalid protection target - was protected last night', {
+                        targetId,
+                        lastProtected: this.game.lastProtectedPlayer
+                    });
+                    throw new GameError(
+                        'Invalid protection target',
+                        'You cannot protect the same player two nights in a row.'
+                    );
+                }
+            }
+
             // Update state atomically
             this.updateNightActionState(playerId, {
                 action,
                 target: targetId,
                 completed: true
             });
+
+            // Update lastProtectedPlayer if this is a protection action
+            if (action === 'protect') {
+                this.game.lastProtectedPlayer = targetId;
+            }
 
             // Save state before any external operations
             await this.game.saveGameState();
@@ -325,19 +355,18 @@ class NightActionProcessor {
                     if (target) {
                         // Use PlayerStateManager for protection state
                         await this.game.playerStateManager.changePlayerState(target.id, 
-                            { 
-                                isProtected: true,
-                                lastProtectedPlayer: target.id 
-                            },
+                            { isProtected: true },
                             { reason: 'Bodyguard protection' }
                         );
-                        
-                        logger.info('Bodyguard protected player', { targetId: target.id });
+
+                        logger.info('Bodyguard protected player', { 
+                            targetId: target.id,
+                            lastProtectedPlayer: this.game.lastProtectedPlayer 
+                        });
                     }
                 }
             }
         } catch (error) {
-            // Restore previous state on error
             this.restoreFromSnapshot(snapshot);
             logger.error('Error processing bodyguard protection', { error });
             throw error;
@@ -606,27 +635,7 @@ class NightActionProcessor {
         }
     }
 
-    getValidTargetsForRole(player) {
-        const allPlayers = Array.from(this.game.players.values())
-            .filter(p => p.isAlive && p.id !== player.id);
-
-        switch(player.role) {
-            case ROLES.WEREWOLF:
-                return allPlayers.filter(p => p.role !== ROLES.WEREWOLF);
-            case ROLES.BODYGUARD:
-                return allPlayers.filter(p => 
-                    p.id !== this.game.lastProtectedPlayer
-                );
-            case ROLES.SEER:
-                return allPlayers;
-            case ROLES.SORCERER:
-                return allPlayers;
-            default:
-                return [];
-        }
-    }
-
-      /**
+    /**
      * Processes Cupid's action during Night Zero.
      */
     async processCupidAction() {

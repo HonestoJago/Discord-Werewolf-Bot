@@ -88,8 +88,22 @@ class PlayerStateManager {
                 await this.handleRoleChange(player, changes.role, options);
             }
             
+            // Handle protection changes
             if ('isProtected' in changes) {
-                await this.handleProtectionChange(player, changes.isProtected, options);
+                // If we're protecting a player
+                if (changes.isProtected) {
+                    // Save current protected player as previous
+                    const currentProtected = Array.from(this.game.players.values())
+                        .find(p => p.isProtected);
+                    if (currentProtected) {
+                        this.game.lastProtectedPlayer = currentProtected.id;
+                        currentProtected.isProtected = false;
+                    }
+                    // Set new protection
+                    player.isProtected = true;
+                } else {
+                    player.isProtected = false;
+                }
             }
 
             // Save state before checking win conditions
@@ -244,19 +258,7 @@ class PlayerStateManager {
         });
     }
 
-    async handleProtectionChange(player, isProtected, options = {}) {
-        if (isProtected) {
-            player.isProtected = true;
-            this.game.lastProtectedPlayer = player.id;
-        } else {
-            player.isProtected = false;
-            if (this.game.lastProtectedPlayer === player.id) {
-                this.game.lastProtectedPlayer = null;
-            }
-        }
-    }
-
-    async handleLoverChange(playerId, loverId, options = {}) {
+     async handleLoverChange(playerId, loverId, options = {}) {
         // Update lovers map atomically
         this.game.lovers.set(playerId, loverId);
         this.game.lovers.set(loverId, playerId);

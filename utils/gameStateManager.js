@@ -169,13 +169,15 @@ class GameStateManager {
                     game.players.set(playerId, player);
                 }
 
+                // Move this outside the phase check
+                game.lastProtectedPlayer = savedState.nightState?.lastProtectedPlayer;
+
                 // Restore night state
                 if (savedState.phase === PHASES.NIGHT) {
                     // Restore completed and expected actions
                     game.completedNightActions = new Set(savedState.nightState.completedActions || []);
                     game.expectedNightActions = new Set(savedState.nightState.expectedActions || []);
                     game.nightActions = savedState.nightState.pendingActions || {};
-                    game.lastProtectedPlayer = savedState.nightState.lastProtectedPlayer;
                 }
 
                 // Only send night action prompts once, and only to players who haven't acted
